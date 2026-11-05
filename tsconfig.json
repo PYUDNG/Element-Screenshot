@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@element-shot/settings": ["./packages/settings/src/index.ts"]
+    },
+    "types": ["node", "vite/client"]
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.vue",
+    "packages/*/tests/**/*.ts",
+    "packages/*/vite.config.ts",
+    "vitest.config.ts",
+    "tests/**/*.ts"
+  ]
+}
