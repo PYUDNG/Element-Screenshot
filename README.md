@@ -223,7 +223,7 @@ settings.open()
 
 ## 版本
 
-当前 `0.2.3`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。使用语义化版本，Git tag 形如 `v0.2.3`。
+当前 `0.2.4`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。使用语义化版本，Git tag 形如 `v0.2.4`。
 
 ## 许可
 

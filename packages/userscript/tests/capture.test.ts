@@ -44,13 +44,15 @@ afterEach(() => {
 })
 
 describe('capture filtering', () => {
-  it('keeps rendered elements and skips scripts', () => {
+  it('keeps rendered elements and skips scripts and noscript blocks', () => {
     const div = document.createElement('div')
     const script = document.createElement('script')
+    const noscript = document.createElement('noscript')
     const svgScript = document.createElementNS('http://www.w3.org/2000/svg', 'script')
 
     expect(shouldCaptureNode(div)).toBe(true)
     expect(shouldCaptureNode(script)).toBe(false)
+    expect(shouldCaptureNode(noscript)).toBe(false)
     expect(shouldCaptureNode(svgScript as unknown as HTMLElement)).toBe(false)
   })
 })

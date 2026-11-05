@@ -34,6 +34,7 @@ export interface CaptureScalePlan {
 const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
 const ERROR_SOURCE_LIMIT = 512
+const NON_RENDERING_TAGS = new Set(['SCRIPT', 'NOSCRIPT'])
 
 /**
  * html-to-image inlines every `<img>` whose `src` is not a data URL. Pages with
@@ -58,12 +59,15 @@ function truncate(value: string, limit: number): string {
 }
 
 /**
- * Scripts never render. Keeping them out of the clone also avoids embedding
- * arbitrary inline JavaScript into the SVG wrapper, which may contain control
- * characters that are illegal in XML.
+ * Scripts and noscript blocks never render while page scripting is enabled.
+ * Keeping them out of the clone also avoids embedding arbitrary inline
+ * JavaScript into the SVG wrapper, which may contain control characters that
+ * are illegal in XML. A cloned `<noscript>` is worse: the SVG image document
+ * used for rasterization has scripting disabled, so the browser renders its
+ * fallback markup and redirect hint as visible text at the top of the capture.
  */
 export function shouldCaptureNode(node: HTMLElement): boolean {
-  return node.tagName?.toUpperCase() !== 'SCRIPT'
+  return !NON_RENDERING_TAGS.has(node.tagName?.toUpperCase())
 }
 
 /**

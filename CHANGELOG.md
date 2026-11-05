@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] - 2026-11-06
+
+### Fixed
+
+- `<noscript>` blocks are excluded from captures. While page scripting is
+  enabled they are invisible, but html-to-image rasterizes the clone inside an
+  SVG image document where scripting is disabled, so Google’s no-script
+  redirect hint was rendered as visible text above the page content.
+
 ## [0.2.3] - 2026-11-05
 
 ### Fixed
