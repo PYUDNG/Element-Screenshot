@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-11-05
+
+### Fixed
+
+- The picker toolbar no longer overflows to the right. It is centered with
+  inset positioning instead of a `translate` utility, and the Tailwind
+  custom-property defaults are restored in the base layer so `translate`,
+  `border` and `shadow` utilities work even when Tailwind's narrow `@supports`
+  guard is false (observed in Chromium 156).
+- Captures now match the visible page background by default. The script
+  composites the selected element's ancestor background colors instead of
+  forcing white; a "match page background" switch exposes the previous custom
+  color and transparent-background modes.
+- After a successful copy or save the picker closes automatically and restores
+  page interaction. Cancelling the save dialog keeps the selection open.
+- Removed html-to-image console noise on pages with cross-origin stylesheets.
+  The font-embedding routine now skips unreadable sheets instead of inserting
+  fetched CSS into the live document and logging `SecurityError` /
+  `SyntaxError`.
+- Settings can close while a capture result is open; its shadow root is treated
+  as UI by the event guards, and opening settings cancels an active picker.
+
 ## [0.1.0] - 2026-11-05
 
 ### Added

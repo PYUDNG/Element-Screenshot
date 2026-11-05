@@ -176,6 +176,57 @@ export function rewriteFetchReferences(code: string, options: RewriteOptions = {
   }
 }
 
+/**
+ * html-to-image 1.11 tries to inline every stylesheet, including cross-origin
+ * sheets whose `cssRules` getter throws. Its fallback then inserts the fetched
+ * CSS into `document.styleSheets[0]`, which both pollutes the page and logs
+ * noisy SecurityError/SyntaxError messages. Replace that routine with a
+ * read-only walk that silently skips inaccessible sheets.
+ */
+export function patchFontEmbedding(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('async function getCSSRules(')
+  const end = code.indexOf('function getWebFontRules', start)
+  if (start < 0 || end < 0 || end <= start) return { code, changed: false }
+
+  const replacement = `async function getCSSRules(styleSheets, options) {
+    void options;
+    const ret = [];
+    const visited = new Set();
+    const visit = (sheet) => {
+        if (!sheet || visited.has(sheet)) return;
+        visited.add(sheet);
+        let rules;
+        try {
+            rules = toArray(sheet.cssRules || []);
+        }
+        catch (error) {
+            // Cross-origin stylesheets cannot be inspected. Skip them instead
+            // of fetching and injecting their text into the live document.
+            return;
+        }
+        rules.forEach((rule) => {
+            try {
+                if (rule.type === CSSRule.IMPORT_RULE && rule.styleSheet) {
+                    visit(rule.styleSheet);
+                    return;
+                }
+            }
+            catch (error) {
+                // An inaccessible import target is not a readable font source.
+            }
+            ret.push(rule);
+        });
+    };
+    styleSheets.forEach(visit);
+    return ret;
+}
+`
+  return {
+    code: `${code.slice(0, start)}${replacement}${code.slice(end)}`,
+    changed: true
+  }
+}
+
 export interface GmFetchPluginOptions {
   /** Module that exports `gmFetch` and `GMXMLHttpRequest`. */
   adapterModule?: string
@@ -213,12 +264,17 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
     },
     transform(code, id) {
       if (!include(id) || exclude(id)) return null
-      const result = rewriteFetchReferences(code, {
+      const fontPatch = patchFontEmbedding(code)
+      const source = fontPatch.changed ? fontPatch.code : code
+      const result = rewriteFetchReferences(source, {
         adapterModule: virtualId,
         sourceFile: id
       })
-      if (!result.changed) return null
-      return { code: result.code, map: result.map }
+      if (!result.changed && !fontPatch.changed) return null
+      return {
+        code: result.changed ? result.code : fontPatch.code,
+        map: result.changed && !fontPatch.changed ? result.map : undefined
+      }
     }
   }
 }

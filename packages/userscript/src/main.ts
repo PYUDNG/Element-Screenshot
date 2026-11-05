@@ -101,7 +101,10 @@ function registerMenus(): void {
 
   if (shot) {
     add(t('app.menu.capture'), () => shot?.startPicker())
-    add(t('app.menu.settings'), () => settings.open())
+    add(t('app.menu.settings'), () => {
+      shot?.cancel()
+      settings.open()
+    })
   } else {
     add(t('app.menu.settings'), () => settings.open())
     add(t('app.menu.enableHere'), enableHere)

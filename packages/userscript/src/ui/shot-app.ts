@@ -3,6 +3,7 @@ import type { App } from 'vue'
 import { applyShadowStyles } from '@element-shot/settings'
 import type { I18n, SettingsController } from '@element-shot/settings'
 import { captureElement } from '../core/capture'
+import { resolveBackdropColor } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
 import { ElementPicker } from '../core/picker'
 import { describeTarget, getTargetBox } from '../core/target'
@@ -132,10 +133,23 @@ export class ShotApp implements ShotAppApi {
     if (!this.host) return false
     const path = typeof event.composedPath === 'function' ? event.composedPath() : []
     if (path.includes(this.host)) return true
+    if (
+      path.some(
+        (node) =>
+          node instanceof Element &&
+          (node.hasAttribute('data-element-shot-root') ||
+            node.hasAttribute('data-element-shot-settings') ||
+            node.hasAttribute('data-element-shot-ignore'))
+      )
+    ) {
+      return true
+    }
     const target = event.target
     return (
       target instanceof Element &&
-      target.closest('[data-element-shot-root], [data-element-shot-ignore]') !== null
+      target.closest(
+        '[data-element-shot-root], [data-element-shot-settings], [data-element-shot-ignore]'
+      ) !== null
     )
   }
 
@@ -181,6 +195,7 @@ export class ShotApp implements ShotAppApi {
       }
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
       this.toast('app.toast.copied', 'success')
+      this.reset()
     } catch (error) {
       console.error('[element-shot] copy failed', error)
       this.toast('app.toast.copyFailed', 'error')
@@ -205,11 +220,13 @@ export class ShotApp implements ShotAppApi {
         await writable.write(blob)
         await writable.close()
         this.toast('app.toast.saved', 'success')
+        this.reset()
         return
       }
 
       this.download(blob, name)
       this.toast('app.toast.saved', 'success')
+      this.reset()
     } catch (error) {
       if (isAbortError(error)) return
       console.error('[element-shot] save failed', error)
@@ -353,9 +370,12 @@ export class ShotApp implements ShotAppApi {
     try {
       const expandNested = Boolean(this.settings.get('capture.expandNested'))
       const transparent = Boolean(this.settings.get('capture.transparent'))
+      const followPage = this.settings.get('capture.backgroundAuto') !== false
       const background = transparent
         ? undefined
-        : String(this.settings.get('capture.background') ?? '#ffffff')
+        : followPage
+          ? resolveBackdropColor(element)
+          : String(this.settings.get('capture.background') ?? '#ffffff')
       const scaleSetting = String(this.settings.get('capture.scale') ?? 'auto')
       const requested =
         scaleSetting === 'auto' ? Math.min(window.devicePixelRatio || 1, 2) : Number(scaleSetting)
@@ -364,7 +384,13 @@ export class ShotApp implements ShotAppApi {
         expandNested,
         backgroundColor: background,
         pixelRatio: Number.isFinite(requested) ? requested : undefined,
-        filter: (node) => !(node instanceof Element && node.closest('[data-element-shot-root]'))
+        filter: (node) =>
+          !(
+            node instanceof Element &&
+            node.closest(
+              '[data-element-shot-root], [data-element-shot-settings], [data-element-shot-ignore]'
+            )
+          )
       })
 
       if (token !== this.captureToken) return

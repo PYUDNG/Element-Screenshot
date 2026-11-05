@@ -103,7 +103,7 @@ const selectedDimensions = computed(() => {
     </div>
 
     <div
-      class="pointer-events-auto fixed bottom-4 left-1/2 z-10 flex w-[min(94vw,860px)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white/95 px-3 py-2 text-xs text-zinc-700 shadow-sm backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-200"
+      class="pointer-events-auto fixed bottom-4 left-3 right-3 z-10 mx-auto flex max-w-[860px] flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white/95 px-3 py-2 text-xs text-zinc-700 shadow-sm backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-200"
       @click.stop
       @pointerdown.stop
       @wheel.stop

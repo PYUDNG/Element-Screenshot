@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { gmFetchPlugin, rewriteFetchReferences } from '../src/plugin/gm-fetch-plugin'
+import {
+  gmFetchPlugin,
+  patchFontEmbedding,
+  rewriteFetchReferences
+} from '../src/plugin/gm-fetch-plugin'
 
 describe('gm-fetch Vite plugin', () => {
   it('rewrites global fetch and XMLHttpRequest references', () => {
@@ -49,6 +53,29 @@ describe('gm-fetch Vite plugin', () => {
     expect(resolveId('virtual:gm-fetch')).toBe('\0virtual:gm-fetch')
     expect(load('\0virtual:gm-fetch')).toContain('GMXMLHttpRequest')
     expect(resolveId('other')).toBeNull()
+  })
+
+  it('replaces html-to-image stylesheet inlining with a read-only walk', () => {
+    const source = `
+async function getCSSRules(styleSheets, options) {
+  const ret = [];
+  styleSheets.forEach((sheet) => {
+    try { sheet.cssRules.forEach((rule) => ret.push(rule)); }
+    catch (e) { console.error('Error inlining remote css file', e); }
+  });
+  return ret;
+}
+function getWebFontRules(cssRules) {
+  return cssRules;
+}
+`
+    const result = patchFontEmbedding(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('Cross-origin stylesheets cannot be inspected')
+    expect(result.code).toContain('visited.has(sheet)')
+    expect(result.code).not.toContain('console.error')
+    expect(result.code).not.toContain('insertRule')
+    expect(result.code).toContain('function getWebFontRules')
   })
 
   it('transforms html-to-image modules only', () => {

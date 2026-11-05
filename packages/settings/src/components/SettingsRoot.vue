@@ -169,7 +169,7 @@ onMounted(() => {
 
     <div
       ref="panelRef"
-      class="pointer-events-auto fixed inset-0 flex h-full w-full flex-col overflow-hidden border-zinc-200 bg-white outline-none dark:border-zinc-800 dark:bg-zinc-900 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-[min(760px,86vh)] sm:w-[min(980px,92vw)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border"
+      class="pointer-events-auto fixed inset-0 flex h-full w-full flex-col overflow-hidden border-zinc-200 bg-white outline-none dark:border-zinc-800 dark:bg-zinc-900 sm:m-auto sm:h-[min(760px,86vh)] sm:w-[min(980px,92vw)] sm:rounded-xl sm:border"
       role="dialog"
       aria-modal="true"
       :aria-label="t('settings.title')"

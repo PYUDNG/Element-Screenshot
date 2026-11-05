@@ -1,6 +1,6 @@
 # Element Shot
 
-对任意网页元素进行**完整滚动截图**的浏览器用户脚本。它用鼠标点选元素，自动展开元素内部被滚动裁掉的内容，再通过 [html-to-image](https://github.com/bubkoo/html-to-image) 渲染为 PNG；跨域图片、样式表与字体通过 `GM_xmlhttpRequest` 抓取并内联，从而绕过页面 CORS 限制。
+对任意网页元素进行**完整滚动截图**的浏览器用户脚本。它用鼠标点选元素，自动展开元素内部被滚动裁掉的内容，再通过 [html-to-image](https://github.com/bubkoo/html-to-image) 渲染为 PNG；跨域图片与可读样式表中的字体通过 `GM_xmlhttpRequest` 抓取并内联，从而绕过页面 CORS 限制。
 
 [English documentation](README.en.md)
 
@@ -24,12 +24,12 @@ packages/userscript/dist/element-shot.user.js
 
 脚本申请了以下权限：
 
-| 权限                                                  | 用途                       |
-| ----------------------------------------------------- | -------------------------- |
-| `GM_xmlhttpRequest` + `@connect *`                    | 跨域抓取图片、样式表、字体 |
-| `GM_registerMenuCommand` / `GM_unregisterMenuCommand` | 脚本菜单                   |
-| `GM_getValue` / `GM_setValue` / `GM_deleteValue`      | 保存设置与 FAB 位置        |
-| `GM_info`                                             | 读取脚本版本               |
+| 权限                                                  | 用途                |
+| ----------------------------------------------------- | ------------------- |
+| `GM_xmlhttpRequest` + `@connect *`                    | 跨域抓取图片、字体  |
+| `GM_registerMenuCommand` / `GM_unregisterMenuCommand` | 脚本菜单            |
+| `GM_getValue` / `GM_setValue` / `GM_deleteValue`      | 保存设置与 FAB 位置 |
+| `GM_info`                                             | 读取脚本版本        |
 
 `@match *://*/*`、`@run-at document-idle`、`@noframes`。脚本只在本页执行，不上传任何数据。
 
@@ -68,7 +68,7 @@ packages/userscript/dist/element-shot.user.js
 ### 设置
 
 - 从脚本菜单「设置」打开。
-- **触发快捷键**、**边框颜色/粗细**、**导出倍率**、**背景/透明背景**、**展开内部滚动区域**。
+- **触发快捷键**、**边框颜色/粗细**、**导出倍率**、**跟随页面背景/自定义背景/透明背景**、**展开内部滚动区域**。
 - **悬浮按钮**：显示/隐藏、尺寸、重置位置（拖动后的位置也会记住）。
 - **站点策略**：仅在指定网站运行 / 不在指定网站运行。
 - **界面语言**：简体中文、繁體中文、English；**主题**：自动 / 浅色 / 深色。
@@ -142,10 +142,23 @@ pnpm check            # lint + typecheck + coverage + build
 `gmFetchPlugin()` 在 Vite 转换阶段解析 `html-to-image` 的模块，把全局 `fetch(...)` 与 `XMLHttpRequest` 引用替换为虚拟模块导出的适配器。适配器基于 `GM_xmlhttpRequest`，因此：
 
 - 跨域图片/背景图可以读成 Blob 并内联为 data URL；
-- `@font-face` 与跨域样式表同样可以抓取；
+- 可读样式表中的 `@font-face` 会被内联；
 - Canvas 不会因为跨域资源而污染。
 
+跨域 `<link rel="stylesheet">` 的 `cssRules` 受同源策略保护。脚本会跳过这类样式表，而不是把抓取到的文本强行插入页面样式表；这样既不会因 `SecurityError` / `SyntaxError` 污染控制台，也不会意外修改页面样式。此类样式表里的字体可能回退为系统字体。
+
 `main.ts` 与 `userscript` 侧的 `optimizeDeps.exclude` 保证开发模式也不会绕过该插件。
+
+### 对页面 Hook / Monkey Patch 的防护
+
+页面脚本可能改写 `fetch`、`XMLHttpRequest`、DOM 原型或 Canvas API。本项目目前做了这些隔离：
+
+- **网络层**：不调用页面的 `fetch` / `XMLHttpRequest`。构建期把 html-to-image 内部的网络引用改写为 `GM_xmlhttpRequest` 适配器，页面 Hook `window.fetch` 不会影响资源抓取。
+- **样式与 UI**：FAB、选框、Toast、设置面板都放在 Shadow DOM 中，使用构造样式表；页面 CSS 与全局选择器不会污染 UI，UI 也不会被截进图片。
+- **事件层**：选择器与结果守卫在捕获阶段监听并 `stopImmediatePropagation()`，避免页面抢走选择点击、滚轮和快捷键。
+- **存储层**：设置与 FAB 位置走 `GM_getValue` / `GM_setValue`，不依赖页面的 `localStorage`。
+
+需要明确的是：**html-to-image 仍然依赖页面的原生 DOM / Canvas 能力**（`getComputedStyle`、`cloneNode`、`XMLSerializer`、`canvas.toBlob` 等）。如果页面恶意改写这些原型方法，截图仍可能失败或被干扰。当前没有做完整的 clean-realm（干净 iframe 原生引用）隔离；这是后续可以加强的方向，而不是已经承诺的防护。
 
 ### 滚动截图
 
@@ -194,14 +207,14 @@ settings.open()
 - 跨域 `iframe` 内部不可选；`<video>`、WebGL/Canvas 内容依赖其当前像素，可能为空白。
 - 超大页面会按浏览器 canvas 上限自动降低导出倍率（`app.toast.downscaled` 提示）。
 - 整页截图中的 `position: sticky/fixed` 元素由渲染器按视口处理，可能与逐屏拼接的结果不同。
-- 跨域字体能否内联取决于脚本管理器与目标站的 CORS/响应；失败时会回退字体。
+- 跨域字体能否内联取决于样式表是否可读；不可读的跨域样式表会被跳过，字体回退为系统字体。
 - 截图是本地行为，不联网上传；但为内联资源，脚本管理器会向资源原始地址发起请求。
 - 文件选择器仅 Chromium；其他浏览器回退为普通下载。剪贴板写入需要浏览器权限。
 - 当前只针对键鼠设计，触摸屏仅保证 FAB/设置面板可点按。
 
 ## 版本
 
-当前 `0.1.0`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。使用语义化版本，Git tag 形如 `v0.1.0`。
+当前 `0.1.1`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。使用语义化版本，Git tag 形如 `v0.1.1`。
 
 ## 许可
 

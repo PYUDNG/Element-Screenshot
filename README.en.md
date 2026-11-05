@@ -1,6 +1,6 @@
 # Element Shot
 
-A browser userscript that captures **any page element including its full scrollable content**. Pick an element with the mouse, let the script expand clipped scroll areas, then render a PNG with [html-to-image](https://github.com/bubkoo/html-to-image). Cross-origin images, stylesheets and fonts are fetched through `GM_xmlhttpRequest` and inlined, bypassing page CORS.
+A browser userscript that captures **any page element including its full scrollable content**. Pick an element with the mouse, let the script expand clipped scroll areas, then render a PNG with [html-to-image](https://github.com/bubkoo/html-to-image). Cross-origin images and fonts in readable stylesheets are fetched through `GM_xmlhttpRequest` and inlined, bypassing page CORS.
 
 [中文文档](README.md)
 
@@ -24,12 +24,12 @@ packages/userscript/dist/element-shot.user.js
 
 Requested permissions:
 
-| Permission                                            | Purpose                                  |
-| ----------------------------------------------------- | ---------------------------------------- |
-| `GM_xmlhttpRequest` + `@connect *`                    | Fetch cross-origin images, CSS and fonts |
-| `GM_registerMenuCommand` / `GM_unregisterMenuCommand` | Menu commands                            |
-| `GM_getValue` / `GM_setValue` / `GM_deleteValue`      | Persist settings and FAB position        |
-| `GM_info`                                             | Read the script version                  |
+| Permission                                            | Purpose                             |
+| ----------------------------------------------------- | ----------------------------------- |
+| `GM_xmlhttpRequest` + `@connect *`                    | Fetch cross-origin images and fonts |
+| `GM_registerMenuCommand` / `GM_unregisterMenuCommand` | Menu commands                       |
+| `GM_getValue` / `GM_setValue` / `GM_deleteValue`      | Persist settings and FAB position   |
+| `GM_info`                                             | Read the script version             |
 
 `@match *://*/*`, `@run-at document-idle`, `@noframes`. Everything runs locally; no data is uploaded.
 
@@ -68,7 +68,7 @@ After selection:
 ### Settings
 
 - Open from the userscript menu → “Settings”.
-- **Trigger shortcut**, **frame color/width**, **export scale**, **background/transparent**, **expand nested scroll areas**.
+- **Trigger shortcut**, **frame color/width**, **export scale**, **match page background / custom background / transparent**, **expand nested scroll areas**.
 - **Floating button** — show/hide, size, reset position; dragged positions are remembered.
 - **Site policy** — run only on / never run on specific sites.
 - **Language** — Simplified Chinese, Traditional Chinese, English; **theme** — auto / light / dark.
@@ -142,10 +142,23 @@ The playground uses `playground/gm-stub.js` to emulate GM APIs and exposes the l
 `gmFetchPlugin()` parses the `html-to-image` modules during the Vite transform and rewrites global `fetch(...)` and `XMLHttpRequest` references to a virtual adapter module. The adapter uses `GM_xmlhttpRequest`, so:
 
 - cross-origin images and background images are read as Blobs and inlined as data URLs;
-- `@font-face` rules and cross-origin stylesheets can be fetched too;
+- `@font-face` rules in readable stylesheets are embedded;
 - the canvas is not tainted by cross-origin resources.
 
+`cssRules` of a cross-origin `<link rel="stylesheet">` is protected by the same-origin policy. The script skips those sheets instead of inserting fetched text into a live page stylesheet. That keeps `SecurityError` / `SyntaxError` messages out of the console and avoids changing the page, at the cost of falling back to system fonts for fonts declared only in such sheets.
+
 `optimizeDeps.exclude` keeps the plugin effective in dev mode as well.
+
+### Page hook / monkey-patch hardening
+
+Pages can replace `fetch`, `XMLHttpRequest`, DOM prototypes or Canvas APIs. The current mitigations are:
+
+- **Network** — the script never calls the page's `fetch` / `XMLHttpRequest`. A build-time transform rewrites html-to-image's network references to a `GM_xmlhttpRequest` adapter, so a page-level `window.fetch` hook cannot intercept resource reads.
+- **Styles and UI** — FAB, picker, toasts and settings live in Shadow DOM with constructable stylesheets. Page CSS cannot leak into the UI, and the UI is filtered out of captures.
+- **Events** — the picker and result guards listen in the capture phase and call `stopImmediatePropagation()`, so page handlers cannot steal selection clicks, wheel input or shortcuts.
+- **Storage** — settings and FAB position use `GM_getValue` / `GM_setValue`, not page `localStorage`.
+
+That said, **html-to-image still relies on page-native DOM and Canvas capabilities** (`getComputedStyle`, `cloneNode`, `XMLSerializer`, `canvas.toBlob`, and others). A hostile page that replaces those prototypes can still break or interfere with a capture. Full clean-realm isolation (native references captured from a pristine iframe) is a future hardening step, not a guarantee that exists today.
 
 ### Scroll capture
 
@@ -194,14 +207,14 @@ See [`packages/settings/README.md`](packages/settings/README.md) for field types
 - Cross-origin `iframe` internals cannot be selected; `<video>` and WebGL/Canvas pixels depend on the current frame and may be blank.
 - Very large pages are downscaled automatically to the browser canvas limit (a toast is shown).
 - `position: sticky/fixed` elements are rendered by the library against the viewport; full-page results can differ from stitched screenshots.
-- Whether cross-origin fonts can be embedded depends on the userscript manager and the target's CORS/response; failed fonts fall back.
+- Cross-origin fonts can only be embedded from readable stylesheets; unreadable cross-origin sheets are skipped and their fonts fall back.
 - Capture is local, but the manager does fetch the original asset URLs to inline them.
 - The file picker is Chromium-only; other browsers download instead. Clipboard image writes need permission.
 - Designed for keyboard and mouse; touch only guarantees the FAB and settings panel are tappable.
 
 ## Version
 
-Current version: `0.1.0`. See [CHANGELOG.md](CHANGELOG.md). Versions follow semver and tags look like `v0.1.0`.
+Current version: `0.1.1`. See [CHANGELOG.md](CHANGELOG.md). Versions follow semver and tags look like `v0.1.1`.
 
 ## License
 

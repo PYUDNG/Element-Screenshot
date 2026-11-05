@@ -23,7 +23,7 @@ const toneClass = (tone: ToastItem['tone']): string => {
 
 <template>
   <div
-    class="pointer-events-none fixed left-1/2 top-4 z-20 flex w-[min(92vw,420px)] -translate-x-1/2 flex-col items-center gap-2"
+    class="pointer-events-none fixed inset-x-0 top-4 z-20 mx-auto flex max-w-[min(92vw,420px)] flex-col items-center gap-2"
     role="status"
     aria-live="polite"
   >

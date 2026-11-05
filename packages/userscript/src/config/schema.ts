@@ -69,12 +69,21 @@ export function createSettingsTabs(): SettingsTab[] {
               ]
             },
             {
+              type: 'switch',
+              key: 'capture.backgroundAuto',
+              label: 'app.field.backgroundAuto',
+              description: 'app.field.backgroundAutoDesc',
+              default: true,
+              visible: (values) => values['capture.transparent'] !== true
+            },
+            {
               type: 'color',
               key: 'capture.background',
               label: 'app.field.background',
               description: 'app.field.backgroundDesc',
               default: '#ffffff',
-              visible: (values) => values['capture.transparent'] !== true
+              visible: (values) =>
+                values['capture.transparent'] !== true && values['capture.backgroundAuto'] !== true
             },
             {
               type: 'switch',
