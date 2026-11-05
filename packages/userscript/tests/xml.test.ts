@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isValidXmlName, sanitizeXmlText } from '../src/core/xml'
+import { isValidXmlName, isValidXmlQName, sanitizeXmlText } from '../src/core/xml'
 
 describe('XML name validation', () => {
   it('accepts XML attribute names', () => {
@@ -18,6 +18,28 @@ describe('XML name validation', () => {
   it('rejects HTML-only names', () => {
     for (const name of ['$bgcolor', '@click', '1foo', 'foo bar', 'foo?bar', '']) {
       expect(isValidXmlName(name), name).toBe(false)
+    }
+  })
+})
+
+describe('XML QName validation', () => {
+  it('accepts one well-formed prefix', () => {
+    for (const name of ['class', 'wiz:wakeup', 'xlink:href', 'xml:lang', '数据:id']) {
+      expect(isValidXmlQName(name), name).toBe(true)
+    }
+  })
+
+  it('rejects names an XML parser cannot use as an attribute QName', () => {
+    for (const name of [
+      '$bgcolor',
+      'wiz:wakeup:extra',
+      ':wakeup',
+      'wiz:',
+      'wi z:wakeup',
+      '1wiz:wakeup',
+      ''
+    ]) {
+      expect(isValidXmlQName(name), name).toBe(false)
     }
   })
 })

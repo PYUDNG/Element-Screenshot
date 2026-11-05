@@ -35,6 +35,18 @@ const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
 const ERROR_SOURCE_LIMIT = 512
 
+/**
+ * html-to-image inlines every `<img>` whose `src` is not a data URL. Pages with
+ * lazy-loaded or tracking images often have `<img>` elements without a `src`
+ * (Google Search has several), so it calls `fetch('')`, fails, assigns an empty
+ * `src`, and rejects the entire capture on the resulting `error` event.
+ *
+ * A transparent placeholder gives those images a valid data URL; the error
+ * handler below keeps a single broken image from aborting the whole capture.
+ */
+const TRANSPARENT_PIXEL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+
 function formatBytes(length: number): string {
   if (length < 1024) return `${length} B`
   if (length < 1024 * 1024) return `${Math.round(length / 1024)} KB`
@@ -52,6 +64,24 @@ function truncate(value: string, limit: number): string {
  */
 export function shouldCaptureNode(node: HTMLElement): boolean {
   return node.tagName?.toUpperCase() !== 'SCRIPT'
+}
+
+/**
+ * Resolve instead of rejecting when an individual image cannot be decoded, so
+ * the rest of the page is still captured. The image keeps its layout box and
+ * simply stays blank.
+ */
+export function handleImageError(event: Event | string): void {
+  if (typeof event === 'string') {
+    console.warn('[element-shot] image skipped:', truncate(event, ERROR_SOURCE_LIMIT))
+    return
+  }
+  const target = event.target as HTMLImageElement | null
+  const source = target?.currentSrc || target?.src || ''
+  console.warn(
+    '[element-shot] image skipped:',
+    source ? truncate(source, ERROR_SOURCE_LIMIT) : '(no source)'
+  )
 }
 
 /** Turn html-to-image's bare image events into an actionable message. */
@@ -223,10 +253,19 @@ function expandForCapture(root: Element, box: TargetBox, expandNested: boolean):
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
+    let settled = false
+    let timer = 0
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      native.clearTimeout(timer)
+      resolve()
+    }
+    // Background and occluded tabs do not run requestAnimationFrame callbacks.
+    // Fall back to a timer so a capture started in such a tab cannot hang here.
+    timer = native.setTimeout(finish, 100)
     if (typeof native.requestAnimationFrame === 'function') {
-      native.requestAnimationFrame(() => resolve())
-    } else {
-      native.setTimeout(resolve, 16)
+      native.requestAnimationFrame(finish)
     }
   })
 }
@@ -263,9 +302,10 @@ export async function captureElement(
       skipAutoScale: true,
       cacheBust: false,
       type: 'image/png',
+      imagePlaceholder: TRANSPARENT_PIXEL,
+      onImageErrorHandler: handleImageError,
       filter: options.filter
     })
-
     if (!blob) throw new Error('html-to-image returned an empty blob')
 
     return {

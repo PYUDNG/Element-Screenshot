@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   gmFetchPlugin,
+  patchCreateImage,
   patchFontEmbedding,
+  patchImageEmbedding,
   patchNativeCalls,
   patchSvgSerialization,
   patchSvgSymbols,
@@ -156,6 +158,7 @@ export async function nodeToDataURL(node, width, height) {
     const result = patchSvgSerialization(source)
     expect(result.changed).toBe(true)
     expect(result.code).toContain('__elementShotNative.sanitizeSvgAttributes(svg)')
+    expect(result.code).toContain('__elementShotNative.sanitizeSvgNamespaces(svg)')
     expect(result.code).toContain('__elementShotNative.serializeSvg(svg)')
     expect(result.code).toContain('.then(__elementShotNative.sanitizeXmlText)')
     expect(result.code).not.toContain('new XMLSerializer')
@@ -178,6 +181,7 @@ export async function nodeToDataURL(node, width, height) {
 `
     const transformed = transform(source, '/repo/node_modules/html-to-image/es/util.js')
     expect(transformed?.code).toContain('sanitizeSvgAttributes')
+    expect(transformed?.code).toContain('sanitizeSvgNamespaces')
     expect(transformed?.code).toContain('sanitizeXmlText')
     expect(transformed?.code).toContain('__elementShotNative.serializeSvg(svg)')
   })
@@ -195,5 +199,86 @@ export async function nodeToDataURL(node, width, height) {
     expect(transformed?.code).toContain(
       'const HTMLCanvasElement = __elementShotNative.HTMLCanvasElement'
     )
+  })
+
+  it('bounds both fetching and loading an image', () => {
+    const source = `
+async function embedImageNode(clonedNode, options) {
+    const isImageElement = isInstanceOfElement(clonedNode, HTMLImageElement);
+    const url = isImageElement ? clonedNode.src : clonedNode.href.baseVal;
+    const dataURL = await resourceToDataURL(url, getMimeType(url), options);
+    await new Promise((resolve, reject) => {
+        clonedNode.onload = resolve;
+        clonedNode.onerror = options.onImageErrorHandler
+            ? (...attributes) => {
+                try {
+                    resolve(options.onImageErrorHandler(...attributes));
+                }
+                catch (error) {
+                    reject(error);
+                }
+            }
+            : reject;
+        const image = clonedNode;
+        if (image.decode) {
+            image.decode = resolve;
+        }
+        if (image.loading === 'lazy') {
+            image.loading = 'eager';
+        }
+        if (isImageElement) {
+            clonedNode.srcset = '';
+            clonedNode.src = dataURL;
+        }
+        else {
+            clonedNode.href.baseVal = dataURL;
+        }
+    });
+}
+async function embedChildren(clonedNode, options) {
+    return clonedNode;
+}
+`
+    const result = patchImageEmbedding(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('Promise.race')
+    expect(result.code).toContain('15000')
+    expect(result.code).toContain('setTimeout(() => finish(undefined), 8000)')
+    expect(result.code).toContain('async function embedChildren')
+    expect(result.code).not.toContain('reject(error)')
+  })
+
+  it('leaves source without embedImageNode alone', () => {
+    const source = 'export const value = 1'
+    expect(patchImageEmbedding(source)).toEqual({ code: source, changed: false })
+  })
+
+  it('resolves the final SVG image without waiting for an animation frame', () => {
+    const source = `
+export function createImage(url) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            img.decode().then(() => {
+                requestAnimationFrame(() => resolve(img));
+            });
+        };
+        img.onerror = reject;
+        img.crossOrigin = 'anonymous';
+        img.src = url;
+    });
+}
+`
+    const result = patchCreateImage(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).not.toContain('requestAnimationFrame')
+    expect(result.code).toContain('img.decode().then(finish, finish)')
+    expect(result.code).toContain('setTimeout(finish, 100)')
+    expect(result.code).toContain('img.onerror = reject')
+  })
+
+  it('leaves source without createImage alone', () => {
+    const source = 'export const value = 1'
+    expect(patchCreateImage(source)).toEqual({ code: source, changed: false })
   })
 })

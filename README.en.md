@@ -223,7 +223,7 @@ See [`packages/settings/README.md`](packages/settings/README.md) for field types
 
 ## Version
 
-Current version: `0.2.2`. See [CHANGELOG.md](CHANGELOG.md). Versions follow semver and tags look like `v0.2.2`.
+Current version: `0.2.3`. See [CHANGELOG.md](CHANGELOG.md). Versions follow semver and tags look like `v0.2.3`.
 
 ## License
 

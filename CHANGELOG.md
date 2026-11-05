@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-11-05
+
+### Fixed
+
+- Full-page captures no longer abort when a page contains an image without a
+  `src` attribute, such as a lazy-loading placeholder. html-to-image tried to
+  inline the empty URL, failed, assigned an empty `src`, and rejected the whole
+  capture on the resulting `error` event. Google Search results pages contain
+  several such images. Failed images now fall back to a transparent pixel and
+  are skipped individually instead of aborting the screenshot.
+- SVG captures now bind namespace prefixes that HTML allows but XML requires to
+  be declared. Google Search adds `wiz:wakeup` attributes without an
+  `xmlns:wiz` declaration, which produced “Attribute wiz:wakeup prefix is
+  unbound”. Every prefix used by the cloned tree is now declared on the SVG
+  root (well-known prefixes such as `xlink` keep their standard URI), so the
+  XML parser accepts the wrapper.
+- Attribute names that are not valid XML QNames (more than one colon, a leading
+  colon) are stripped before serialization instead of producing a parser error.
+- Image embedding now has bounded waits: 15 seconds for the resource fetch and
+  8 seconds for the image decode. A stalled tracker image can no longer leave
+  the picker stuck on “rendering” forever; that image is skipped instead.
+  GM requests themselves also time out after 20 seconds.
+- Captures started in a background or occluded tab no longer hang on
+  “rendering”. `requestAnimationFrame` callbacks are paused in those tabs, so
+  the two-frame layout wait now falls back to a 100 ms timer, and html-to-image
+  resolves the finished SVG after decode instead of waiting for an animation
+  frame.
+- Protocol-relative stylesheet URLs such as `//fonts.gstatic.com/...` are
+  resolved against the page before calling `GM_xmlhttpRequest`. The manager
+  needs an absolute URL; passing the original value could leave the request
+  waiting without a callback.
+
 ## [0.2.2] - 2026-11-05
 
 ### Fixed

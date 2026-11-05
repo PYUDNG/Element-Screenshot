@@ -13,6 +13,7 @@ import {
   collectScrollTargets,
   computeCaptureScale,
   describeCaptureError,
+  handleImageError,
   shouldCaptureNode
 } from '../src/core/capture'
 import { native } from '../src/core/native'
@@ -70,6 +71,35 @@ describe('capture error messages', () => {
     expect(describeCaptureError(new Error('boom'))).toBe('boom')
     expect(describeCaptureError(new Event('error'))).toBe('Browser event error: error')
     expect(describeCaptureError('plain failure')).toBe('plain failure')
+  })
+})
+
+describe('image failure tolerance', () => {
+  it('absorbs a failed image instead of rejecting the capture', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const image = document.createElement('img')
+    image.src = 'https://example.com/broken.png'
+    const event = new Event('error')
+    Object.defineProperty(event, 'target', { value: image })
+
+    expect(() => handleImageError(event)).not.toThrow()
+    expect(warn).toHaveBeenCalledWith('[element-shot] image skipped:', image.src)
+  })
+
+  it('describes an image with no source', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const image = document.createElement('img')
+    const event = new Event('error')
+    Object.defineProperty(event, 'target', { value: image })
+
+    handleImageError(event)
+    expect(warn).toHaveBeenCalledWith('[element-shot] image skipped:', '(no source)')
+  })
+
+  it('accepts a string error from an image handler', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    handleImageError('broken resource')
+    expect(warn).toHaveBeenCalledWith('[element-shot] image skipped:', 'broken resource')
   })
 })
 
@@ -261,5 +291,40 @@ describe('scroll expansion planning', () => {
     expect(options.backgroundColor).toBeUndefined()
     expect(options.pixelRatio).toBe(2)
     expect(options.filter).toBe(filter)
+    expect(options.imagePlaceholder).toMatch(/^data:image\/png;base64,/)
+    expect(options.onImageErrorHandler).toBe(handleImageError)
+  })
+
+  it('does not wait forever when requestAnimationFrame is paused', async () => {
+    const element = document.createElement('div')
+    document.body.appendChild(element)
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 120,
+      height: 80,
+      right: 120,
+      bottom: 80,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect)
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      borderLeftWidth: '0px',
+      borderRightWidth: '0px',
+      borderTopWidth: '0px',
+      borderBottomWidth: '0px',
+      overflowX: 'visible',
+      overflowY: 'visible'
+    } as CSSStyleDeclaration)
+    vi.spyOn(native, 'requestAnimationFrame').mockReturnValue(1)
+    vi.spyOn(native, 'setTimeout').mockImplementation((handler) => {
+      if (typeof handler === 'function') handler()
+      return 1
+    })
+    vi.spyOn(native, 'clearTimeout').mockImplementation(() => {})
+
+    await captureElement(element, { expandNested: false, pixelRatio: 1 })
+    expect(toBlobMock).toHaveBeenCalled()
   })
 })

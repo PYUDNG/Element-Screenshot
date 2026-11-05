@@ -27,6 +27,38 @@ describe('GM fetch adapter', () => {
     expect(await response.text()).toBe('hello')
   })
 
+  it('resolves protocol-relative URLs before calling the manager', async () => {
+    const seen: GMRequestOptions[] = []
+    const fetchFn = createGMFetch({
+      request: (details) => {
+        seen.push(details)
+        details.onload?.({ status: 200, response: new Blob(['']) })
+        return { abort: vi.fn() }
+      }
+    })
+
+    await fetchFn('//fonts.gstatic.com/font.woff2')
+    expect(seen[0]?.url).toBe(new URL('//fonts.gstatic.com/font.woff2', location.href).href)
+  })
+
+  it('times out a manager request that never calls back', async () => {
+    vi.useFakeTimers()
+    try {
+      const abort = vi.fn()
+      const fetchFn = createGMFetch({
+        request: () => ({ abort }),
+        timeout: 1_000
+      })
+      const promise = fetchFn('https://example.com/stuck')
+      const assertion = expect(promise).rejects.toMatchObject({ name: 'TimeoutError' })
+      await vi.advanceTimersByTimeAsync(1_000)
+      await assertion
+      expect(abort).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('passes method, headers and body to the manager request', async () => {
     const seen: GMRequestOptions[] = []
     const request: GMRequest = (details) => {

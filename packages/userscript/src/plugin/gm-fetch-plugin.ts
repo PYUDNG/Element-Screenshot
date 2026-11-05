@@ -204,6 +204,91 @@ export function rewriteFetchReferences(code: string, options: RewriteOptions = {
 }
 
 /**
+ * html-to-image resolves the final SVG image only inside a
+ * `requestAnimationFrame` callback. Background and occluded tabs pause those
+ * callbacks, so the capture never reaches the canvas even though the SVG is
+ * ready. Resolve after decode (or a short timer) instead.
+ */
+export function patchCreateImage(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('export function createImage(url)')
+  if (start < 0) return { code, changed: false }
+  const blockStart = code.indexOf('        img.onload = () => {', start)
+  const blockEnd = code.indexOf('        };', blockStart)
+  if (blockStart < 0 || blockEnd < 0) return { code, changed: false }
+
+  const replacement = `        img.onload = () => {
+            const finish = () => resolve(img);
+            img.decode().then(finish, finish);
+            setTimeout(finish, 100);
+        };
+`
+  return {
+    code: `${code.slice(0, blockStart)}${replacement}${code.slice(blockEnd + '        };'.length)}`,
+    changed: true
+  }
+}
+
+/**
+ * html-to-image waits forever for an `<img>` that never fires `load` or
+ * `error` (some ad/tracker images do). It also waits for the resource fetch
+ * before that. Add bounded waits so one broken image cannot leave the capture
+ * stuck on "rendering" indefinitely; the image is replaced by the transparent
+ * placeholder and the rest of the page is still captured.
+ */
+export function patchImageEmbedding(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('async function embedImageNode(')
+  if (start < 0) return { code, changed: false }
+  const blockStart = code.indexOf('    const dataURL = await resourceToDataURL(', start)
+  const promiseStart = code.indexOf('    await new Promise((resolve, reject) => {', blockStart)
+  const promiseEnd = code.indexOf('    });', promiseStart)
+  if (blockStart < 0 || promiseStart < 0 || promiseEnd < 0) return { code, changed: false }
+
+  const replacement = `    const dataURL = await Promise.race([
+        resourceToDataURL(url, getMimeType(url), options),
+        new Promise((resolve) => setTimeout(() => resolve(options.imagePlaceholder || ''), 15000))
+    ]);
+    await new Promise((resolve) => {
+        let settled = false;
+        let timer;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(value);
+        };
+        timer = setTimeout(() => finish(undefined), 8000);
+        clonedNode.onload = finish;
+        clonedNode.onerror = (...attributes) => {
+            try {
+                finish(options.onImageErrorHandler ? options.onImageErrorHandler(...attributes) : undefined);
+            }
+            catch (error) {
+                finish(undefined);
+            }
+        };
+        const image = clonedNode;
+        if (image.decode) {
+            image.decode = finish;
+        }
+        if (image.loading === 'lazy') {
+            image.loading = 'eager';
+        }
+        if (isImageElement) {
+            clonedNode.srcset = '';
+            clonedNode.src = dataURL;
+        }
+        else {
+            clonedNode.href.baseVal = dataURL;
+        }
+    });
+`
+  return {
+    code: `${code.slice(0, blockStart)}${replacement}${code.slice(promiseEnd + '    });'.length)}`,
+    changed: true
+  }
+}
+
+/**
  * html-to-image 1.11 tries to inline every stylesheet, including cross-origin
  * sheets whose `cssRules` getter throws. Its fallback then inserts the fetched
  * CSS into `document.styleSheets[0]`, which both pollutes the page and logs
@@ -364,6 +449,7 @@ export function patchSvgSerialization(code: string): { code: string; changed: bo
   const replacement = `export async function svgToDataURL(svg) {
     return Promise.resolve()
         .then(() => __elementShotNative.sanitizeSvgAttributes(svg))
+        .then(() => __elementShotNative.sanitizeSvgNamespaces(svg))
         .then(() => __elementShotNative.serializeSvg(svg))
         .then(__elementShotNative.sanitizeXmlText)
         .then(encodeURIComponent)
@@ -487,6 +573,8 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
       const patches = [
         patchFontEmbedding,
         patchSvgSymbols,
+        patchImageEmbedding,
+        patchCreateImage,
         ...(nativeAdapter ? [patchSvgSerialization] : []),
         patchNativeCalls
       ]

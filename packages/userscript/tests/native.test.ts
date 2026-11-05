@@ -56,4 +56,45 @@ describe('native API snapshot', () => {
     expect(button.hasAttribute('$bgcolor')).toBe(false)
     expect(button.getAttribute('data-testid')).toBe('tweet')
   })
+
+  it('removes attributes that are not valid QNames', () => {
+    const native = createNativeSnapshot(window)
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const div = document.createElement('div')
+    div.setAttribute('wiz:wakeup:extra', 'true')
+    div.setAttribute(':wakeup', 'true')
+    div.setAttribute('wiz:wakeup', 'true')
+    svg.appendChild(div)
+
+    expect(native.sanitizeSvgAttributes(svg)).toBe(2)
+    expect(div.hasAttribute('wiz:wakeup:extra')).toBe(false)
+    expect(div.hasAttribute(':wakeup')).toBe(false)
+    expect(div.getAttribute('wiz:wakeup')).toBe('true')
+  })
+
+  it('binds undeclared namespace prefixes on the SVG root', () => {
+    const native = createNativeSnapshot(window)
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const div = document.createElement('div')
+    div.setAttribute('wiz:wakeup', 'true')
+    div.setAttribute('xlink:href', '#icon')
+    svg.appendChild(div)
+
+    expect(native.sanitizeSvgNamespaces(svg)).toBe(2)
+    expect(svg.getAttribute('xmlns:wiz')).toBe('urn:element-shot:unbound:wiz')
+    expect(svg.getAttribute('xmlns:xlink')).toBe('http://www.w3.org/1999/xlink')
+    expect(native.sanitizeSvgNamespaces(svg)).toBe(0)
+  })
+
+  it('keeps a prefix that the root already declares', () => {
+    const native = createNativeSnapshot(window)
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('xmlns:wiz', 'https://example.com/wiz')
+    const div = document.createElement('div')
+    div.setAttribute('wiz:wakeup', 'true')
+    svg.appendChild(div)
+
+    expect(native.sanitizeSvgNamespaces(svg)).toBe(0)
+    expect(svg.getAttribute('xmlns:wiz')).toBe('https://example.com/wiz')
+  })
 })

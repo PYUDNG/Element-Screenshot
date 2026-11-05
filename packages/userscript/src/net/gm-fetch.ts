@@ -81,13 +81,13 @@ function withUrl(response: Response, url: string): Response {
  */
 export function createGMFetch(options: GMFetchOptions): GMFetch {
   const { request } = options
-  const defaultTimeout = options.timeout ?? 60_000
+  const defaultTimeout = options.timeout ?? 20_000
   const nativeFetch =
     typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null
 
   return async function gmFetch(input, init = {}) {
     const requestInput = typeof Request !== 'undefined' && input instanceof Request ? input : null
-    const url =
+    let url =
       typeof input === 'string'
         ? input
         : input instanceof URL
@@ -95,6 +95,20 @@ export function createGMFetch(options: GMFetchOptions): GMFetch {
           : (requestInput?.url ?? '')
 
     if (!url) throw new TypeError('[element-shot] GM fetch requires a URL')
+
+    // html-to-image passes stylesheet URLs such as `//fonts.gstatic.com/...`
+    // verbatim. GM_xmlhttpRequest needs an absolute URL; leaving it relative
+    // can leave the request waiting without ever calling back.
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) {
+      const base = globalThis.location?.href
+      if (base) {
+        try {
+          url = new URL(url, base).href
+        } catch {
+          // Keep the original URL and let the request surface its error.
+        }
+      }
+    }
 
     if (url.startsWith('data:')) {
       if (nativeFetch) return nativeFetch(url, init)
@@ -121,9 +135,14 @@ export function createGMFetch(options: GMFetchOptions): GMFetch {
     return new Promise<Response>((resolve, reject) => {
       let settled = false
       let handle: GMRequestHandle | null = null
+      let timer: ReturnType<typeof setTimeout> | undefined
 
       const cleanup = (): void => {
         signal?.removeEventListener('abort', onAbort)
+        if (timer !== undefined) {
+          clearTimeout(timer)
+          timer = undefined
+        }
       }
 
       const fail = (error: unknown): void => {
@@ -150,6 +169,11 @@ export function createGMFetch(options: GMFetchOptions): GMFetch {
       if (signal) {
         signal.addEventListener('abort', onAbort, { once: true })
       }
+
+      timer = setTimeout(() => {
+        handle?.abort()
+        fail(new DOMException('The operation timed out.', 'TimeoutError'))
+      }, defaultTimeout)
 
       try {
         handle = request({

@@ -52,6 +52,36 @@ export function isValidXmlName(name: string): boolean {
   return !first
 }
 
+function isNCName(name: string): boolean {
+  if (!name) return false
+
+  let first = true
+  for (const character of name) {
+    const code = character.codePointAt(0)
+    if (code === undefined) return false
+    if (first) {
+      if (code === 0x3a || !isNameStartCodePoint(code)) return false
+      first = false
+      continue
+    }
+    if (code === 0x3a || !isNameCodePoint(code)) return false
+  }
+
+  return true
+}
+
+/**
+ * XML Namespaces only allow one colon, and both sides must be NCNames. HTML
+ * happily accepts names such as `a:b:c` or `:foo`, which `XMLSerializer` would
+ * copy into the SVG and the XML parser would reject as a bad QName.
+ */
+export function isValidXmlQName(name: string): boolean {
+  const colon = name.indexOf(':')
+  if (colon === -1) return isNCName(name)
+  if (colon !== name.lastIndexOf(':')) return false
+  return isNCName(name.slice(0, colon)) && isNCName(name.slice(colon + 1))
+}
+
 function isInvalidBmpCodePoint(code: number): boolean {
   if (code === 0x09 || code === 0x0a || code === 0x0d) return false
   if (code < 0x20) return true

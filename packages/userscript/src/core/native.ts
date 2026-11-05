@@ -1,7 +1,22 @@
-import { isValidXmlName, sanitizeXmlText } from './xml'
+import { isValidXmlQName, sanitizeXmlText } from './xml'
 
 type AnyMethod = (...args: never[]) => unknown
 type BrowserWindow = Window & typeof globalThis
+
+const KNOWN_NAMESPACE_URIS: Record<string, string> = {
+  svg: 'http://www.w3.org/2000/svg',
+  xhtml: 'http://www.w3.org/1999/xhtml',
+  xlink: 'http://www.w3.org/1999/xlink',
+  math: 'http://www.w3.org/1998/Math/MathML'
+}
+
+/** Prefix before the first colon, or null when the name is not a QName. */
+function namePrefix(name: string): string | null {
+  const colon = name.indexOf(':')
+  if (colon <= 0) return null
+  if (name.indexOf(':', colon + 1) !== -1) return null
+  return name.slice(0, colon)
+}
 
 export interface NativeDocument {
   readonly documentElement: HTMLElement | null
@@ -89,6 +104,7 @@ export interface NativeSnapshot {
   readonly serializeSvg: (node: Node) => string
   readonly sanitizeXmlText: (value: string) => string
   readonly sanitizeSvgAttributes: (root: Element) => number
+  readonly sanitizeSvgNamespaces: (root: Element) => number
   readonly requestAnimationFrame: (callback: FrameRequestCallback) => number
   readonly cancelAnimationFrame: (handle: number) => void
   readonly setTimeout: (handler: TimerHandler, timeout?: number) => number
@@ -365,12 +381,68 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
       for (const element of elements) {
         const names = call<string[]>(getAttributeNamesMethod as unknown as AnyMethod, element, [])
         for (const name of names) {
-          if (isValidXmlName(name)) continue
+          if (isValidXmlQName(name)) continue
           call<void>(removeAttributeMethod as unknown as AnyMethod, element, [name])
           removed += 1
         }
       }
       return removed
+    },
+    /**
+     * HTML allows attribute names such as `wiz:wakeup` whose prefix has no
+     * namespace declaration. They are legal XML names, so the attribute-name
+     * sanitizer keeps them, but the XML parser still rejects the document with
+     * "prefix is unbound". Bind every used prefix on the SVG root (without
+     * touching existing declarations) so the serialized clone stays parseable.
+     */
+    sanitizeSvgNamespaces: (root) => {
+      const elements = [root, ...Array.from(querySelectorAll(root, '*'))]
+      const declared = new Set(['xml', 'xmlns'])
+      const rootNames = call<string[]>(
+        getAttributeNamesMethod as unknown as AnyMethod,
+        root,
+        []
+      )
+      for (const name of rootNames) {
+        if (!name.startsWith('xmlns:')) continue
+        const prefix = name.slice('xmlns:'.length)
+        const value = call<string | null>(
+          getAttributeMethod as unknown as AnyMethod,
+          root,
+          [name]
+        )
+        if (prefix && value) declared.add(prefix)
+      }
+
+      const used = new Set<string>()
+      for (const element of elements) {
+        const elementPrefix = namePrefix(element.localName || element.tagName)
+        if (elementPrefix) used.add(elementPrefix)
+
+        const names = call<string[]>(
+          getAttributeNamesMethod as unknown as AnyMethod,
+          element,
+          []
+        )
+        for (const name of names) {
+          if (name.startsWith('xmlns:')) continue
+          const prefix = namePrefix(name)
+          if (prefix) used.add(prefix)
+        }
+      }
+
+      let added = 0
+      for (const prefix of used) {
+        if (declared.has(prefix)) continue
+        const uri =
+          KNOWN_NAMESPACE_URIS[prefix] ?? `urn:element-shot:unbound:${prefix}`
+        call<void>(setAttributeMethod as unknown as AnyMethod, root, [
+          `xmlns:${prefix}`,
+          uri
+        ])
+        added += 1
+      }
+      return added
     },
     requestAnimationFrame: win.requestAnimationFrame.bind(win),
     cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
