@@ -1,3 +1,5 @@
+import { native } from './native'
+
 interface Rgba {
   r: number
   g: number
@@ -124,7 +126,6 @@ function parentElementOf(element: Element): Element | null {
  */
 export function resolveBackdropColor(element: Element): string {
   const doc = element.ownerDocument
-  const win = doc.defaultView ?? window
   const chain: string[] = []
   let current = parentElementOf(element)
   let guard = 0
@@ -132,7 +133,7 @@ export function resolveBackdropColor(element: Element): string {
   while (current && guard < 256) {
     guard += 1
     try {
-      chain.push(win.getComputedStyle(current).backgroundColor)
+      chain.push(native.getComputedStyle(current).backgroundColor)
     } catch {
       break
     }
@@ -142,7 +143,7 @@ export function resolveBackdropColor(element: Element): string {
 
   if (current !== doc.documentElement && doc.documentElement) {
     try {
-      chain.push(win.getComputedStyle(doc.documentElement).backgroundColor)
+      chain.push(native.getComputedStyle(doc.documentElement).backgroundColor)
     } catch {
       // Keep whatever layers were readable.
     }

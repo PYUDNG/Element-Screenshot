@@ -13,6 +13,7 @@ import {
   PlusIcon
 } from '@element-shot/settings'
 import type { ShotAppApi } from './api'
+import { computePickerLabelPosition } from './picker-label'
 
 const props = defineProps<{
   app: ShotAppApi
@@ -29,6 +30,7 @@ const borderWidth = computed(() => {
   const value = props.app.settings.get('capture.borderWidth')
   return typeof value === 'number' && Number.isFinite(value) ? value : 2
 })
+const isolatePointer = computed(() => props.app.settings.get('capture.pointerIsolation') !== false)
 
 const boxStyle = computed<CSSProperties>(() => {
   const box = state.box
@@ -48,11 +50,17 @@ const boxStyle = computed<CSSProperties>(() => {
 const labelStyle = computed(() => {
   const box = state.box
   if (!box) return {}
-  const viewport = state.viewport
-  const top =
-    box.top >= 46 ? box.top - 38 : Math.min(box.top + 8, Math.max(8, viewport.height - 46))
-  const left = Math.min(Math.max(box.left, 8), Math.max(8, viewport.width - 320))
-  return { left: `${left}px`, top: `${top}px` }
+  const position = computePickerLabelPosition(
+    box.left,
+    box.top,
+    state.viewport.width,
+    state.viewport.height
+  )
+  return {
+    left: `${position.left}px`,
+    top: `${position.top}px`,
+    maxWidth: `${position.maxWidth}px`
+  }
 })
 
 const dimensions = computed(() => {
@@ -71,6 +79,13 @@ const selectedDimensions = computed(() => {
 
 <template>
   <div class="pointer-events-none fixed inset-0">
+    <div
+      v-if="isolatePointer"
+      data-element-shot-pick-surface
+      class="pointer-events-auto fixed inset-0 z-0 cursor-crosshair"
+      aria-hidden="true"
+    />
+
     <template v-if="state.mode === 'picking'">
       <div class="fixed inset-y-0 w-px bg-blue-500/35" :style="{ left: `${state.cursor.x}px` }" />
       <div class="fixed inset-x-0 h-px bg-blue-500/35" :style="{ top: `${state.cursor.y}px` }" />

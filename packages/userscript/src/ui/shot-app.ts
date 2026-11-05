@@ -5,6 +5,7 @@ import type { I18n, SettingsController } from '@element-shot/settings'
 import { captureElement } from '../core/capture'
 import { resolveBackdropColor } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
+import { native } from '../core/native'
 import { ElementPicker } from '../core/picker'
 import { describeTarget, getTargetBox } from '../core/target'
 import InPageApp from './InPageApp.vue'
@@ -36,6 +37,16 @@ type SavePickerWindow = Window & {
 
 const FAB_MARGIN = 12
 const SNAP_DISTANCE = 48
+const UI_MARKERS = [
+  'data-element-shot-root',
+  'data-element-shot-settings',
+  'data-element-shot-ignore'
+] as const
+
+function isMarkedUiNode(node: EventTarget): boolean {
+  if ((node as Node).nodeType !== 1) return false
+  return UI_MARKERS.some((name) => native.getAttribute(node as Element, name) !== null)
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -88,15 +99,16 @@ export class ShotApp implements ShotAppApi {
 
   mount(): void {
     if (this.host) return
-    const host = document.createElement('div')
-    host.setAttribute('data-element-shot-root', '')
+    const host = native.document.createElement('div')
+    native.setAttribute(host, 'data-element-shot-root', '')
     host.style.cssText =
       'position:fixed;inset:0;z-index:2147483646;pointer-events:none;color-scheme:normal;'
     const shadow = host.attachShadow({ mode: 'open' })
     applyShadowStyles(shadow, this.styles)
-    const container = document.createElement('div')
-    shadow.appendChild(container)
-    document.documentElement.appendChild(host)
+    const container = native.document.createElement('div')
+    native.appendChild(shadow, container)
+    const root = native.document.documentElement ?? document.documentElement
+    native.appendChild(root, host)
     this.host = host
 
     this.app = createApp(InPageApp, { app: this })
@@ -106,7 +118,7 @@ export class ShotApp implements ShotAppApi {
     this.app.mount(container)
 
     this.updateViewport()
-    window.addEventListener('resize', this.handleResize, { passive: true })
+    native.addEventListener(window, 'resize', this.handleResize, { passive: true })
     this.stopSettingsWatch = watch(
       () => [
         this.settings.get('trigger.fabSize'),
@@ -126,31 +138,13 @@ export class ShotApp implements ShotAppApi {
     this.app = null
     this.host?.remove()
     this.host = null
-    window.removeEventListener('resize', this.handleResize)
+    native.removeEventListener(window, 'resize', this.handleResize)
   }
 
   isUiEvent = (event: Event): boolean => {
     if (!this.host) return false
     const path = typeof event.composedPath === 'function' ? event.composedPath() : []
-    if (path.includes(this.host)) return true
-    if (
-      path.some(
-        (node) =>
-          node instanceof Element &&
-          (node.hasAttribute('data-element-shot-root') ||
-            node.hasAttribute('data-element-shot-settings') ||
-            node.hasAttribute('data-element-shot-ignore'))
-      )
-    ) {
-      return true
-    }
-    const target = event.target
-    return (
-      target instanceof Element &&
-      target.closest(
-        '[data-element-shot-root], [data-element-shot-settings], [data-element-shot-ignore]'
-      ) !== null
-    )
+    return path.some((node) => isMarkedUiNode(node))
   }
 
   startPicker(): void {
@@ -178,7 +172,6 @@ export class ShotApp implements ShotAppApi {
     this.state.ready = false
     this.state.error = null
     this.state.captureSize = null
-    this.showHost()
   }
 
   cycle(delta: number): void {
@@ -211,7 +204,7 @@ export class ShotApp implements ShotAppApi {
     const showSaveFilePicker = pickerWindow.showSaveFilePicker
 
     try {
-      if (showSaveFilePicker && window.isSecureContext) {
+      if (showSaveFilePicker && native.isSecureContext) {
         const handle = await showSaveFilePicker.call(pickerWindow, {
           suggestedName: name,
           types: [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }]
@@ -277,7 +270,7 @@ export class ShotApp implements ShotAppApi {
   toast(key: string, tone: ToastTone = 'info', params?: Record<string, string | number>): void {
     const id = (this.toastId += 1)
     this.state.toasts.push({ id, message: this.i18n.t(key, params), tone })
-    const timer = setTimeout(() => {
+    const timer = native.setTimeout(() => {
       const index = this.state.toasts.findIndex((item) => item.id === id)
       if (index >= 0) this.state.toasts.splice(index, 1)
     }, 3200)
@@ -366,7 +359,6 @@ export class ShotApp implements ShotAppApi {
   }
 
   private async renderCapture(element: Element, token: number): Promise<void> {
-    this.hideHost()
     try {
       const expandNested = Boolean(this.settings.get('capture.expandNested'))
       const transparent = Boolean(this.settings.get('capture.transparent'))
@@ -378,19 +370,13 @@ export class ShotApp implements ShotAppApi {
           : String(this.settings.get('capture.background') ?? '#ffffff')
       const scaleSetting = String(this.settings.get('capture.scale') ?? 'auto')
       const requested =
-        scaleSetting === 'auto' ? Math.min(window.devicePixelRatio || 1, 2) : Number(scaleSetting)
+        scaleSetting === 'auto' ? Math.min(native.devicePixelRatio || 1, 2) : Number(scaleSetting)
 
       const result = await captureElement(element, {
         expandNested,
         backgroundColor: background,
         pixelRatio: Number.isFinite(requested) ? requested : undefined,
-        filter: (node) =>
-          !(
-            node instanceof Element &&
-            node.closest(
-              '[data-element-shot-root], [data-element-shot-settings], [data-element-shot-ignore]'
-            )
-          )
+        filter: (node) => !isMarkedUiNode(node)
       })
 
       if (token !== this.captureToken) return
@@ -405,7 +391,6 @@ export class ShotApp implements ShotAppApi {
       this.state.error = error instanceof Error ? error.message : String(error)
       this.toast('app.toast.captureFailed', 'error')
     } finally {
-      this.showHost()
       if (token === this.captureToken) this.state.capturing = false
     }
   }
@@ -428,17 +413,21 @@ export class ShotApp implements ShotAppApi {
   }
 
   private download(blob: Blob, name: string): void {
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
+    const url = native.createObjectURL?.(blob)
+    if (!url) {
+      throw new Error('Object URLs are not supported')
+    }
+    const anchor = native.document.createElement('a')
     anchor.href = url
     anchor.download = name
     anchor.rel = 'noopener'
     anchor.style.display = 'none'
-    anchor.setAttribute('data-element-shot-ignore', '')
-    ;(document.body ?? document.documentElement).appendChild(anchor)
-    anchor.click()
+    native.setAttribute(anchor, 'data-element-shot-ignore', '')
+    const parent = native.document.body ?? native.document.documentElement
+    if (parent) native.appendChild(parent, anchor)
+    native.click(anchor)
     anchor.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    native.setTimeout(() => native.revokeObjectURL?.(url), 10_000)
   }
 
   private clearSelection(): void {
@@ -452,34 +441,29 @@ export class ShotApp implements ShotAppApi {
     this.state.captureSize = null
   }
 
-  private hideHost(): void {
-    if (this.host) this.host.style.display = 'none'
-  }
-
-  private showHost(): void {
-    if (this.host) this.host.style.display = ''
-  }
-
   private installGuards(): void {
     if (this.guardsInstalled) return
     this.guardsInstalled = true
-    window.addEventListener('pointerdown', this.handleGuardPointer, true)
-    window.addEventListener('click', this.handleGuardPointer, true)
-    window.addEventListener('dblclick', this.handleGuardDoubleClick, true)
-    window.addEventListener('wheel', this.handleGuardWheel, { capture: true, passive: false })
-    window.addEventListener('contextmenu', this.handleGuardPointer, true)
-    window.addEventListener('keydown', this.handleGuardKeyDown, true)
+    native.addEventListener(window, 'pointerdown', this.handleGuardPointer, true)
+    native.addEventListener(window, 'click', this.handleGuardPointer, true)
+    native.addEventListener(window, 'dblclick', this.handleGuardDoubleClick, true)
+    native.addEventListener(window, 'wheel', this.handleGuardWheel, {
+      capture: true,
+      passive: false
+    })
+    native.addEventListener(window, 'contextmenu', this.handleGuardPointer, true)
+    native.addEventListener(window, 'keydown', this.handleGuardKeyDown, true)
   }
 
   private removeGuards(): void {
     if (!this.guardsInstalled) return
     this.guardsInstalled = false
-    window.removeEventListener('pointerdown', this.handleGuardPointer, true)
-    window.removeEventListener('click', this.handleGuardPointer, true)
-    window.removeEventListener('dblclick', this.handleGuardDoubleClick, true)
-    window.removeEventListener('wheel', this.handleGuardWheel, true)
-    window.removeEventListener('contextmenu', this.handleGuardPointer, true)
-    window.removeEventListener('keydown', this.handleGuardKeyDown, true)
+    native.removeEventListener(window, 'pointerdown', this.handleGuardPointer, true)
+    native.removeEventListener(window, 'click', this.handleGuardPointer, true)
+    native.removeEventListener(window, 'dblclick', this.handleGuardDoubleClick, true)
+    native.removeEventListener(window, 'wheel', this.handleGuardWheel, true)
+    native.removeEventListener(window, 'contextmenu', this.handleGuardPointer, true)
+    native.removeEventListener(window, 'keydown', this.handleGuardKeyDown, true)
   }
 
   private readonly handleGuardPointer = (event: Event): void => {

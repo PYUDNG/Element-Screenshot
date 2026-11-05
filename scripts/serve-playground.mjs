@@ -18,6 +18,7 @@ const MIME = {
 const files = new Map([
   ['/', join(root, 'playground/index.html')],
   ['/index.html', join(root, 'playground/index.html')],
+  ['/hooked.html', join(root, 'playground/hooked.html')],
   ['/gm-stub.js', join(root, 'playground/gm-stub.js')],
   ['/sample.svg', join(root, 'playground/sample.svg')],
   ['/element-shot.user.js', join(root, 'packages/userscript/dist/element-shot.user.js')],

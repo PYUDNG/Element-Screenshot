@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Element Shot — Hook resistance check</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 32px;
+        background: #f4f4f5;
+        color: #18181b;
+        font-family: system-ui, sans-serif;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      p {
+        color: #52525b;
+      }
+      #hook-probe {
+        margin-top: 24px;
+        width: min(640px, 100%);
+        height: 96px;
+        padding: 18px;
+        background: #fff;
+        border: 1px solid #d4d4d8;
+        border-radius: 12px;
+        font-size: 16px;
+      }
+      #hook-probe:hover {
+        background: #fb923c;
+      }
+      #hook-status {
+        margin-top: 16px;
+        font:
+          12px/1.6 ui-monospace,
+          monospace;
+        color: #b45309;
+      }
+    </style>
+    <script src="/gm-stub.js"></script>
+    <script src="/element-shot.user.js"></script>
+  </head>
+  <body>
+    <h1>Hook resistance check</h1>
+    <p>
+      The userscript loads in the head, then this page monkey-patches common DOM, Canvas and
+      serialization APIs. Capture should still work because Element Shot keeps native references.
+    </p>
+    <div id="hook-probe">Hook probe — hovering turns this block orange.</div>
+    <p id="hook-status">hooks not installed yet</p>
+
+    <script>
+      setTimeout(() => {
+        const hooked = []
+        const hook = (owner, name, label) => {
+          const original = owner[name]
+          owner[name] = function () {
+            throw new Error(`[hook] ${label} was replaced by the page`)
+          }
+          hooked.push(label)
+          return original
+        }
+
+        hook(window, 'getComputedStyle', 'window.getComputedStyle')
+        hook(Node.prototype, 'cloneNode', 'Node.cloneNode')
+        hook(Element.prototype, 'querySelector', 'Element.querySelector')
+        hook(Element.prototype, 'querySelectorAll', 'Element.querySelectorAll')
+        window.__originalGetRect = hook(
+          Element.prototype,
+          'getBoundingClientRect',
+          'Element.getBoundingClientRect'
+        )
+        hook(Document.prototype, 'elementsFromPoint', 'Document.elementsFromPoint')
+        hook(HTMLCanvasElement.prototype, 'toBlob', 'HTMLCanvasElement.toBlob')
+        hook(CanvasRenderingContext2D.prototype, 'drawImage', 'ctx.drawImage')
+        hook(CanvasRenderingContext2D.prototype, 'fillRect', 'ctx.fillRect')
+        hook(XMLSerializer.prototype, 'serializeToString', 'XMLSerializer.serializeToString')
+
+        window.__hooksInstalled = hooked
+        document.querySelector('#hook-status').textContent = `installed: ${hooked.join(', ')}`
+      }, 500)
+    </script>
+  </body>
+</html>

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { native } from '../src/core/native'
 import {
   describeTarget,
   elementLabel,
@@ -8,6 +9,7 @@ import {
 } from '../src/core/target'
 
 afterEach(() => {
+  vi.restoreAllMocks()
   document.body.innerHTML = ''
 })
 
@@ -72,7 +74,7 @@ describe('target helpers', () => {
   it('describes full scroll dimensions', () => {
     const element = document.createElement('div')
     document.body.appendChild(element)
-    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
       left: 0,
       top: 0,
       width: 100,
@@ -83,6 +85,12 @@ describe('target helpers', () => {
       y: 0,
       toJSON: () => ({})
     } as DOMRect)
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      borderLeftWidth: '0px',
+      borderRightWidth: '0px',
+      borderTopWidth: '0px',
+      borderBottomWidth: '0px'
+    } as CSSStyleDeclaration)
     Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 300 })
     Object.defineProperty(element, 'clientHeight', { configurable: true, value: 100 })
 

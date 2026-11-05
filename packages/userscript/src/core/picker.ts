@@ -1,3 +1,4 @@
+import { native } from './native'
 import { getElementStack, resolveCandidate } from './target'
 
 export interface ElementPickerOptions {
@@ -33,7 +34,7 @@ export class ElementPicker {
     if (this.active) return
     this.active = true
 
-    const rootStyle = document.documentElement.style
+    const rootStyle = (native.document.documentElement ?? document.documentElement).style
     this.previousCursor = rootStyle.getPropertyValue('cursor')
     this.previousCursorPriority = rootStyle.getPropertyPriority('cursor')
     this.previousUserSelect = rootStyle.getPropertyValue('user-select')
@@ -41,17 +42,17 @@ export class ElementPicker {
     rootStyle.setProperty('cursor', 'crosshair', 'important')
     rootStyle.setProperty('user-select', 'none', 'important')
 
-    window.addEventListener('mousemove', this.handleMouseMove, true)
-    window.addEventListener('pointerdown', this.handlePointerDown, true)
-    window.addEventListener('mousedown', this.handlePointerDown, true)
-    window.addEventListener('mouseup', this.handlePointerDown, true)
-    window.addEventListener('click', this.handleClick, true)
-    window.addEventListener('dblclick', this.handleDblClick, true)
-    window.addEventListener('wheel', this.handleWheel, { capture: true, passive: false })
-    window.addEventListener('keydown', this.handleKeyDown, true)
-    window.addEventListener('contextmenu', this.handleContextMenu, true)
-    window.addEventListener('dragstart', this.handleDragStart, true)
-    window.addEventListener('resize', this.handleResize, true)
+    native.addEventListener(window, 'mousemove', this.handleMouseMove, true)
+    native.addEventListener(window, 'pointerdown', this.handlePointerDown, true)
+    native.addEventListener(window, 'mousedown', this.handlePointerDown, true)
+    native.addEventListener(window, 'mouseup', this.handlePointerDown, true)
+    native.addEventListener(window, 'click', this.handleClick, true)
+    native.addEventListener(window, 'dblclick', this.handleDblClick, true)
+    native.addEventListener(window, 'wheel', this.handleWheel, { capture: true, passive: false })
+    native.addEventListener(window, 'keydown', this.handleKeyDown, true)
+    native.addEventListener(window, 'contextmenu', this.handleContextMenu, true)
+    native.addEventListener(window, 'dragstart', this.handleDragStart, true)
+    native.addEventListener(window, 'resize', this.handleResize, true)
 
     this.cursor = {
       x: Math.round(window.innerWidth / 2),
@@ -65,24 +66,24 @@ export class ElementPicker {
     if (!this.active) return
     this.active = false
 
-    window.removeEventListener('mousemove', this.handleMouseMove, true)
-    window.removeEventListener('pointerdown', this.handlePointerDown, true)
-    window.removeEventListener('mousedown', this.handlePointerDown, true)
-    window.removeEventListener('mouseup', this.handlePointerDown, true)
-    window.removeEventListener('click', this.handleClick, true)
-    window.removeEventListener('dblclick', this.handleDblClick, true)
-    window.removeEventListener('wheel', this.handleWheel, true)
-    window.removeEventListener('keydown', this.handleKeyDown, true)
-    window.removeEventListener('contextmenu', this.handleContextMenu, true)
-    window.removeEventListener('dragstart', this.handleDragStart, true)
-    window.removeEventListener('resize', this.handleResize, true)
+    native.removeEventListener(window, 'mousemove', this.handleMouseMove, true)
+    native.removeEventListener(window, 'pointerdown', this.handlePointerDown, true)
+    native.removeEventListener(window, 'mousedown', this.handlePointerDown, true)
+    native.removeEventListener(window, 'mouseup', this.handlePointerDown, true)
+    native.removeEventListener(window, 'click', this.handleClick, true)
+    native.removeEventListener(window, 'dblclick', this.handleDblClick, true)
+    native.removeEventListener(window, 'wheel', this.handleWheel, true)
+    native.removeEventListener(window, 'keydown', this.handleKeyDown, true)
+    native.removeEventListener(window, 'contextmenu', this.handleContextMenu, true)
+    native.removeEventListener(window, 'dragstart', this.handleDragStart, true)
+    native.removeEventListener(window, 'resize', this.handleResize, true)
 
     if (this.rafId) {
-      cancelAnimationFrame(this.rafId)
+      native.cancelAnimationFrame(this.rafId)
       this.rafId = 0
     }
 
-    const rootStyle = document.documentElement.style
+    const rootStyle = (native.document.documentElement ?? document.documentElement).style
     if (this.previousCursor) {
       rootStyle.setProperty('cursor', this.previousCursor, this.previousCursorPriority)
     } else {
@@ -118,7 +119,7 @@ export class ElementPicker {
 
   private scheduleRefresh(): void {
     if (this.rafId) return
-    this.rafId = requestAnimationFrame(() => {
+    this.rafId = native.requestAnimationFrame(() => {
       this.rafId = 0
       if (!this.active) return
       this.refresh()
@@ -126,7 +127,17 @@ export class ElementPicker {
   }
 
   private isUi(event: Event): boolean {
+    if (this.isPickSurface(event)) return false
     return this.options.isUiEvent?.(event) ?? false
+  }
+
+  private isPickSurface(event: Event): boolean {
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+    return path.some(
+      (node) =>
+        (node as Node).nodeType === 1 &&
+        native.getAttribute(node as Element, 'data-element-shot-pick-surface') !== null
+    )
   }
 
   private selectAll(): void {

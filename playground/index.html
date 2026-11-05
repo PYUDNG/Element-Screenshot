@@ -55,6 +55,20 @@
         border-radius: 12px;
         padding: 18px;
       }
+      #simple-card:hover {
+        background: #f97316;
+      }
+      #hover-probe {
+        max-width: 1040px;
+        margin: 0 auto 16px;
+        padding: 18px;
+        background: #fff;
+        border: 1px solid #e4e4e7;
+        border-radius: 12px;
+      }
+      #hover-probe:hover {
+        background: #f97316;
+      }
       .card h2 {
         margin: 0 0 4px;
         font-size: 16px;
@@ -149,6 +163,18 @@
       </p>
       <p>快捷键默认 <code>Alt+Shift+S</code>；Ctrl+A 可整页截图。</p>
     </header>
+
+    <div id="hover-probe">
+      <svg
+        width="24"
+        height="24"
+        aria-hidden="true"
+        style="vertical-align: middle; margin-right: 8px"
+      >
+        <use href="/sample.svg#imgNote"></use>
+      </svg>
+      Hover probe — this block turns orange while hovered.
+    </div>
 
     <main>
       <section class="card" id="simple-card">

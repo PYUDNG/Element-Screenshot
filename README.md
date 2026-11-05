@@ -7,6 +7,7 @@
 ## 功能
 
 - **元素选择器**：鼠标移动实时预选，滚轮或 `+` / `-` 在层叠元素之间切换；边框按元素完整滚动范围绘制，所见即所得。
+- **页面交互隔离**：选择时用透明捕获层接管鼠标事件，页面的 hover、点击和 mousemove 效果不会进入截图；需要截取 hover 状态时可在设置中关闭。
 - **完整滚动截图**：递归展开元素内部的可滚动子区域，截图包含全部内容；`Ctrl+A` 直接整页截图。
 - **结果操作**：`Ctrl+C` 复制到剪贴板，`Ctrl+S` 或双击保存（优先文件选择器），`Esc` 退出。
 - **悬浮按钮（FAB）**：点击触发截图，可拖动，靠近页面边缘自动吸附；可在设置中隐藏。
@@ -31,7 +32,7 @@ packages/userscript/dist/element-shot.user.js
 | `GM_getValue` / `GM_setValue` / `GM_deleteValue`      | 保存设置与 FAB 位置 |
 | `GM_info`                                             | 读取脚本版本        |
 
-`@match *://*/*`、`@run-at document-idle`、`@noframes`。脚本只在本页执行，不上传任何数据。
+`@match *://*/*`、`@run-at document-start`、`@noframes`。脚本只在本页执行，不上传任何数据。启动时先保存一份原生浏览器 API 快照，再等待 DOM 就绪后挂载界面。
 
 ## 使用
 
@@ -54,6 +55,8 @@ packages/userscript/dist/element-shot.user.js
 | `Ctrl+A` / `Cmd+A`   | 选择整个页面（滚动截图）                 |
 | `Esc`                | 取消选择                                 |
 
+> 默认开启「隔离页面交互」：选择器上方覆盖一层透明捕获层，页面收不到鼠标移动、hover 和点击，因此截图中不会出现目标元素的 hover 样式。需要截取 hover 状态时，在设置 → 截图 → 选择交互中关闭即可。
+
 选中后：
 
 | 操作               | 效果                                  |
@@ -68,7 +71,7 @@ packages/userscript/dist/element-shot.user.js
 ### 设置
 
 - 从脚本菜单「设置」打开。
-- **触发快捷键**、**边框颜色/粗细**、**导出倍率**、**跟随页面背景/自定义背景/透明背景**、**展开内部滚动区域**。
+- **触发快捷键**、**隔离页面交互**、**边框颜色/粗细**、**导出倍率**、**跟随页面背景/自定义背景/透明背景**、**展开内部滚动区域**。
 - **悬浮按钮**：显示/隐藏、尺寸、重置位置（拖动后的位置也会记住）。
 - **站点策略**：仅在指定网站运行 / 不在指定网站运行。
 - **界面语言**：简体中文、繁體中文、English；**主题**：自动 / 浅色 / 深色。
@@ -129,6 +132,7 @@ pnpm check            # lint + typecheck + coverage + build
 │  └─ userscript/
 │     ├─ src/plugin/            # 把 html-to-image 的 fetch/XHR 改写为 GM 适配器
 │     ├─ src/net/               # GM_xmlhttpRequest → fetch / XHR 适配层
+│     ├─ src/core/native.ts     # document-start 原生 API 快照
 │     ├─ src/core/capture.ts    # 滚动展开、画布上限、渲染
 │     ├─ src/core/picker.ts     # 层叠选择、滚轮/键盘、遮罩事件
 │     ├─ src/ui/                # FAB、选框、Toast（Vue）
@@ -152,14 +156,15 @@ pnpm check            # lint + typecheck + coverage + build
 
 ### 对页面 Hook / Monkey Patch 的防护
 
-页面脚本可能改写 `fetch`、`XMLHttpRequest`、DOM 原型或 Canvas API。本项目目前做了这些隔离：
+页面脚本可能改写 `fetch`、`XMLHttpRequest`、DOM 原型或 Canvas API。本项目在脚本启动时（`document-start`）先保存一份原生 API 快照，再让截图链路优先使用这些引用：
 
 - **网络层**：不调用页面的 `fetch` / `XMLHttpRequest`。构建期把 html-to-image 内部的网络引用改写为 `GM_xmlhttpRequest` 适配器，页面 Hook `window.fetch` 不会影响资源抓取。
+- **原生 API 快照**：保存 `getComputedStyle`、`cloneNode`、`createElement`、`querySelector(All)`、`getBoundingClientRect`、`elementsFromPoint`、`XMLSerializer`、`Image`、`Blob`、`FileReader`、`CanvasRenderingContext2D`、`canvas.toBlob/toDataURL`、事件监听、对象 URL 与下载点击等原始引用。html-to-image 的克隆、样式读取、SVG 解析和 Canvas 序列化都通过这些引用执行，页面在脚本启动后替换原型方法不会截获这些调用。
 - **样式与 UI**：FAB、选框、Toast、设置面板都放在 Shadow DOM 中，使用构造样式表；页面 CSS 与全局选择器不会污染 UI，UI 也不会被截进图片。
-- **事件层**：选择器与结果守卫在捕获阶段监听并 `stopImmediatePropagation()`，避免页面抢走选择点击、滚轮和快捷键。
+- **事件层**：选择器与结果守卫捕获阶段监听并 `stopImmediatePropagation()`，避免页面抢走选择点击、滚轮和快捷键；透明捕获层同时阻止页面的 hover 与 mousemove。
 - **存储层**：设置与 FAB 位置走 `GM_getValue` / `GM_setValue`，不依赖页面的 `localStorage`。
 
-需要明确的是：**html-to-image 仍然依赖页面的原生 DOM / Canvas 能力**（`getComputedStyle`、`cloneNode`、`XMLSerializer`、`canvas.toBlob` 等）。如果页面恶意改写这些原型方法，截图仍可能失败或被干扰。当前没有做完整的 clean-realm（干净 iframe 原生引用）隔离；这是后续可以加强的方向，而不是已经承诺的防护。
+需要明确的是：**这不是完整的 clean-realm 隔离，也无法保证“不可检测”**。页面与脚本仍然共享同一个 DOM/CSSOM，页面可以在脚本启动前就安装 Hook、观察或修改目标 DOM、注入 CSS、阻止资源，或者通过 MutationObserver 发现脚本 UI。当前加固覆盖常见 monkey-patch 与截图链路中的关键 API；如果页面在脚本加载前已经替换了原生方法，快照也只能拿到被替换后的版本。`playground/hooked.html` 用于回归验证：在脚本启动后 Hook 上述 API，截图仍可完成。
 
 ### 滚动截图
 
@@ -209,6 +214,8 @@ settings.open()
 - 超大页面会按浏览器 canvas 上限自动降低导出倍率（`app.toast.downscaled` 提示）。
 - 整页截图中的 `position: sticky/fixed` 元素由渲染器按视口处理，可能与逐屏拼接的结果不同。
 - 跨域字体能否内联取决于样式表是否可读；不可读的跨域样式表会被跳过，字体回退为系统字体。
+- 原生 API 快照只能覆盖脚本启动之后发生的 Hook；页面在 `document-start` 之前安装的 Hook、对 DOM/CSS 的直接修改，以及通过观察脚本 UI 进行的检测无法完全阻止。
+- 默认开启的页面交互隔离会抑制 hover 效果；依赖 hover 展示内容再截图的页面需要关闭该开关。
 - SVG sprite 若被目标站拒绝抓取或文件格式异常，图标会缺失，但不会中断整张截图。
 - 截图是本地行为，不联网上传；但为内联资源，脚本管理器会向资源原始地址发起请求。
 - 文件选择器仅 Chromium；其他浏览器回退为普通下载。剪贴板写入需要浏览器权限。
@@ -216,7 +223,7 @@ settings.open()
 
 ## 版本
 
-当前 `0.1.2`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。使用语义化版本，Git tag 形如 `v0.1.2`。
+当前 `0.2.0`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。使用语义化版本，Git tag 形如 `v0.2.0`。
 
 ## 许可
 

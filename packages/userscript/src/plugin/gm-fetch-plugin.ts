@@ -17,6 +17,33 @@ export interface RewriteResult {
 }
 
 const DEFAULT_ADAPTER = 'virtual:gm-fetch'
+const NATIVE_VIRTUAL = 'virtual:element-shot-native'
+const NATIVE_ADAPTER = 'virtual:element-shot-native-adapter'
+
+const NATIVE_PRELUDE = `import { native as __elementShotNative } from '${NATIVE_VIRTUAL}';
+const window = __elementShotNative.window;
+const document = __elementShotNative.document;
+const getComputedStyle = __elementShotNative.getComputedStyle;
+const requestAnimationFrame = __elementShotNative.requestAnimationFrame;
+const setTimeout = __elementShotNative.setTimeout;
+const clearTimeout = __elementShotNative.clearTimeout;
+const Image = __elementShotNative.Image;
+const XMLSerializer = __elementShotNative.XMLSerializer;
+const Blob = __elementShotNative.Blob;
+const FileReader = __elementShotNative.FileReader;
+const URL = __elementShotNative.URL;
+const DOMParser = __elementShotNative.DOMParser;
+const Element = __elementShotNative.Element;
+const HTMLElement = __elementShotNative.HTMLElement;
+const HTMLCanvasElement = __elementShotNative.HTMLCanvasElement;
+const HTMLVideoElement = __elementShotNative.HTMLVideoElement;
+const HTMLIFrameElement = __elementShotNative.HTMLIFrameElement;
+const HTMLTextAreaElement = __elementShotNative.HTMLTextAreaElement;
+const HTMLInputElement = __elementShotNative.HTMLInputElement;
+const HTMLSelectElement = __elementShotNative.HTMLSelectElement;
+const HTMLImageElement = __elementShotNative.HTMLImageElement;
+const SVGImageElement = __elementShotNative.SVGImageElement;
+`
 
 type Node = { type: string; [key: string]: unknown }
 
@@ -239,7 +266,10 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
   if (start < 0 || end < 0 || end <= start) return { code, changed: false }
 
   const replacement = `async function ensureSVGSymbols(clone, options) {
-    const uses = clone.querySelectorAll ? clone.querySelectorAll('use') : [];
+    if (clone.nodeType !== 1 && clone.nodeType !== 9 && clone.nodeType !== 11) {
+        return clone;
+    }
+    const uses = __elementShotNative.querySelectorAll(clone, 'use');
     if (uses.length === 0) {
         return clone;
     }
@@ -252,27 +282,26 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
     };
     const findById = (root, id) => {
         if (!root || !id) return null;
-        if (root.getElementById) {
-            const direct = root.getElementById(id);
-            if (direct) return direct;
+        if (root === __elementShotNative.document) {
+            return __elementShotNative.document.getElementById(id);
         }
-        const nodes = root.querySelectorAll ? root.querySelectorAll('[id]') : [];
+        const nodes = __elementShotNative.querySelectorAll(root, '[id]');
         for (let index = 0; index < nodes.length; index += 1) {
-            if (nodes[index].getAttribute('id') === id) return nodes[index];
+            if (__elementShotNative.getAttribute(nodes[index], 'id') === id) return nodes[index];
         }
         return null;
     };
     for (let i = 0; i < uses.length; i++) {
         const use = uses[i];
-        const href = use.getAttribute('href') || use.getAttribute('xlink:href');
+        const href = __elementShotNative.getAttribute(use, 'href') || __elementShotNative.getAttribute(use, 'xlink:href');
         const id = idFrom(href);
         if (!id) continue;
         if (findById(clone, id)) {
-            use.setAttribute('href', '#' + id);
-            use.removeAttribute('xlink:href');
+            __elementShotNative.setAttribute(use, 'href', '#' + id);
+            __elementShotNative.removeAttribute(use, 'xlink:href');
             continue;
         }
-        let definition = clone.ownerDocument ? clone.ownerDocument.getElementById(id) : null;
+        let definition = findById(__elementShotNative.document, id);
         if (!definition && href && !href.startsWith('#')) {
             const base = (clone.ownerDocument && clone.ownerDocument.baseURI) || document.baseURI;
             try {
@@ -291,26 +320,26 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
             }
         }
         if (!definition || processedDefs[id]) continue;
-        processedDefs[id] = definition.cloneNode(true);
-        use.setAttribute('href', '#' + id);
-        use.removeAttribute('xlink:href');
+        processedDefs[id] = __elementShotNative.cloneNode(definition, true);
+        __elementShotNative.setAttribute(use, 'href', '#' + id);
+        __elementShotNative.removeAttribute(use, 'xlink:href');
     }
     const nodes = Object.values(processedDefs);
     if (nodes.length) {
         const ns = 'http://www.w3.org/2000/svg';
-        const svg = document.createElementNS(ns, 'svg');
-        svg.setAttribute('xmlns', ns);
+        const svg = __elementShotNative.document.createElementNS(ns, 'svg');
+        __elementShotNative.setAttribute(svg, 'xmlns', ns);
         svg.style.position = 'absolute';
         svg.style.width = '0';
         svg.style.height = '0';
         svg.style.overflow = 'hidden';
         svg.style.display = 'none';
-        const defs = document.createElementNS(ns, 'defs');
-        svg.appendChild(defs);
+        const defs = __elementShotNative.document.createElementNS(ns, 'defs');
+        __elementShotNative.appendChild(svg, defs);
         for (let i = 0; i < nodes.length; i++) {
-            defs.appendChild(nodes[i]);
+            __elementShotNative.appendChild(defs, nodes[i]);
         }
-        clone.appendChild(svg);
+        __elementShotNative.appendChild(clone, svg);
     }
     return clone;
 }
@@ -321,9 +350,72 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
   }
 }
 
+/**
+ * html-to-image reads and calls browser prototypes directly. Route its canvas
+ * serialization, cloning and computed-style reads through the native snapshot
+ * so a page-level prototype hook cannot intercept the capture pipeline.
+ *
+ * These are deliberately exact, version-pinned source substitutions. The
+ * plugin only runs on the html-to-image package and the package version is
+ * locked by pnpm; unrecognised output is left untouched rather than guessed.
+ */
+export function patchNativeCalls(code: string): { code: string; changed: boolean } {
+  let next = code
+  let changed = false
+  const replace = (from: string, to: string): void => {
+    if (!next.includes(from)) return
+    next = next.split(from).join(to)
+    changed = true
+  }
+
+  /*
+   * html-to-image applies `backgroundColor` to the cloned root as well as to
+   * the canvas. That paints over an opaque element background (a white card
+   * becomes the page backdrop color). The canvas fill already handles
+   * transparent regions, so keep the root's own background.
+   */
+  const withoutRootBackground = next.replace(
+    /if \(options\.backgroundColor\) \{\s*style\.backgroundColor = options\.backgroundColor;\s*\}/g,
+    '/* element-shot: canvas fill handles the backdrop */'
+  )
+  if (withoutRootBackground !== next) {
+    next = withoutRootBackground
+    changed = true
+  }
+
+  replace(`canvas.getContext('2d')`, '__elementShotNative.canvas.getContext(canvas)')
+  replace('canvas.toBlob(', '__elementShotNative.canvas.toBlob(canvas, ')
+  next = next.replace(/\bcanvas\.toDataURL\(([^()]*)\)/g, (_match, args: string) => {
+    changed = true
+    return args
+      ? `__elementShotNative.canvas.toDataURL(canvas, ${args})`
+      : '__elementShotNative.canvas.toDataURL(canvas)'
+  })
+  replace('context.fillRect(', '__elementShotNative.canvas.fillRect(context, ')
+  replace('context.drawImage(', '__elementShotNative.canvas.drawImage(context, ')
+  replace('ctx.getImageData(', '__elementShotNative.canvas.getImageData(ctx, ')
+  replace('ctx?.drawImage(', 'ctx && __elementShotNative.canvas.drawImage(ctx, ')
+  replace('canvas.cloneNode(false)', '__elementShotNative.cloneNode(canvas, false)')
+  replace('iframe.cloneNode(false)', '__elementShotNative.cloneNode(iframe, false)')
+  replace(
+    'node.cloneNode(isSVGElement(node))',
+    '__elementShotNative.cloneNode(node, isSVGElement(node))'
+  )
+  replace('new XMLSerializer().serializeToString(svg)', '__elementShotNative.serializeSvg(svg)')
+  replace('win.getComputedStyle(node)', '__elementShotNative.getComputedStyle(node)')
+  replace(
+    'toArray(node.ownerDocument.styleSheets)',
+    'toArray(__elementShotNative.document.styleSheets)'
+  )
+
+  return { code: next, changed }
+}
+
 export interface GmFetchPluginOptions {
   /** Module that exports `gmFetch` and `GMXMLHttpRequest`. */
   adapterModule?: string
+  /** Module that exports the native snapshot used by html-to-image. */
+  nativeAdapter?: string | false
   include?: (id: string) => boolean
   exclude?: (id: string) => boolean
 }
@@ -338,8 +430,11 @@ const DEFAULT_INCLUDE = (id: string): boolean =>
  */
 export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
   const adapterModule = options.adapterModule ?? 'virtual:gm-fetch-adapter'
+  const nativeAdapter =
+    options.nativeAdapter === false ? null : (options.nativeAdapter ?? NATIVE_ADAPTER)
   const virtualId = 'virtual:gm-fetch'
   const resolvedId = `\0${virtualId}`
+  const resolvedNativeId = `\0${NATIVE_VIRTUAL}`
   const include = options.include ?? DEFAULT_INCLUDE
   const exclude = options.exclude ?? (() => false)
 
@@ -348,11 +443,15 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
     enforce: 'pre',
     resolveId(id) {
       if (id === virtualId) return resolvedId
+      if (id === NATIVE_VIRTUAL && nativeAdapter) return resolvedNativeId
       return null
     },
     load(id) {
       if (id === resolvedId) {
         return `export { gmFetch, GMXMLHttpRequest } from '${adapterModule}';\n`
+      }
+      if (id === resolvedNativeId && nativeAdapter) {
+        return `export { native } from '${nativeAdapter}';\n`
       }
       return null
     },
@@ -360,15 +459,27 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
       if (!include(id) || exclude(id)) return null
       const fontPatch = patchFontEmbedding(code)
       const svgPatch = patchSvgSymbols(fontPatch.changed ? fontPatch.code : code)
-      const source = svgPatch.changed ? svgPatch.code : fontPatch.changed ? fontPatch.code : code
+      const nativePatch = patchNativeCalls(
+        svgPatch.changed ? svgPatch.code : fontPatch.changed ? fontPatch.code : code
+      )
+      const source = nativePatch.changed
+        ? nativePatch.code
+        : svgPatch.changed
+          ? svgPatch.code
+          : fontPatch.changed
+            ? fontPatch.code
+            : code
       const result = rewriteFetchReferences(source, {
         adapterModule: virtualId,
         sourceFile: id
       })
-      if (!result.changed && !fontPatch.changed && !svgPatch.changed) return null
+      if (!result.changed && !fontPatch.changed && !svgPatch.changed && !nativePatch.changed) {
+        return nativeAdapter ? { code: `${NATIVE_PRELUDE}${code}` } : null
+      }
+      const transformed = result.changed ? result.code : source
       return {
-        code: result.changed ? result.code : source,
-        map: result.changed && !fontPatch.changed && !svgPatch.changed ? result.map : undefined
+        code: nativeAdapter ? `${NATIVE_PRELUDE}${transformed}` : transformed,
+        map: undefined
       }
     }
   }

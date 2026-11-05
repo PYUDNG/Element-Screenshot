@@ -1,4 +1,5 @@
 import { toBlob } from 'html-to-image'
+import { native } from './native'
 import { getTargetBox } from './target'
 import type { TargetBox } from './target'
 
@@ -65,8 +66,8 @@ interface StyleSnapshot {
   scrollLeft: number
 }
 
-function isScrollContainer(win: Window, element: Element): boolean {
-  const style = win.getComputedStyle(element)
+function isScrollContainer(element: Element): boolean {
+  const style = native.getComputedStyle(element)
   const overflowY = style.overflowY
   const overflowX = style.overflowX
   const scrollY = overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay'
@@ -81,15 +82,14 @@ function isScrollContainer(win: Window, element: Element): boolean {
 /** Scrollable descendants that clip content, collected before any mutation. */
 export function collectScrollTargets(root: Element): Element[] {
   const doc = root.ownerDocument
-  const win = doc.defaultView ?? window
   const targets: Element[] = [root]
   if (root === doc.documentElement && doc.body) targets.push(doc.body)
 
   let visited = 0
-  for (const element of Array.from(root.querySelectorAll('*'))) {
+  for (const element of Array.from(native.querySelectorAll(root, '*'))) {
     if (visited >= 6000) break
     visited += 1
-    if (isScrollContainer(win, element)) targets.push(element)
+    if (isScrollContainer(element)) targets.push(element)
   }
 
   return Array.from(new Set(targets))
@@ -182,12 +182,12 @@ function expandForCapture(root: Element, box: TargetBox, expandNested: boolean):
   }
 }
 
-function nextFrame(win: Window): Promise<void> {
+function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
-    if (typeof win.requestAnimationFrame === 'function') {
-      win.requestAnimationFrame(() => resolve())
+    if (typeof native.requestAnimationFrame === 'function') {
+      native.requestAnimationFrame(() => resolve())
     } else {
-      win.setTimeout(resolve, 16)
+      native.setTimeout(resolve, 16)
     }
   })
 }
@@ -200,10 +200,8 @@ export async function captureElement(
   element: Element,
   options: CaptureOptions = {}
 ): Promise<CaptureResult> {
-  const doc = element.ownerDocument
-  const win = doc.defaultView ?? window
   const box = getTargetBox(element)
-  const requestedRatio = options.pixelRatio ?? Math.min(win.devicePixelRatio || 1, 2)
+  const requestedRatio = options.pixelRatio ?? Math.min(native.devicePixelRatio || 1, 2)
   const plan = computeCaptureScale(
     box.width,
     box.height,
@@ -215,8 +213,8 @@ export async function captureElement(
   const restore = expandForCapture(element, box, options.expandNested !== false)
 
   try {
-    await nextFrame(win)
-    await nextFrame(win)
+    await nextFrame()
+    await nextFrame()
 
     const blob = await toBlob(element as HTMLElement, {
       width: plan.width,

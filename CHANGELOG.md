@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-05
+
+### Added
+
+- Page interaction isolation for the picker. A transparent capture surface takes
+  pointer events while picking, so page hover, click and mousemove effects do
+  not leak into the screenshot. The new “Isolate page interaction” switch
+  defaults to on and can be turned off to capture hover states.
+- A startup native API snapshot captured at `document-start`. The script now
+  routes computed styles, cloning, element lookup, geometry, SVG serialization,
+  Canvas methods, event listeners, object URLs and download clicks through the
+  original references, and injects the same snapshot into html-to-image through
+  the build plugin. `playground/hooked.html` verifies a capture while common
+  DOM, Canvas and serialization prototypes are replaced.
+- Pointer cursors for all interactive settings, picker and floating-button
+  controls.
+- The picker label is clamped to the viewport and flips below the target when an
+  element starts above the visible area.
+
+### Fixed
+
+- The cloned root no longer gets the page-backdrop color painted over its own
+  background. Opaque cards keep their real background while transparent areas
+  still use the sampled page color.
+- The picker stays mounted while rendering, keeping page interaction isolated
+  until the capture finishes instead of briefly restoring hover state.
+- The SVG `<use>` resolver uses native lookups and safely skips text nodes,
+  avoiding an `Illegal invocation` error during cloning.
+
 ## [0.1.2] - 2026-11-05
 
 ### Fixed

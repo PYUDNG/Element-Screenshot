@@ -1,4 +1,5 @@
 import { isEditableTarget, matchesShortcut, parseShortcut } from '@element-shot/settings'
+import { native } from './native'
 
 export interface HotkeyOptions {
   getShortcut: () => string
@@ -27,6 +28,6 @@ export function installHotkey(options: HotkeyOptions): () => void {
     options.onTrigger()
   }
 
-  window.addEventListener('keydown', handler, true)
-  return () => window.removeEventListener('keydown', handler, true)
+  native.addEventListener(window, 'keydown', handler, true)
+  return () => native.removeEventListener(window, 'keydown', handler, true)
 }

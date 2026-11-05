@@ -9,6 +9,7 @@ vi.mock('html-to-image', () => ({
 }))
 
 import { captureElement, collectScrollTargets, computeCaptureScale } from '../src/core/capture'
+import { native } from '../src/core/native'
 import { getTargetBox } from '../src/core/target'
 
 function setMetrics(
@@ -25,15 +26,13 @@ function setMetrics(
   }
 }
 
-const originalGetComputedStyle = window.getComputedStyle
-
 beforeEach(() => {
   toBlobMock.mockReset()
   toBlobMock.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
 })
 
 afterEach(() => {
-  window.getComputedStyle = originalGetComputedStyle
+  vi.restoreAllMocks()
   document.body.innerHTML = ''
 })
 
@@ -66,7 +65,7 @@ describe('target box measurement', () => {
   it('uses the larger of layout rect and scroll size, including borders', () => {
     const element = document.createElement('div')
     document.body.appendChild(element)
-    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
       left: 12,
       top: 34,
       width: 200,
@@ -83,7 +82,7 @@ describe('target box measurement', () => {
       clientWidth: 198,
       clientHeight: 298
     })
-    vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
       borderLeftWidth: '1px',
       borderRightWidth: '1px',
       borderTopWidth: '1px',
@@ -120,7 +119,7 @@ describe('scroll expansion planning', () => {
       clientHeight: 100
     })
 
-    vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+    vi.spyOn(native, 'getComputedStyle').mockImplementation((element) => {
       if (element === scrollable) {
         return { overflowX: 'auto', overflowY: 'auto' } as CSSStyleDeclaration
       }
@@ -136,7 +135,7 @@ describe('scroll expansion planning', () => {
   it('expands the element while rendering and restores its styles afterwards', async () => {
     const element = document.createElement('div')
     document.body.appendChild(element)
-    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
       left: 10,
       top: 20,
       width: 300,
@@ -153,7 +152,7 @@ describe('scroll expansion planning', () => {
       clientWidth: 300,
       clientHeight: 400
     })
-    vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
       borderLeftWidth: '0px',
       borderRightWidth: '0px',
       borderTopWidth: '0px',
@@ -198,7 +197,7 @@ describe('scroll expansion planning', () => {
   it('passes a transparent background and filter through', async () => {
     const element = document.createElement('div')
     document.body.appendChild(element)
-    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
       left: 0,
       top: 0,
       width: 100,
@@ -209,7 +208,7 @@ describe('scroll expansion planning', () => {
       y: 0,
       toJSON: () => ({})
     } as DOMRect)
-    vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
       borderLeftWidth: '0px',
       borderRightWidth: '0px',
       borderTopWidth: '0px',

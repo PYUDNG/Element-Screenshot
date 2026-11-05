@@ -67,3 +67,25 @@
     --tw-backdrop-sepia: initial;
   }
 }
+
+/*
+ * Buttons keep the browser's default arrow cursor unless a utility changes it.
+ * This widget uses buttons as its primary controls, so make every interactive
+ * control discoverable while preserving utility overrides such as cursor-grab
+ * and disabled:cursor-not-allowed.
+ */
+@layer base {
+  :where(.es-root, .es-ui-root)
+    :where(
+      button:not(:disabled),
+      [role='button']:not([aria-disabled='true']),
+      a[href],
+      summary,
+      select:not(:disabled),
+      input[type='color']:not(:disabled),
+      input[type='range']:not(:disabled),
+      label[for]
+    ) {
+    cursor: pointer;
+  }
+}

@@ -27,6 +27,19 @@ export function createSettingsTabs(): SettingsTab[] {
           ]
         },
         {
+          id: 'picker',
+          title: 'app.group.picker',
+          fields: [
+            {
+              type: 'switch',
+              key: 'capture.pointerIsolation',
+              label: 'app.field.pointerIsolation',
+              description: 'app.field.pointerIsolationDesc',
+              default: true
+            }
+          ]
+        },
+        {
           id: 'frame',
           title: 'app.group.frame',
           fields: [

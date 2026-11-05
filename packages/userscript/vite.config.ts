@@ -14,7 +14,9 @@ export default defineConfig({
   plugins: [
     vue(),
     tailwindcss(),
-    gmFetchPlugin(),
+    gmFetchPlugin({
+      nativeAdapter: 'virtual:element-shot-native-adapter'
+    }),
     monkey({
       entry: 'src/main.ts',
       userscript: {
@@ -25,7 +27,7 @@ export default defineConfig({
           'Capture any page element, including its full scrollable content. Screenshot picker with layered element selection, copy and save.',
         author: 'Element Shot contributors',
         match: ['*://*/*'],
-        'run-at': 'document-idle',
+        'run-at': 'document-start',
         noframes: true,
         grant: [
           'GM_xmlhttpRequest',
@@ -51,7 +53,12 @@ export default defineConfig({
     alias: {
       '@element-shot/settings': fileURLToPath(new URL('../settings/src/index.ts', import.meta.url)),
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      'virtual:gm-fetch-adapter': fileURLToPath(new URL('./src/net/gm-adapter.ts', import.meta.url))
+      'virtual:gm-fetch-adapter': fileURLToPath(
+        new URL('./src/net/gm-adapter.ts', import.meta.url)
+      ),
+      'virtual:element-shot-native-adapter': fileURLToPath(
+        new URL('./src/core/native.ts', import.meta.url)
+      )
     }
   },
   optimizeDeps: {

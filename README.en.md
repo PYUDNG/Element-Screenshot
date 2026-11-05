@@ -7,6 +7,7 @@ A browser userscript that captures **any page element including its full scrolla
 ## Features
 
 - **Element picker** — live hover preview; wheel or `+` / `-` walks the z-order stack; the frame covers the element's complete scroll range.
+- **Page interaction isolation** — a transparent capture surface takes pointer events while picking, so hover, click and mousemove effects do not leak into the image. Turn it off when you need to capture a hover state.
 - **Full-content capture** — recursively expands nested scroll containers; `Ctrl+A` captures the whole page.
 - **Result actions** — `Ctrl+C` copies, `Ctrl+S` or double-click saves (file picker first), `Esc` dismisses.
 - **Floating button (FAB)** — click to capture, drag to move, snaps to edges; can be hidden in settings.
@@ -31,7 +32,7 @@ Requested permissions:
 | `GM_getValue` / `GM_setValue` / `GM_deleteValue`      | Persist settings and FAB position   |
 | `GM_info`                                             | Read the script version             |
 
-`@match *://*/*`, `@run-at document-idle`, `@noframes`. Everything runs locally; no data is uploaded.
+`@match *://*/*`, `@run-at document-start`, `@noframes`. Everything runs locally; no data is uploaded. The script snapshots native browser APIs at startup, then waits for the DOM before mounting its UI.
 
 ## Usage
 
@@ -54,6 +55,8 @@ Shortcuts are configurable and apply immediately.
 | `Ctrl+A` / `Cmd+A`     | Capture the whole page                                                       |
 | `Esc`                  | Cancel                                                                       |
 
+> “Isolate page interaction” is on by default. A transparent capture surface above the page receives pointer movement, hover and clicks, so the target's hover styles do not appear in the screenshot. Turn it off in Settings → Capture → Picker interaction when you want a hover-state capture.
+
 After selection:
 
 | Action             | Result                                         |
@@ -68,7 +71,7 @@ After selection:
 ### Settings
 
 - Open from the userscript menu → “Settings”.
-- **Trigger shortcut**, **frame color/width**, **export scale**, **match page background / custom background / transparent**, **expand nested scroll areas**.
+- **Trigger shortcut**, **isolate page interaction**, **frame color/width**, **export scale**, **match page background / custom background / transparent**, **expand nested scroll areas**.
 - **Floating button** — show/hide, size, reset position; dragged positions are remembered.
 - **Site policy** — run only on / never run on specific sites.
 - **Language** — Simplified Chinese, Traditional Chinese, English; **theme** — auto / light / dark.
@@ -129,6 +132,7 @@ The playground uses `playground/gm-stub.js` to emulate GM APIs and exposes the l
 │  └─ userscript/
 │     ├─ src/plugin/            # rewrite html-to-image fetch/XHR to GM adapters
 │     ├─ src/net/               # GM_xmlhttpRequest → fetch / XHR adapters
+│     ├─ src/core/native.ts     # document-start native API snapshot
 │     ├─ src/core/capture.ts    # scroll expansion, canvas limits, rendering
 │     ├─ src/core/picker.ts     # layered picking, wheel/keyboard, event guards
 │     ├─ src/ui/                # FAB, frame, toasts (Vue)
@@ -152,14 +156,15 @@ The playground uses `playground/gm-stub.js` to emulate GM APIs and exposes the l
 
 ### Page hook / monkey-patch hardening
 
-Pages can replace `fetch`, `XMLHttpRequest`, DOM prototypes or Canvas APIs. The current mitigations are:
+Pages can replace `fetch`, `XMLHttpRequest`, DOM prototypes or Canvas APIs. At startup (`document-start`) the script snapshots a set of native APIs and the capture path prefers those references:
 
 - **Network** — the script never calls the page's `fetch` / `XMLHttpRequest`. A build-time transform rewrites html-to-image's network references to a `GM_xmlhttpRequest` adapter, so a page-level `window.fetch` hook cannot intercept resource reads.
+- **Native API snapshot** — original references are captured for `getComputedStyle`, `cloneNode`, `createElement`, `querySelector(All)`, `getBoundingClientRect`, `elementsFromPoint`, `XMLSerializer`, `Image`, `Blob`, `FileReader`, `CanvasRenderingContext2D`, `canvas.toBlob/toDataURL`, event listeners, object URLs and download clicks. html-to-image cloning, style reads, SVG parsing and canvas serialization go through these references, so prototype methods replaced after startup do not intercept them.
 - **Styles and UI** — FAB, picker, toasts and settings live in Shadow DOM with constructable stylesheets. Page CSS cannot leak into the UI, and the UI is filtered out of captures.
-- **Events** — the picker and result guards listen in the capture phase and call `stopImmediatePropagation()`, so page handlers cannot steal selection clicks, wheel input or shortcuts.
+- **Events** — the picker and result guards listen in the capture phase and call `stopImmediatePropagation()`, so page handlers cannot steal selection clicks, wheel input or shortcuts. The transparent surface also blocks page hover and mousemove.
 - **Storage** — settings and FAB position use `GM_getValue` / `GM_setValue`, not page `localStorage`.
 
-That said, **html-to-image still relies on page-native DOM and Canvas capabilities** (`getComputedStyle`, `cloneNode`, `XMLSerializer`, `canvas.toBlob`, and others). A hostile page that replaces those prototypes can still break or interfere with a capture. Full clean-realm isolation (native references captured from a pristine iframe) is a future hardening step, not a guarantee that exists today.
+This is **not full clean-realm isolation and cannot guarantee undetectability**. The page and the script still share the same DOM/CSSOM: a page can install hooks before the script starts, observe or mutate the target DOM, inject CSS, block resources, or detect the script UI with a MutationObserver. The hardening covers common monkey-patching and the key APIs on the capture path; if a page replaced a native method before the script loaded, the snapshot can only capture the replaced version. `playground/hooked.html` is the regression fixture: it hooks these APIs after startup and still expects a successful capture.
 
 ### Scroll capture
 
@@ -209,6 +214,8 @@ See [`packages/settings/README.md`](packages/settings/README.md) for field types
 - Very large pages are downscaled automatically to the browser canvas limit (a toast is shown).
 - `position: sticky/fixed` elements are rendered by the library against the viewport; full-page results can differ from stitched screenshots.
 - Cross-origin fonts can only be embedded from readable stylesheets; unreadable cross-origin sheets are skipped and their fonts fall back.
+- The native snapshot only covers hooks installed after script startup. Hooks installed before `document-start`, direct DOM/CSS mutations and UI detection cannot be fully prevented.
+- The default interaction isolation suppresses hover effects; pages that reveal content on hover need the switch turned off before capture.
 - If a site blocks an SVG sprite fetch or serves malformed SVG, those icons are omitted without failing the whole capture.
 - Capture is local, but the manager does fetch the original asset URLs to inline them.
 - The file picker is Chromium-only; other browsers download instead. Clipboard image writes need permission.
@@ -216,7 +223,7 @@ See [`packages/settings/README.md`](packages/settings/README.md) for field types
 
 ## Version
 
-Current version: `0.1.2`. See [CHANGELOG.md](CHANGELOG.md). Versions follow semver and tags look like `v0.1.2`.
+Current version: `0.2.0`. See [CHANGELOG.md](CHANGELOG.md). Versions follow semver and tags look like `v0.2.0`.
 
 ## License
 

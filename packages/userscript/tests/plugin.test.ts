@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   gmFetchPlugin,
   patchFontEmbedding,
+  patchNativeCalls,
   patchSvgSymbols,
   rewriteFetchReferences
 } from '../src/plugin/gm-fetch-plugin'
@@ -96,6 +97,7 @@ export async function cloneNode(node, options, isRoot) {
     expect(result.code).toContain('lastIndexOf')
     expect(result.code).toContain('DOMParser')
     expect(result.code).toContain('__elementShotSvgCache')
+    expect(result.code).toContain('__elementShotNative.document.getElementById')
     expect(result.code).not.toContain('clone.querySelector(id)')
     expect(result.code).toContain('export async function cloneNode')
   })
@@ -111,5 +113,45 @@ export async function cloneNode(node, options, isRoot) {
     const transformed = transform(source, '/repo/node_modules/html-to-image/es/dataurl.js')
     expect(transformed?.code).toContain('__gmFetch(url)')
     expect(transform(source, '/repo/src/app.ts')).toBeNull()
+  })
+
+  it('routes canvas and clone calls through the native snapshot', () => {
+    const source = `
+      const data = canvas.toDataURL();
+      const jpeg = canvas.toDataURL('image/jpeg', 0.8);
+      canvas.toBlob(done, 'image/png');
+      const context = canvas.getContext('2d');
+      context.fillRect(0, 0, 10, 10);
+      context.drawImage(image, 0, 0);
+      const copy = node.cloneNode(isSVGElement(node));
+      if (options.backgroundColor) {
+        style.backgroundColor = options.backgroundColor;
+      }
+    `
+    const result = patchNativeCalls(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('__elementShotNative.canvas.toDataURL(canvas)')
+    expect(result.code).toContain('__elementShotNative.canvas.toDataURL(canvas, ')
+    expect(result.code).toContain('__elementShotNative.canvas.toBlob(canvas, done')
+    expect(result.code).toContain('__elementShotNative.canvas.getContext(canvas)')
+    expect(result.code).toContain('__elementShotNative.canvas.fillRect(context, ')
+    expect(result.code).toContain('__elementShotNative.canvas.drawImage(context, ')
+    expect(result.code).toContain('__elementShotNative.cloneNode(node, isSVGElement(node))')
+    expect(result.code).toContain('canvas fill handles the backdrop')
+  })
+
+  it('injects the native prelude only when configured', () => {
+    const plugin = gmFetchPlugin({ nativeAdapter: 'virtual:test-native' })
+    const transform = plugin.transform as unknown as (
+      code: string,
+      id: string
+    ) => { code: string } | null
+    const source = `export const value = 1`
+    const transformed = transform(source, '/repo/node_modules/html-to-image/es/mimes.js')
+    expect(transformed?.code).toContain('import { native as __elementShotNative }')
+    expect(transformed?.code).toContain('const document = __elementShotNative.document')
+    expect(transformed?.code).toContain(
+      'const HTMLCanvasElement = __elementShotNative.HTMLCanvasElement'
+    )
   })
 })

@@ -1,15 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { native } from '../src/core/native'
 import { parseCssColor, resolveBackdropColor } from '../src/core/background'
 
-const originalGetComputedStyle = window.getComputedStyle
-
 afterEach(() => {
-  window.getComputedStyle = originalGetComputedStyle
+  vi.restoreAllMocks()
   document.body.innerHTML = ''
 })
 
 function mockBackgrounds(colors: Map<Element, string>): void {
-  vi.spyOn(window, 'getComputedStyle').mockImplementation(
+  vi.spyOn(native, 'getComputedStyle').mockImplementation(
     (element) =>
       ({ backgroundColor: colors.get(element) ?? 'rgba(0, 0, 0, 0)' }) as CSSStyleDeclaration
   )

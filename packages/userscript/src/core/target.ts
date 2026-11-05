@@ -1,3 +1,5 @@
+import { native } from './native'
+
 export interface TargetBox {
   left: number
   top: number
@@ -32,7 +34,7 @@ export function isUiElement(element: Element): boolean {
  * roots. Closed shadow roots cannot be pierced and resolve to their host.
  */
 export function getElementStack(x: number, y: number, doc: Document = document): Element[] {
-  let stack = Array.from(doc.elementsFromPoint(x, y))
+  let stack = Array.from(native.elementsFromPoint(doc, x, y))
   let top: Element | undefined = stack[0]
   let guard = 0
 
@@ -40,7 +42,7 @@ export function getElementStack(x: number, y: number, doc: Document = document):
     guard += 1
     let inner: Element[]
     try {
-      inner = Array.from(top.shadowRoot.elementsFromPoint(x, y))
+      inner = Array.from(native.elementsFromPoint(top.shadowRoot, x, y))
     } catch {
       break
     }
@@ -68,8 +70,7 @@ function parsePx(value: string): number {
 
 export function getTargetBox(element: Element): TargetBox {
   const doc = element.ownerDocument
-  const win = doc.defaultView ?? window
-  const rect = element.getBoundingClientRect()
+  const rect = native.getBoundingClientRect(element)
 
   if (element === doc.documentElement) {
     const width = Math.max(doc.documentElement.scrollWidth, doc.documentElement.clientWidth)
@@ -77,7 +78,7 @@ export function getTargetBox(element: Element): TargetBox {
     return { left: 0, top: 0, width, height }
   }
 
-  const style = win.getComputedStyle(element)
+  const style = native.getComputedStyle(element)
   const borderX = parsePx(style.borderLeftWidth) + parsePx(style.borderRightWidth)
   const borderY = parsePx(style.borderTopWidth) + parsePx(style.borderBottomWidth)
 

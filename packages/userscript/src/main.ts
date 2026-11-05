@@ -1,3 +1,4 @@
+import { native } from './core/native'
 import { watch } from 'vue'
 import {
   GM_deleteValue,
@@ -130,8 +131,16 @@ function boot(): void {
   )
 }
 
-try {
-  boot()
-} catch (error) {
-  console.error('[element-shot] failed to start', error)
+function start(): void {
+  try {
+    boot()
+  } catch (error) {
+    console.error('[element-shot] failed to start', error)
+  }
+}
+
+if (document.readyState === 'loading') {
+  native.addEventListener(document, 'DOMContentLoaded', start, { once: true })
+} else {
+  start()
 }
