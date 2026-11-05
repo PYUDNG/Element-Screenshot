@@ -1,0 +1,34 @@
+@import 'tailwindcss' source(none);
+@source './';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+@layer base {
+  .es-root {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .es-root ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .es-root ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-clip: padding-box;
+    background-color: rgb(161 161 170 / 0.45);
+  }
+
+  .es-root ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

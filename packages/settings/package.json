@@ -1,0 +1,35 @@
+{
+  "name": "@element-shot/settings",
+  "version": "0.1.0",
+  "description": "A drop-in, declarative settings panel library for userscripts (Vue 3 + Tailwind CSS 4).",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    },
+    "./auto": {
+      "types": "./dist/auto.d.ts",
+      "import": "./dist/auto.mjs"
+    },
+    "./iife": "./dist/iife/userscript-settings.iife.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && vite build --mode iife",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "vue": "^3.5.44"
+  }
+}

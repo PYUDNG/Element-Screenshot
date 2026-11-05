@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Userscript Settings — Demo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #fafafa;
+        color: #18181b;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #09090b;
+          color: #f4f4f5;
+        }
+      }
+      .wrap {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 64px 24px;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 8px;
+      }
+      p {
+        color: #71717a;
+        line-height: 1.7;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 24px 0;
+      }
+      button {
+        border: 1px solid #d4d4d8;
+        background: #fff;
+        color: inherit;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: #a1a1aa;
+      }
+      code {
+        background: #f4f4f5;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      @media (prefers-color-scheme: dark) {
+        button {
+          background: #18181b;
+          border-color: #3f3f46;
+        }
+        code {
+          background: #18181b;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Userscript Settings</h1>
+      <p>
+        独立设置面板库演示：声明式注册设置项、Tab + 折叠分组、快捷键录制、颜色、列表、深浅色与
+        i18n。面板挂载在 Shadow DOM 中，不会污染本页样式。
+      </p>
+      <div class="row">
+        <button id="open" type="button">打开设置</button>
+        <button id="add" type="button">动态添加一项</button>
+        <button id="remove" type="button">移除动态项</button>
+      </div>
+      <p>
+        也可以直接在控制台调用 <code>window.__settings.open()</code>，或在其他用户脚本中通过
+        <code>UserscriptSettings.createSettings()</code> 使用 IIFE 产物。
+      </p>
+    </div>
+    <script type="module" src="/demo/main.ts"></script>
+  </body>
+</html>
