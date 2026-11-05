@@ -227,6 +227,100 @@ export function patchFontEmbedding(code: string): { code: string; changed: boole
   }
 }
 
+/**
+ * html-to-image 1.11 treats an SVG `<use xlink:href>` value as a CSS selector:
+ * `clone.querySelector('/sprite.svg#icon')` throws a SyntaxError. Resolve the
+ * fragment id safely, reuse an in-document symbol when one exists, and fetch an
+ * external sprite through the GM adapter when needed.
+ */
+export function patchSvgSymbols(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('async function ensureSVGSymbols(')
+  const end = code.indexOf('export async function cloneNode(', start)
+  if (start < 0 || end < 0 || end <= start) return { code, changed: false }
+
+  const replacement = `async function ensureSVGSymbols(clone, options) {
+    const uses = clone.querySelectorAll ? clone.querySelectorAll('use') : [];
+    if (uses.length === 0) {
+        return clone;
+    }
+    const processedDefs = {};
+    const cache = options.__elementShotSvgCache || (options.__elementShotSvgCache = new Map());
+    const idFrom = (value) => {
+        if (!value) return '';
+        const index = value.lastIndexOf('#');
+        return index >= 0 ? value.slice(index + 1) : '';
+    };
+    const findById = (root, id) => {
+        if (!root || !id) return null;
+        if (root.getElementById) {
+            const direct = root.getElementById(id);
+            if (direct) return direct;
+        }
+        const nodes = root.querySelectorAll ? root.querySelectorAll('[id]') : [];
+        for (let index = 0; index < nodes.length; index += 1) {
+            if (nodes[index].getAttribute('id') === id) return nodes[index];
+        }
+        return null;
+    };
+    for (let i = 0; i < uses.length; i++) {
+        const use = uses[i];
+        const href = use.getAttribute('href') || use.getAttribute('xlink:href');
+        const id = idFrom(href);
+        if (!id) continue;
+        if (findById(clone, id)) {
+            use.setAttribute('href', '#' + id);
+            use.removeAttribute('xlink:href');
+            continue;
+        }
+        let definition = clone.ownerDocument ? clone.ownerDocument.getElementById(id) : null;
+        if (!definition && href && !href.startsWith('#')) {
+            const base = (clone.ownerDocument && clone.ownerDocument.baseURI) || document.baseURI;
+            try {
+                const url = new URL(href.split('#')[0], base).href;
+                let text = cache.get(url);
+                if (!text) {
+                    const response = await fetch(url, options.fetchRequestInit);
+                    text = await response.text();
+                    cache.set(url, text);
+                }
+                const sprite = new DOMParser().parseFromString(text, 'image/svg+xml');
+                definition = findById(sprite, id);
+            }
+            catch (error) {
+                // The icon stays unresolved; the rest of the capture continues.
+            }
+        }
+        if (!definition || processedDefs[id]) continue;
+        processedDefs[id] = definition.cloneNode(true);
+        use.setAttribute('href', '#' + id);
+        use.removeAttribute('xlink:href');
+    }
+    const nodes = Object.values(processedDefs);
+    if (nodes.length) {
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('xmlns', ns);
+        svg.style.position = 'absolute';
+        svg.style.width = '0';
+        svg.style.height = '0';
+        svg.style.overflow = 'hidden';
+        svg.style.display = 'none';
+        const defs = document.createElementNS(ns, 'defs');
+        svg.appendChild(defs);
+        for (let i = 0; i < nodes.length; i++) {
+            defs.appendChild(nodes[i]);
+        }
+        clone.appendChild(svg);
+    }
+    return clone;
+}
+`
+  return {
+    code: `${code.slice(0, start)}${replacement}${code.slice(end)}`,
+    changed: true
+  }
+}
+
 export interface GmFetchPluginOptions {
   /** Module that exports `gmFetch` and `GMXMLHttpRequest`. */
   adapterModule?: string
@@ -265,15 +359,16 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
     transform(code, id) {
       if (!include(id) || exclude(id)) return null
       const fontPatch = patchFontEmbedding(code)
-      const source = fontPatch.changed ? fontPatch.code : code
+      const svgPatch = patchSvgSymbols(fontPatch.changed ? fontPatch.code : code)
+      const source = svgPatch.changed ? svgPatch.code : fontPatch.changed ? fontPatch.code : code
       const result = rewriteFetchReferences(source, {
         adapterModule: virtualId,
         sourceFile: id
       })
-      if (!result.changed && !fontPatch.changed) return null
+      if (!result.changed && !fontPatch.changed && !svgPatch.changed) return null
       return {
-        code: result.changed ? result.code : fontPatch.code,
-        map: result.changed && !fontPatch.changed ? result.map : undefined
+        code: result.changed ? result.code : source,
+        map: result.changed && !fontPatch.changed && !svgPatch.changed ? result.map : undefined
       }
     }
   }

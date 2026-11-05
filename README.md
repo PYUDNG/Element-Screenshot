@@ -143,6 +143,7 @@ pnpm check            # lint + typecheck + coverage + build
 
 - 跨域图片/背景图可以读成 Blob 并内联为 data URL；
 - 可读样式表中的 `@font-face` 会被内联；
+- 外部 SVG sprite 的 `<use href="...">` 会按 fragment 取回对应 `<symbol>`，重写为本地引用后再渲染；
 - Canvas 不会因为跨域资源而污染。
 
 跨域 `<link rel="stylesheet">` 的 `cssRules` 受同源策略保护。脚本会跳过这类样式表，而不是把抓取到的文本强行插入页面样式表；这样既不会因 `SecurityError` / `SyntaxError` 污染控制台，也不会意外修改页面样式。此类样式表里的字体可能回退为系统字体。
@@ -208,13 +209,14 @@ settings.open()
 - 超大页面会按浏览器 canvas 上限自动降低导出倍率（`app.toast.downscaled` 提示）。
 - 整页截图中的 `position: sticky/fixed` 元素由渲染器按视口处理，可能与逐屏拼接的结果不同。
 - 跨域字体能否内联取决于样式表是否可读；不可读的跨域样式表会被跳过，字体回退为系统字体。
+- SVG sprite 若被目标站拒绝抓取或文件格式异常，图标会缺失，但不会中断整张截图。
 - 截图是本地行为，不联网上传；但为内联资源，脚本管理器会向资源原始地址发起请求。
 - 文件选择器仅 Chromium；其他浏览器回退为普通下载。剪贴板写入需要浏览器权限。
 - 当前只针对键鼠设计，触摸屏仅保证 FAB/设置面板可点按。
 
 ## 版本
 
-当前 `0.1.1`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。使用语义化版本，Git tag 形如 `v0.1.1`。
+当前 `0.1.2`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。使用语义化版本，Git tag 形如 `v0.1.2`。
 
 ## 许可
 

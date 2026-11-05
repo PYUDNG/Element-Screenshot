@@ -143,6 +143,7 @@ The playground uses `playground/gm-stub.js` to emulate GM APIs and exposes the l
 
 - cross-origin images and background images are read as Blobs and inlined as data URLs;
 - `@font-face` rules in readable stylesheets are embedded;
+- external SVG sprites are fetched by `<use href="...">` fragment and rewritten to local symbol references before rendering;
 - the canvas is not tainted by cross-origin resources.
 
 `cssRules` of a cross-origin `<link rel="stylesheet">` is protected by the same-origin policy. The script skips those sheets instead of inserting fetched text into a live page stylesheet. That keeps `SecurityError` / `SyntaxError` messages out of the console and avoids changing the page, at the cost of falling back to system fonts for fonts declared only in such sheets.
@@ -208,13 +209,14 @@ See [`packages/settings/README.md`](packages/settings/README.md) for field types
 - Very large pages are downscaled automatically to the browser canvas limit (a toast is shown).
 - `position: sticky/fixed` elements are rendered by the library against the viewport; full-page results can differ from stitched screenshots.
 - Cross-origin fonts can only be embedded from readable stylesheets; unreadable cross-origin sheets are skipped and their fonts fall back.
+- If a site blocks an SVG sprite fetch or serves malformed SVG, those icons are omitted without failing the whole capture.
 - Capture is local, but the manager does fetch the original asset URLs to inline them.
 - The file picker is Chromium-only; other browsers download instead. Clipboard image writes need permission.
 - Designed for keyboard and mouse; touch only guarantees the FAB and settings panel are tappable.
 
 ## Version
 
-Current version: `0.1.1`. See [CHANGELOG.md](CHANGELOG.md). Versions follow semver and tags look like `v0.1.1`.
+Current version: `0.1.2`. See [CHANGELOG.md](CHANGELOG.md). Versions follow semver and tags look like `v0.1.2`.
 
 ## License
 

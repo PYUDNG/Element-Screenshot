@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   gmFetchPlugin,
   patchFontEmbedding,
+  patchSvgSymbols,
   rewriteFetchReferences
 } from '../src/plugin/gm-fetch-plugin'
 
@@ -76,6 +77,27 @@ function getWebFontRules(cssRules) {
     expect(result.code).not.toContain('console.error')
     expect(result.code).not.toContain('insertRule')
     expect(result.code).toContain('function getWebFontRules')
+  })
+
+  it('resolves SVG use hrefs without treating them as CSS selectors', () => {
+    const source = `
+async function ensureSVGSymbols(clone, options) {
+  const id = use.getAttribute('xlink:href');
+  const exist = clone.querySelector(id);
+  const definition = document.querySelector(id);
+  return clone;
+}
+export async function cloneNode(node, options, isRoot) {
+  return node;
+}
+`
+    const result = patchSvgSymbols(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('lastIndexOf')
+    expect(result.code).toContain('DOMParser')
+    expect(result.code).toContain('__elementShotSvgCache')
+    expect(result.code).not.toContain('clone.querySelector(id)')
+    expect(result.code).toContain('export async function cloneNode')
   })
 
   it('transforms html-to-image modules only', () => {

@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-11-05
+
+### Fixed
+
+- Xiaohongshu pages with SVG sprite icons no longer fail the whole capture.
+  html-to-image treated `/sprite.svg#icon` as a CSS selector and threw
+  `SyntaxError`; the SVG `<use>` resolver now extracts the fragment id, reuses
+  in-document symbols, and fetches external sprites through the GM adapter.
+  Icons that resolve are rewritten to local fragment references before render.
+
 ## [0.1.1] - 2026-11-05
 
 ### Fixed
