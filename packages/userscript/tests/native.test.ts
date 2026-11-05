@@ -43,4 +43,17 @@ describe('native API snapshot', () => {
     const element = native.document.createElement('div')
     expect(element.tagName).toBe('DIV')
   })
+
+  it('strips HTML-only attribute names before SVG serialization', () => {
+    const native = createNativeSnapshot(window)
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const button = document.createElement('button')
+    button.setAttribute('$bgcolor', '#1da1f2')
+    button.setAttribute('data-testid', 'tweet')
+    svg.appendChild(button)
+
+    expect(native.sanitizeSvgAttributes(svg)).toBe(1)
+    expect(button.hasAttribute('$bgcolor')).toBe(false)
+    expect(button.getAttribute('data-testid')).toBe('tweet')
+  })
 })

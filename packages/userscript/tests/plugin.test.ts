@@ -155,6 +155,7 @@ export async function nodeToDataURL(node, width, height) {
 `
     const result = patchSvgSerialization(source)
     expect(result.changed).toBe(true)
+    expect(result.code).toContain('__elementShotNative.sanitizeSvgAttributes(svg)')
     expect(result.code).toContain('__elementShotNative.serializeSvg(svg)')
     expect(result.code).toContain('.then(__elementShotNative.sanitizeXmlText)')
     expect(result.code).not.toContain('new XMLSerializer')
@@ -176,6 +177,7 @@ export async function nodeToDataURL(node, width, height) {
 }
 `
     const transformed = transform(source, '/repo/node_modules/html-to-image/es/util.js')
+    expect(transformed?.code).toContain('sanitizeSvgAttributes')
     expect(transformed?.code).toContain('sanitizeXmlText')
     expect(transformed?.code).toContain('__elementShotNative.serializeSvg(svg)')
   })

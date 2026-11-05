@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-11-05
+
+### Fixed
+
+- X/Twitter full-page captures no longer fail on HTML-only attribute names
+  such as `$bgcolor`. `XMLSerializer` copied them into the SVG wrapper, where
+  `$` is illegal in an XML attribute name, so Chromium rejected the image.
+  Invalid XML attribute names are now stripped from the cloned SVG tree before
+  serialization; valid names such as `data-testid` and `xlink:href` are kept.
+
 ## [0.2.1] - 2026-11-05
 
 ### Fixed

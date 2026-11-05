@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeXmlText } from '../src/core/xml'
+import { isValidXmlName, sanitizeXmlText } from '../src/core/xml'
+
+describe('XML name validation', () => {
+  it('accepts XML attribute names', () => {
+    for (const name of [
+      'class',
+      'data-testid',
+      'xlink:href',
+      'xml:lang',
+      'aria-label',
+      '数据-id'
+    ]) {
+      expect(isValidXmlName(name), name).toBe(true)
+    }
+  })
+
+  it('rejects HTML-only names', () => {
+    for (const name of ['$bgcolor', '@click', '1foo', 'foo bar', 'foo?bar', '']) {
+      expect(isValidXmlName(name), name).toBe(false)
+    }
+  })
+})
 
 describe('XML text sanitization', () => {
   it('replaces control characters that XML 1.0 forbids', () => {

@@ -1,4 +1,4 @@
-import { sanitizeXmlText } from './xml'
+import { isValidXmlName, sanitizeXmlText } from './xml'
 
 type AnyMethod = (...args: never[]) => unknown
 type BrowserWindow = Window & typeof globalThis
@@ -88,6 +88,7 @@ export interface NativeSnapshot {
   readonly createImage: () => HTMLImageElement
   readonly serializeSvg: (node: Node) => string
   readonly sanitizeXmlText: (value: string) => string
+  readonly sanitizeSvgAttributes: (root: Element) => number
   readonly requestAnimationFrame: (callback: FrameRequestCallback) => number
   readonly cancelAnimationFrame: (handle: number) => void
   readonly setTimeout: (handler: TimerHandler, timeout?: number) => number
@@ -153,6 +154,7 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
   const cloneNodeMethod = nodeProto.cloneNode
   const appendChildMethod = nodeProto.appendChild
   const getAttributeMethod = elementProto.getAttribute
+  const getAttributeNamesMethod = elementProto.getAttributeNames
   const setAttributeMethod = elementProto.setAttribute
   const removeAttributeMethod = elementProto.removeAttribute
   const elementQuerySelector = elementProto.querySelector
@@ -357,6 +359,19 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
     serializeSvg: (node) =>
       call<string>(serializeToString as unknown as AnyMethod, new XMLSerializerCtor(), [node]),
     sanitizeXmlText,
+    sanitizeSvgAttributes: (root) => {
+      let removed = 0
+      const elements = [root, ...Array.from(querySelectorAll(root, '*'))]
+      for (const element of elements) {
+        const names = call<string[]>(getAttributeNamesMethod as unknown as AnyMethod, element, [])
+        for (const name of names) {
+          if (isValidXmlName(name)) continue
+          call<void>(removeAttributeMethod as unknown as AnyMethod, element, [name])
+          removed += 1
+        }
+      }
+      return removed
+    },
     requestAnimationFrame: win.requestAnimationFrame.bind(win),
     cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
     setTimeout: win.setTimeout.bind(win),

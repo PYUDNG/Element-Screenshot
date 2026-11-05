@@ -351,10 +351,10 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
 }
 
 /**
- * `XMLSerializer` copies HTML control characters into the SVG wrapper verbatim,
- * but XML 1.0 forbids them. A single inline script containing U+0001 makes
- * Chromium reject the whole image. Serialize through the native snapshot and
- * sanitize the result before building the data URL.
+ * `XMLSerializer` copies HTML-only attribute names (such as `$bgcolor`) and
+ * control characters into the SVG wrapper verbatim, but both are illegal in
+ * XML. Serialize through the native snapshot, strip invalid attribute names and
+ * sanitize the text before building the data URL.
  */
 export function patchSvgSerialization(code: string): { code: string; changed: boolean } {
   const start = code.indexOf('export async function svgToDataURL(')
@@ -363,6 +363,7 @@ export function patchSvgSerialization(code: string): { code: string; changed: bo
 
   const replacement = `export async function svgToDataURL(svg) {
     return Promise.resolve()
+        .then(() => __elementShotNative.sanitizeSvgAttributes(svg))
         .then(() => __elementShotNative.serializeSvg(svg))
         .then(__elementShotNative.sanitizeXmlText)
         .then(encodeURIComponent)
