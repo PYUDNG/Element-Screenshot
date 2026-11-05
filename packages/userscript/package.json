@@ -1,0 +1,21 @@
+{
+  "name": "element-shot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Userscript that captures any page element, including its full scrollable content.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "html-to-image": "^1.11.13",
+    "vue": "^3.5.44"
+  },
+  "devDependencies": {
+    "@element-shot/settings": "workspace:*",
+    "vite-plugin-monkey": "^8.1.1"
+  }
+}

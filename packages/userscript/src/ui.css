@@ -1,0 +1,7 @@
+.es-ui-root {
+  pointer-events: none;
+}
+
+.es-ui-root * {
+  box-sizing: border-box;
+}

@@ -1,0 +1,61 @@
+import type { I18n, SettingsController } from '@element-shot/settings'
+
+export type PickerMode = 'idle' | 'picking' | 'selected'
+export type ToastTone = 'info' | 'success' | 'error'
+
+export interface ToastItem {
+  id: number
+  message: string
+  tone: ToastTone
+}
+
+export interface PickerBox {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+export interface PickerHover {
+  label: string
+  width: number
+  height: number
+  scrollable: boolean
+  depth: number
+  total: number
+  fullPage: boolean
+}
+
+export interface CaptureSize {
+  width: number
+  height: number
+}
+
+export interface ShotState {
+  mode: PickerMode
+  hover: PickerHover | null
+  box: PickerBox | null
+  cursor: { x: number; y: number }
+  capturing: boolean
+  ready: boolean
+  error: string | null
+  captureSize: CaptureSize | null
+  toasts: ToastItem[]
+  fab: { left: number; top: number }
+  viewport: { width: number; height: number }
+}
+
+export interface ShotAppApi {
+  readonly state: ShotState
+  readonly settings: SettingsController
+  readonly i18n: I18n
+  startPicker(): void
+  cancel(): void
+  cycle(delta: number): void
+  copy(): Promise<void>
+  save(): Promise<void>
+  repositionFab(): void
+  setFabPosition(left: number, top: number, commit: boolean): void
+  toast(key: string, tone?: ToastTone, params?: Record<string, string | number>): void
+  isUiEvent(event: Event): boolean
+}
