@@ -119,12 +119,89 @@ function parentElementOf(element: Element): Element | null {
 }
 
 /**
+ * Layers painted behind the element at its center. `elementsFromPoint` also
+ * returns fixed, negative-z-index layers such as a page background image and
+ * its darkening mask, which are not ancestors and are invisible to a plain
+ * parent walk.
+ */
+function backdropLayers(element: Element): Element[] | null {
+  try {
+    const rect = native.getBoundingClientRect(element)
+    const doc = element.ownerDocument
+    const width = window.innerWidth || doc.documentElement?.clientWidth || 1
+    const height = window.innerHeight || doc.documentElement?.clientHeight || 1
+    const x = clamp(rect.left + rect.width / 2, 0, Math.max(0, width - 1))
+    const y = clamp(rect.top + rect.height / 2, 0, Math.max(0, height - 1))
+    const stack = native.elementsFromPoint(doc, x, y)
+    const index = stack.findIndex((node) => node === element || node.contains(element))
+    if (index < 0) return null
+    return stack.slice(index + 1)
+  } catch {
+    return null
+  }
+}
+
+/** Average color of a background image, when its pixels are readable. */
+function averageImageColor(image: HTMLImageElement): Rgba | null {
+  if (!image.complete || !image.naturalWidth || !image.naturalHeight) return null
+  try {
+    const size = 8
+    const canvas = native.document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const context = native.canvas.getContext(canvas)
+    if (!context) return null
+    native.canvas.drawImage(context, image, 0, 0, size, size)
+    const data = native.canvas.getImageData(context, 0, 0, size, size).data
+    let r = 0
+    let g = 0
+    let b = 0
+    let a = 0
+    for (let index = 0; index < data.length; index += 4) {
+      const alpha = (data[index + 3] ?? 0) / 255
+      r += (data[index] ?? 0) * alpha
+      g += (data[index + 1] ?? 0) * alpha
+      b += (data[index + 2] ?? 0) * alpha
+      a += alpha
+    }
+    if (a <= 0) return null
+    return { r: r / a, g: g / a, b: b / a, a: a / (size * size) }
+  } catch {
+    // Cross-origin background images taint the sampling canvas.
+    return null
+  }
+}
+
+/**
  * Resolve the opaque color visible behind an element. html-to-image paints this
  * behind the clone, so transparent regions match the page instead of a fixed
- * white canvas. Only background colors are composited; ancestor background
- * images remain visible because the clone still paints the selected subtree.
+ * white canvas. The paint stack at the element's center is preferred because
+ * fixed page backgrounds and masks are not ancestors; a parent walk remains as
+ * a fallback for off-screen or unmeasurable elements.
  */
 export function resolveBackdropColor(element: Element): string {
+  const layers = backdropLayers(element)
+  if (layers && layers.length > 0) {
+    let painted = WHITE
+    for (let index = layers.length - 1; index >= 0; index -= 1) {
+      const layer = layers[index]
+      if (!layer) continue
+      let style: CSSStyleDeclaration
+      try {
+        style = native.getComputedStyle(layer)
+      } catch {
+        continue
+      }
+      if (layer.tagName === 'IMG') {
+        const imageColor = averageImageColor(layer as HTMLImageElement)
+        if (imageColor) painted = composite(imageColor, painted)
+      }
+      const color = parseCssColor(style.backgroundColor)
+      if (color && color.a > 0) painted = composite(color, painted)
+    }
+    return `rgb(${Math.round(painted.r)}, ${Math.round(painted.g)}, ${Math.round(painted.b)})`
+  }
+
   const doc = element.ownerDocument
   const chain: string[] = []
   let current = parentElementOf(element)

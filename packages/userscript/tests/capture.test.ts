@@ -297,6 +297,38 @@ describe('scroll expansion planning', () => {
     expect(options.onImageErrorHandler).toBe(handleImageError)
   })
 
+  it('expands an inline element so the line box does not clip glyphs', async () => {
+    const element = document.createElement('b')
+    document.body.appendChild(element)
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 12,
+      right: 200,
+      bottom: 12,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect)
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      display: 'inline',
+      fontSize: '12px',
+      borderLeftWidth: '0px',
+      borderRightWidth: '0px',
+      borderTopWidth: '0px',
+      borderBottomWidth: '0px',
+      overflowX: 'visible',
+      overflowY: 'visible'
+    } as CSSStyleDeclaration)
+
+    await captureElement(element, { expandNested: false, pixelRatio: 1 })
+
+    const options = toBlobMock.mock.calls[0]?.[1]
+    expect(options.height).toBe(24)
+    expect(options.style).toMatchObject({ display: 'block', lineHeight: '18px' })
+  })
+
   it('does not wait forever when requestAnimationFrame is paused', async () => {
     const element = document.createElement('div')
     document.body.appendChild(element)

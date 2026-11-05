@@ -91,4 +91,57 @@ describe('page background resolution', () => {
 
     expect(resolveBackdropColor(inner)).toBe('rgb(3, 7, 18)')
   })
+
+  it('includes fixed background layers and masks that are not ancestors', () => {
+    const html = document.documentElement
+    const body = document.body
+    const panel = document.createElement('div')
+    const card = document.createElement('b')
+    body.appendChild(panel)
+    panel.appendChild(card)
+    const mask = document.createElement('div')
+
+    mockBackgrounds(
+      new Map([
+        [html, 'rgb(255, 255, 255)'],
+        [body, 'rgba(0, 0, 0, 0)'],
+        [panel, 'rgba(0, 0, 0, 0)'],
+        [mask, 'rgba(0, 0, 0, 0.5)']
+      ])
+    )
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([card, panel, body, mask, html])
+
+    expect(resolveBackdropColor(card)).toBe('rgb(128, 128, 128)')
+  })
+
+  it('samples the average color of a readable background image', () => {
+    const html = document.documentElement
+    const body = document.body
+    const card = document.createElement('b')
+    const image = document.createElement('img')
+    body.append(image, card)
+
+    mockBackgrounds(
+      new Map([
+        [html, 'rgb(255, 255, 255)'],
+        [body, 'rgba(0, 0, 0, 0)']
+      ])
+    )
+    Object.defineProperty(image, 'complete', { value: true })
+    Object.defineProperty(image, 'naturalWidth', { value: 32 })
+    Object.defineProperty(image, 'naturalHeight', { value: 32 })
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([card, image, body, html])
+    vi.spyOn(native.canvas, 'getContext').mockReturnValue({} as CanvasRenderingContext2D)
+    vi.spyOn(native.canvas, 'drawImage').mockImplementation(() => {})
+    const pixels = new Uint8ClampedArray(8 * 8 * 4)
+    for (let index = 0; index < pixels.length; index += 4) {
+      pixels[index] = 32
+      pixels[index + 1] = 32
+      pixels[index + 2] = 32
+      pixels[index + 3] = 255
+    }
+    vi.spyOn(native.canvas, 'getImageData').mockReturnValue({ data: pixels } as ImageData)
+
+    expect(resolveBackdropColor(card)).toBe('rgb(32, 32, 32)')
+  })
 })

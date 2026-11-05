@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.6] - 2026-11-06
+
+### Fixed
+
+- Captures of inline elements such as `<b>` no longer look washed out when
+  their contrast comes from a fixed page background. The backdrop now uses the
+  actual paint stack at the element, including non-ancestor background layers
+  and darkening masks, and samples the average color of readable background
+  images (for example wenku8’s fixed background plus its 60% black mask).
+- Inline elements are rendered as blocks on an extra font-size of height during
+  capture. Their original 12px border box sits inside a line box whose strut
+  pushed the glyphs below the crop, so the screenshot only contained the tops
+  of the characters.
+
 ## [0.2.5] - 2026-11-06
 
 ### Fixed
