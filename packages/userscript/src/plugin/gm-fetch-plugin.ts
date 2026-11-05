@@ -351,6 +351,31 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
 }
 
 /**
+ * `XMLSerializer` copies HTML control characters into the SVG wrapper verbatim,
+ * but XML 1.0 forbids them. A single inline script containing U+0001 makes
+ * Chromium reject the whole image. Serialize through the native snapshot and
+ * sanitize the result before building the data URL.
+ */
+export function patchSvgSerialization(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('export async function svgToDataURL(')
+  const end = code.indexOf('export async function nodeToDataURL(', start)
+  if (start < 0 || end < 0 || end <= start) return { code, changed: false }
+
+  const replacement = `export async function svgToDataURL(svg) {
+    return Promise.resolve()
+        .then(() => __elementShotNative.serializeSvg(svg))
+        .then(__elementShotNative.sanitizeXmlText)
+        .then(encodeURIComponent)
+        .then((html) => 'data:image/svg+xml;charset=utf-8,' + html);
+}
+`
+  return {
+    code: `${code.slice(0, start)}${replacement}${code.slice(end)}`,
+    changed: true
+  }
+}
+
+/**
  * html-to-image reads and calls browser prototypes directly. Route its canvas
  * serialization, cloning and computed-style reads through the native snapshot
  * so a page-level prototype hook cannot intercept the capture pipeline.
@@ -457,23 +482,27 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
     },
     transform(code, id) {
       if (!include(id) || exclude(id)) return null
-      const fontPatch = patchFontEmbedding(code)
-      const svgPatch = patchSvgSymbols(fontPatch.changed ? fontPatch.code : code)
-      const nativePatch = patchNativeCalls(
-        svgPatch.changed ? svgPatch.code : fontPatch.changed ? fontPatch.code : code
-      )
-      const source = nativePatch.changed
-        ? nativePatch.code
-        : svgPatch.changed
-          ? svgPatch.code
-          : fontPatch.changed
-            ? fontPatch.code
-            : code
+
+      const patches = [
+        patchFontEmbedding,
+        patchSvgSymbols,
+        ...(nativeAdapter ? [patchSvgSerialization] : []),
+        patchNativeCalls
+      ]
+      let source = code
+      let changed = false
+      for (const patch of patches) {
+        const result = patch(source)
+        if (!result.changed) continue
+        source = result.code
+        changed = true
+      }
+
       const result = rewriteFetchReferences(source, {
         adapterModule: virtualId,
         sourceFile: id
       })
-      if (!result.changed && !fontPatch.changed && !svgPatch.changed && !nativePatch.changed) {
+      if (!result.changed && !changed) {
         return nativeAdapter ? { code: `${NATIVE_PRELUDE}${code}` } : null
       }
       const transformed = result.changed ? result.code : source

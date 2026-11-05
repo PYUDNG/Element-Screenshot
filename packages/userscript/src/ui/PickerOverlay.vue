@@ -176,7 +176,13 @@ const selectedDimensions = computed(() => {
         <span class="flex items-center gap-1.5 font-medium">
           <ImageIcon :size="14" class="text-blue-600 dark:text-blue-400" />
           <span v-if="state.capturing">{{ t('app.hint.rendering') }}</span>
-          <span v-else-if="state.error">{{ t('app.hint.failed') }}</span>
+          <span
+            v-else-if="state.error"
+            :title="state.error"
+            :aria-label="`${t('app.hint.failed')}: ${state.error}`"
+          >
+            {{ t('app.hint.failed') }}
+          </span>
           <span v-else>{{ selectedDimensions }}</span>
         </span>
 

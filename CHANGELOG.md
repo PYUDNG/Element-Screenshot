@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-11-05
+
+### Fixed
+
+- Full-page captures no longer fail on pages whose inline scripts contain
+  control characters that XML 1.0 forbids. html-to-image cloned the scripts into
+  the SVG wrapper, and a single `U+0001` made Chromium reject the entire image.
+  Scripts are now excluded from the clone, and the serialized SVG is sanitized
+  against the XML 1.0 character set as a fallback.
+- Capture failures now report the underlying cause instead of a bare “rendering
+  failed” toast. The picker status tooltip also exposes the technical detail.
+
 ## [0.2.0] - 2026-11-05
 
 ### Added

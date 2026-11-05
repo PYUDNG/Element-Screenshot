@@ -3,6 +3,7 @@ import {
   gmFetchPlugin,
   patchFontEmbedding,
   patchNativeCalls,
+  patchSvgSerialization,
   patchSvgSymbols,
   rewriteFetchReferences
 } from '../src/plugin/gm-fetch-plugin'
@@ -138,6 +139,45 @@ export async function cloneNode(node, options, isRoot) {
     expect(result.code).toContain('__elementShotNative.canvas.drawImage(context, ')
     expect(result.code).toContain('__elementShotNative.cloneNode(node, isSVGElement(node))')
     expect(result.code).toContain('canvas fill handles the backdrop')
+  })
+
+  it('sanitizes the serialized SVG before creating its data URL', () => {
+    const source = `
+export async function svgToDataURL(svg) {
+  return Promise.resolve()
+    .then(() => new XMLSerializer().serializeToString(svg))
+    .then(encodeURIComponent)
+    .then((html) => \`data:image/svg+xml;charset=utf-8,\${html}\`);
+}
+export async function nodeToDataURL(node, width, height) {
+  return svgToDataURL(node);
+}
+`
+    const result = patchSvgSerialization(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('__elementShotNative.serializeSvg(svg)')
+    expect(result.code).toContain('.then(__elementShotNative.sanitizeXmlText)')
+    expect(result.code).not.toContain('new XMLSerializer')
+    expect(result.code).toContain('export async function nodeToDataURL')
+  })
+
+  it('applies SVG serialization sanitization in the Vite transform', () => {
+    const plugin = gmFetchPlugin()
+    const transform = plugin.transform as unknown as (
+      code: string,
+      id: string
+    ) => { code: string } | null
+    const source = `
+export async function svgToDataURL(svg) {
+  return Promise.resolve().then(() => new XMLSerializer().serializeToString(svg)).then(encodeURIComponent);
+}
+export async function nodeToDataURL(node, width, height) {
+  return svgToDataURL(node);
+}
+`
+    const transformed = transform(source, '/repo/node_modules/html-to-image/es/util.js')
+    expect(transformed?.code).toContain('sanitizeXmlText')
+    expect(transformed?.code).toContain('__elementShotNative.serializeSvg(svg)')
   })
 
   it('injects the native prelude only when configured', () => {

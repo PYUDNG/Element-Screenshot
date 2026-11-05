@@ -83,6 +83,7 @@ const zhCN: LocaleDefinition = {
         saved: '截图已保存',
         saveFailed: '保存失败',
         captureFailed: '截图渲染失败',
+        captureFailedDetail: '截图渲染失败：{reason}',
         notReady: '截图尚未完成',
         downscaled: '页面过大，已自动降低导出倍率',
         enabledHere: '已为当前站点启用'
@@ -180,6 +181,7 @@ const zhTW: LocaleDefinition = {
         saved: '截圖已儲存',
         saveFailed: '儲存失敗',
         captureFailed: '截圖轉譯失敗',
+        captureFailedDetail: '截圖轉譯失敗：{reason}',
         notReady: '截圖尚未完成',
         downscaled: '頁面過大，已自動降低匯出倍率',
         enabledHere: '已為目前站點啟用'
@@ -280,6 +282,7 @@ const en: LocaleDefinition = {
         saved: 'Screenshot saved',
         saveFailed: 'Save failed',
         captureFailed: 'Screenshot rendering failed',
+        captureFailedDetail: 'Screenshot rendering failed: {reason}',
         notReady: 'Screenshot is not ready yet',
         downscaled: 'Page is very large; export scale was reduced',
         enabledHere: 'Enabled for this site'

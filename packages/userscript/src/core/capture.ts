@@ -33,6 +33,45 @@ export interface CaptureScalePlan {
 
 const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
+const ERROR_SOURCE_LIMIT = 512
+
+function formatBytes(length: number): string {
+  if (length < 1024) return `${length} B`
+  if (length < 1024 * 1024) return `${Math.round(length / 1024)} KB`
+  return `${(length / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function truncate(value: string, limit: number): string {
+  return value.length > limit ? `${value.slice(0, limit)}…` : value
+}
+
+/**
+ * Scripts never render. Keeping them out of the clone also avoids embedding
+ * arbitrary inline JavaScript into the SVG wrapper, which may contain control
+ * characters that are illegal in XML.
+ */
+export function shouldCaptureNode(node: HTMLElement): boolean {
+  return node.tagName?.toUpperCase() !== 'SCRIPT'
+}
+
+/** Turn html-to-image's bare image events into an actionable message. */
+export function describeCaptureError(error: unknown): string {
+  if (error instanceof Error) return error.message || error.name
+
+  if (error instanceof Event) {
+    const target = error.target as HTMLImageElement | null
+    if (target?.tagName?.toUpperCase() === 'IMG') {
+      const source = target.currentSrc || target.src || ''
+      if (source.startsWith('data:image/svg+xml')) {
+        return `Inline SVG image failed to load (${formatBytes(source.length)} data URL)`
+      }
+      if (source) return `Image failed to load: ${truncate(source, ERROR_SOURCE_LIMIT)}`
+    }
+    return `Browser event error: ${error.type || 'unknown'}`
+  }
+
+  return String(error)
+}
 
 /** Fit a capture inside the browser's canvas limits without exceeding them. */
 export function computeCaptureScale(

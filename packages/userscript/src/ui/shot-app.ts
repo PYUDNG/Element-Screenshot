@@ -2,7 +2,7 @@ import { createApp, reactive, watch } from 'vue'
 import type { App } from 'vue'
 import { applyShadowStyles } from '@element-shot/settings'
 import type { I18n, SettingsController } from '@element-shot/settings'
-import { captureElement } from '../core/capture'
+import { captureElement, describeCaptureError, shouldCaptureNode } from '../core/capture'
 import { resolveBackdropColor } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
 import { native } from '../core/native'
@@ -376,7 +376,7 @@ export class ShotApp implements ShotAppApi {
         expandNested,
         backgroundColor: background,
         pixelRatio: Number.isFinite(requested) ? requested : undefined,
-        filter: (node) => !isMarkedUiNode(node)
+        filter: (node) => shouldCaptureNode(node) && !isMarkedUiNode(node)
       })
 
       if (token !== this.captureToken) return
@@ -387,9 +387,10 @@ export class ShotApp implements ShotAppApi {
       if (result.limited) this.toast('app.toast.downscaled', 'info')
     } catch (error) {
       if (token !== this.captureToken) return
-      console.error('[element-shot] capture failed', error)
-      this.state.error = error instanceof Error ? error.message : String(error)
-      this.toast('app.toast.captureFailed', 'error')
+      const reason = describeCaptureError(error)
+      console.error('[element-shot] capture failed', reason, error)
+      this.state.error = reason
+      this.toast('app.toast.captureFailedDetail', 'error', { reason })
     } finally {
       if (token === this.captureToken) this.state.capturing = false
     }

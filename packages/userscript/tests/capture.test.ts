@@ -8,7 +8,13 @@ vi.mock('html-to-image', () => ({
   toBlob: toBlobMock
 }))
 
-import { captureElement, collectScrollTargets, computeCaptureScale } from '../src/core/capture'
+import {
+  captureElement,
+  collectScrollTargets,
+  computeCaptureScale,
+  describeCaptureError,
+  shouldCaptureNode
+} from '../src/core/capture'
 import { native } from '../src/core/native'
 import { getTargetBox } from '../src/core/target'
 
@@ -34,6 +40,37 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks()
   document.body.innerHTML = ''
+})
+
+describe('capture filtering', () => {
+  it('keeps rendered elements and skips scripts', () => {
+    const div = document.createElement('div')
+    const script = document.createElement('script')
+    const svgScript = document.createElementNS('http://www.w3.org/2000/svg', 'script')
+
+    expect(shouldCaptureNode(div)).toBe(true)
+    expect(shouldCaptureNode(script)).toBe(false)
+    expect(shouldCaptureNode(svgScript as unknown as HTMLElement)).toBe(false)
+  })
+})
+
+describe('capture error messages', () => {
+  it('reports an inline SVG image error with its data URL size', () => {
+    const image = document.createElement('img')
+    image.src = 'data:image/svg+xml;charset=utf-8,%3Csvg%3E'
+    const event = new Event('error')
+    image.dispatchEvent(event)
+
+    const message = describeCaptureError(event)
+    expect(message).toContain('Inline SVG image failed to load')
+    expect(message).toContain('data URL')
+  })
+
+  it('falls back to the error message or event type', () => {
+    expect(describeCaptureError(new Error('boom'))).toBe('boom')
+    expect(describeCaptureError(new Event('error'))).toBe('Browser event error: error')
+    expect(describeCaptureError('plain failure')).toBe('plain failure')
+  })
 })
 
 describe('capture scale planning', () => {

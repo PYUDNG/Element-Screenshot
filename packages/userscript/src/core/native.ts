@@ -1,3 +1,5 @@
+import { sanitizeXmlText } from './xml'
+
 type AnyMethod = (...args: never[]) => unknown
 type BrowserWindow = Window & typeof globalThis
 
@@ -85,6 +87,7 @@ export interface NativeSnapshot {
   readonly click: (element: HTMLElement) => void
   readonly createImage: () => HTMLImageElement
   readonly serializeSvg: (node: Node) => string
+  readonly sanitizeXmlText: (value: string) => string
   readonly requestAnimationFrame: (callback: FrameRequestCallback) => number
   readonly cancelAnimationFrame: (handle: number) => void
   readonly setTimeout: (handler: TimerHandler, timeout?: number) => number
@@ -353,6 +356,7 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
     createImage: () => new ImageCtor(),
     serializeSvg: (node) =>
       call<string>(serializeToString as unknown as AnyMethod, new XMLSerializerCtor(), [node]),
+    sanitizeXmlText,
     requestAnimationFrame: win.requestAnimationFrame.bind(win),
     cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
     setTimeout: win.setTimeout.bind(win),
