@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Element Shot — Playground</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        --brand: #2563eb;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f4f4f5;
+        color: #18181b;
+      }
+      header {
+        padding: 40px 32px 16px;
+        max-width: 1040px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+      p {
+        line-height: 1.7;
+        color: #52525b;
+      }
+      main {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 16px 32px 120px;
+        display: grid;
+        grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
+        gap: 24px;
+      }
+      @media (max-width: 860px) {
+        main {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e4e4e7;
+        border-radius: 12px;
+        padding: 18px;
+      }
+      .card h2 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+      .muted {
+        margin: 0 0 14px;
+        color: #71717a;
+        font-size: 13px;
+      }
+      #long-card {
+        height: 300px;
+        overflow: auto;
+        padding: 16px;
+        border: 1px solid #d4d4d8;
+        border-radius: 10px;
+        background: #fff;
+      }
+      #long-card .row {
+        padding: 10px 12px;
+        border-bottom: 1px solid #f4f4f5;
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
+      }
+      #long-card .row:nth-child(3n) {
+        background: #f8fafc;
+      }
+      .badge {
+        color: var(--brand);
+        font-weight: 600;
+      }
+      .hero {
+        margin-top: 18px;
+        padding: 22px;
+        border-radius: 10px;
+        color: #fff;
+        background:
+          radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.25), transparent 40%),
+          linear-gradient(135deg, #1d4ed8, #7c3aed 70%, #db2777);
+      }
+      .hero h3 {
+        margin: 0 0 8px;
+        font-size: 20px;
+      }
+      .hero p {
+        color: rgba(255, 255, 255, 0.86);
+        margin: 0;
+        font-size: 13px;
+      }
+      .art {
+        margin-top: 14px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .art img {
+        width: 72px;
+        height: 72px;
+        border-radius: 10px;
+        background: #fff;
+        border: 1px solid #e4e4e7;
+      }
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+      .tall {
+        height: 900px;
+        background: repeating-linear-gradient(90deg, #fafafa 0 24px, #f4f4f5 24px 48px);
+        border: 1px dashed #d4d4d8;
+        border-radius: 10px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 18px;
+        color: #a1a1aa;
+        font-size: 12px;
+      }
+      code {
+        background: #f4f4f5;
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Element Shot Playground</h1>
+      <p>
+        下面有两个目标：一个可滚动的列表 <code>#long-card</code>，以及一个普通卡片
+        <code>#simple-card</code>。用悬浮按钮或快捷键选择元素，截图会包含滚动区域的全部内容。
+      </p>
+      <p>快捷键默认 <code>Alt+Shift+S</code>；Ctrl+A 可整页截图。</p>
+    </header>
+
+    <main>
+      <section class="card" id="simple-card">
+        <h2>Simple card</h2>
+        <p class="muted">普通元素截图，含渐变背景和内联 SVG 图片。</p>
+        <div class="hero">
+          <h3>Gradient hero</h3>
+          <p>这段内容用于检查渐变、圆角、阴影与字体渲染是否完整。</p>
+        </div>
+        <div class="art">
+          <img src="/sample.svg" alt="sample" />
+          <div>
+            <strong>Sample image</strong>
+            <p class="muted" style="margin: 4px 0 0">同源图片会被内联为 data URL。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Scrollable list</h2>
+        <p class="muted">这个容器高 300px，但内容约 1500px，截图应包含全部行。</p>
+        <div id="long-card">
+          <div class="row"><span>Row 01</span><span class="badge">alpha</span></div>
+          <div class="row"><span>Row 02</span><span class="badge">beta</span></div>
+          <div class="row"><span>Row 03</span><span class="badge">gamma</span></div>
+          <div class="row"><span>Row 04</span><span class="badge">delta</span></div>
+          <div class="row"><span>Row 05</span><span class="badge">alpha</span></div>
+          <div class="row"><span>Row 06</span><span class="badge">beta</span></div>
+          <div class="row"><span>Row 07</span><span class="badge">gamma</span></div>
+          <div class="row"><span>Row 08</span><span class="badge">delta</span></div>
+          <div class="row"><span>Row 09</span><span class="badge">alpha</span></div>
+          <div class="row"><span>Row 10</span><span class="badge">beta</span></div>
+          <div class="row"><span>Row 11</span><span class="badge">gamma</span></div>
+          <div class="row"><span>Row 12</span><span class="badge">delta</span></div>
+          <div class="row"><span>Row 13</span><span class="badge">alpha</span></div>
+          <div class="row"><span>Row 14</span><span class="badge">beta</span></div>
+          <div class="row"><span>Row 15</span><span class="badge">gamma</span></div>
+          <div class="row"><span>Row 16</span><span class="badge">delta</span></div>
+          <div class="row"><span>Row 17</span><span class="badge">alpha</span></div>
+          <div class="row"><span>Row 18</span><span class="badge">beta</span></div>
+          <div class="row"><span>Row 19</span><span class="badge">gamma</span></div>
+          <div class="row"><span>Row 20</span><span class="badge">delta</span></div>
+          <div class="row"><span>Row 21</span><span class="badge">alpha</span></div>
+          <div class="row"><span>Row 22</span><span class="badge">beta</span></div>
+          <div class="row"><span>Row 23</span><span class="badge">gamma</span></div>
+          <div class="row"><span>Row 24</span><span class="badge">delta</span></div>
+        </div>
+      </section>
+
+      <div class="stack">
+        <div class="tall">tall filler for full-page capture</div>
+      </div>
+    </main>
+
+    <script src="/gm-stub.js"></script>
+    <script>
+      const originalToBlob = HTMLCanvasElement.prototype.toBlob
+      HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+        return originalToBlob.call(
+          this,
+          (blob) => {
+            window.__lastShot = { blob, width: this.width, height: this.height }
+            callback(blob)
+          },
+          type,
+          quality
+        )
+      }
+    </script>
+    <script src="/element-shot.user.js"></script>
+  </body>
+</html>
