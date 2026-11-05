@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   gmFetchPlugin,
+  patchCloneCanvas,
+  patchCloneVideo,
   patchCreateImage,
   patchFontEmbedding,
   patchImageEmbedding,
@@ -280,5 +282,62 @@ export function createImage(url) {
   it('leaves source without createImage alone', () => {
     const source = 'export const value = 1'
     expect(patchCreateImage(source)).toEqual({ code: source, changed: false })
+  })
+
+  it('returns an empty canvas clone when the page canvas is tainted', () => {
+    const source = `
+async function cloneCanvasElement(canvas) {
+    const dataURL = canvas.toDataURL();
+    if (dataURL === 'data:,') return canvas.cloneNode(false);
+    return createImage(dataURL);
+}
+async function cloneVideoElement(video, options) {
+    return video;
+}
+`
+    const result = patchCloneCanvas(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('catch (error)')
+    expect(result.code).toContain('return canvas.cloneNode(false)')
+    expect(result.code).toContain('async function cloneVideoElement')
+  })
+
+  it('leaves source without cloneCanvasElement alone', () => {
+    const source = 'export const value = 1'
+    expect(patchCloneCanvas(source)).toEqual({ code: source, changed: false })
+  })
+
+  it('falls back to the poster when a cross-origin video taints the canvas', () => {
+    const source = `
+async function cloneVideoElement(video, options) {
+    if (video.currentSrc) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = video.clientWidth;
+        canvas.height = video.clientHeight;
+        ctx === null || ctx === void 0 ? void 0 : ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataURL = canvas.toDataURL();
+        return createImage(dataURL);
+    }
+    const poster = video.poster;
+    const contentType = getMimeType(poster);
+    const dataURL = await resourceToDataURL(poster, contentType, options);
+    return createImage(dataURL);
+}
+async function cloneIFrameElement(iframe, options) {
+    return iframe;
+}
+`
+    const result = patchCloneVideo(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('const frame = canvas.toDataURL()')
+    expect(result.code).toContain('catch (error)')
+    expect(result.code).toContain('const dataURL = await resourceToDataURL(poster')
+    expect(result.code).toContain('async function cloneIFrameElement')
+  })
+
+  it('leaves source without cloneVideoElement alone', () => {
+    const source = 'export const value = 1'
+    expect(patchCloneVideo(source)).toEqual({ code: source, changed: false })
   })
 })

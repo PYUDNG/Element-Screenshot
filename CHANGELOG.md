@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.5] - 2026-11-06
+
+### Fixed
+
+- Cross-origin videos no longer abort a capture with
+  `SecurityError: Tainted canvases may not be exported`. html-to-image drew the
+  video frame onto a canvas and exported it with `toDataURL()`; when the video
+  came from another origin without CORS, that export threw. The frame is used
+  when exportable; otherwise the poster is used, and a missing poster becomes a
+  transparent placeholder.
+- Page canvases that were already tainted by cross-origin drawing now fall back
+  to an empty clone instead of throwing during `toDataURL()`.
+
 ## [0.2.4] - 2026-11-06
 
 ### Fixed

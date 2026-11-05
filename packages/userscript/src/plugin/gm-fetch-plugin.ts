@@ -204,6 +204,72 @@ export function rewriteFetchReferences(code: string, options: RewriteOptions = {
 }
 
 /**
+ * A page canvas that drew cross-origin content cannot be exported either.
+ * Return an empty clone instead of letting `toDataURL()` abort the capture.
+ */
+export function patchCloneCanvas(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('async function cloneCanvasElement(')
+  const end = code.indexOf('async function cloneVideoElement(', start)
+  if (start < 0 || end <= start) return { code, changed: false }
+
+  const replacement = `async function cloneCanvasElement(canvas) {
+    let dataURL;
+    try {
+        dataURL = canvas.toDataURL();
+    }
+    catch (error) {
+        return canvas.cloneNode(false);
+    }
+    if (dataURL === 'data:,') return canvas.cloneNode(false);
+    return createImage(dataURL);
+}
+`
+  return {
+    code: `${code.slice(0, start)}${replacement}${code.slice(end)}`,
+    changed: true
+  }
+}
+
+/**
+ * html-to-image draws a cross-origin video frame onto a canvas and exports it
+ * with `toDataURL()`. The canvas is tainted, so the export throws a
+ * SecurityError and the whole capture fails before the SVG is built. Keep the
+ * frame when it is exportable; otherwise fall back to the poster (which is
+ * fetched through GM_xmlhttpRequest and therefore not tainted).
+ */
+export function patchCloneVideo(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('async function cloneVideoElement(')
+  const end = code.indexOf('async function cloneIFrameElement(', start)
+  if (start < 0 || end <= start) return { code, changed: false }
+
+  const replacement = `async function cloneVideoElement(video, options) {
+    if (video.currentSrc) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = video.clientWidth;
+        canvas.height = video.clientHeight;
+        try {
+            ctx === null || ctx === void 0 ? void 0 : ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const frame = canvas.toDataURL();
+            if (frame) return createImage(frame);
+        }
+        catch (error) {
+            // A cross-origin video frame taints the canvas; use the poster.
+        }
+    }
+    const poster = video.poster;
+    const contentType = getMimeType(poster);
+    const dataURL = await resourceToDataURL(poster, contentType, options);
+    return createImage(dataURL);
+}
+`
+  return {
+    code: `${code.slice(0, start)}${replacement}${code.slice(end)}`,
+    changed: true
+  }
+}
+
+/**
  * html-to-image resolves the final SVG image only inside a
  * `requestAnimationFrame` callback. Background and occluded tabs pause those
  * callbacks, so the capture never reaches the canvas even though the SVG is
@@ -574,6 +640,8 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
         patchFontEmbedding,
         patchSvgSymbols,
         patchImageEmbedding,
+        patchCloneCanvas,
+        patchCloneVideo,
         patchCreateImage,
         ...(nativeAdapter ? [patchSvgSerialization] : []),
         patchNativeCalls
