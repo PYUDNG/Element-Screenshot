@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.9] - 2026-11-06
+
+### Added
+
+- Gradients and background images on the page root or `body` are now rendered
+  into an offscreen background layer at the target crop’s position and size,
+  then composited behind the element. The previous single canvas color could not
+  represent a background whose color changes across the capture. The layer keeps
+  the original background box, size, position, repeat and attachment semantics.
+
+### Changed
+
+- The capture pipeline runs a second html-to-image pass only when a complex
+  page background is present; solid backgrounds still use the fast single-color
+  path.
+- If the backdrop scene cannot be rendered, the capture falls back to the solid
+  backdrop color.
+
 ## [0.2.8] - 2026-11-06
 
 ### Fixed

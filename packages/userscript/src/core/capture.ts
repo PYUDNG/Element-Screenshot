@@ -6,6 +6,7 @@ import type { TargetBox } from './target'
 export interface CaptureOptions {
   expandNested?: boolean
   backgroundColor?: string
+  backgroundScene?: Blob
   pixelRatio?: number
   maxDimension?: number
   maxArea?: number
@@ -274,6 +275,76 @@ function nextFrame(): Promise<void> {
   })
 }
 
+interface Drawable {
+  source: CanvasImageSource
+  close: () => void
+}
+
+async function blobToDrawable(blob: Blob): Promise<Drawable> {
+  if (typeof createImageBitmap === 'function') {
+    const bitmap = await createImageBitmap(blob)
+    return { source: bitmap, close: () => bitmap.close() }
+  }
+
+  const url = native.createObjectURL?.(blob)
+  if (!url) throw new Error('Object URLs are not supported')
+  try {
+    const image = native.document.createElement('img')
+    await new Promise<void>((resolve, reject) => {
+      const timer = native.setTimeout(() => reject(new Error('Image decode timed out')), 5_000)
+      image.onload = () => {
+        native.clearTimeout(timer)
+        resolve()
+      }
+      image.onerror = () => {
+        native.clearTimeout(timer)
+        reject(new Error('Image decode failed'))
+      }
+      image.src = url
+    })
+    return { source: image, close: () => native.revokeObjectURL?.(url) }
+  } catch (error) {
+    native.revokeObjectURL?.(url)
+    throw error
+  }
+}
+
+async function compositeScene(
+  scene: Blob,
+  content: Blob,
+  width: number,
+  height: number
+): Promise<Blob> {
+  const canvas = native.document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = native.canvas.getContext(canvas)
+  if (!context) throw new Error('Canvas 2D context is unavailable')
+
+  const [background, foreground] = await Promise.all([
+    blobToDrawable(scene),
+    blobToDrawable(content)
+  ])
+  try {
+    native.canvas.drawImage(context, background.source, 0, 0, width, height)
+    native.canvas.drawImage(context, foreground.source, 0, 0, width, height)
+  } finally {
+    background.close()
+    foreground.close()
+  }
+
+  return new Promise<Blob>((resolve, reject) => {
+    native.canvas.toBlob(
+      canvas,
+      (blob) => {
+        if (blob) resolve(blob)
+        else reject(new Error('Canvas returned an empty backdrop composite'))
+      },
+      'image/png'
+    )
+  })
+}
+
 /**
  * Render an element (including its full scrollable content) to a PNG blob.
  * Page styles are restored synchronously afterwards, even on failure.
@@ -321,11 +392,11 @@ export async function captureElement(
     await nextFrame()
     await nextFrame()
 
-    const blob = await toBlob(element as HTMLElement, {
+    const imageBlob = await toBlob(element as HTMLElement, {
       width: plan.width,
       height: plan.height,
       pixelRatio: plan.ratio,
-      backgroundColor: options.backgroundColor,
+      backgroundColor: options.backgroundScene ? undefined : options.backgroundColor,
       skipAutoScale: true,
       cacheBust: false,
       type: 'image/png',
@@ -334,12 +405,18 @@ export async function captureElement(
       style: rootStyle,
       filter: options.filter
     })
-    if (!blob) throw new Error('html-to-image returned an empty blob')
+    if (!imageBlob) throw new Error('html-to-image returned an empty blob')
+
+    const width = Math.max(1, Math.round(plan.width * plan.ratio))
+    const height = Math.max(1, Math.round(plan.height * plan.ratio))
+    const blob = options.backgroundScene
+      ? await compositeScene(options.backgroundScene, imageBlob, width, height)
+      : imageBlob
 
     return {
       blob,
-      width: Math.max(1, Math.round(plan.width * plan.ratio)),
-      height: Math.max(1, Math.round(plan.height * plan.ratio)),
+      width,
+      height,
       scale: plan.ratio,
       limited: plan.limited,
       sourceWidth: plan.width,

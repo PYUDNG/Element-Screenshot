@@ -2,8 +2,14 @@ import { createApp, reactive, watch } from 'vue'
 import type { App } from 'vue'
 import { applyShadowStyles } from '@element-shot/settings'
 import type { I18n, SettingsController } from '@element-shot/settings'
-import { captureElement, describeCaptureError, shouldCaptureNode } from '../core/capture'
+import {
+  captureElement,
+  computeCaptureScale,
+  describeCaptureError,
+  shouldCaptureNode
+} from '../core/capture'
 import { resolveBackdropColor } from '../core/background'
+import { captureBackdropScene, hasComplexBackground } from '../core/backdrop-scene'
 import { buildScreenshotName } from '../core/filename'
 import { native } from '../core/native'
 import { ElementPicker } from '../core/picker'
@@ -363,19 +369,27 @@ export class ShotApp implements ShotAppApi {
       const expandNested = Boolean(this.settings.get('capture.expandNested'))
       const transparent = Boolean(this.settings.get('capture.transparent'))
       const followPage = this.settings.get('capture.backgroundAuto') !== false
-      const background = transparent
-        ? undefined
-        : followPage
-          ? resolveBackdropColor(element)
-          : String(this.settings.get('capture.background') ?? '#ffffff')
       const scaleSetting = String(this.settings.get('capture.scale') ?? 'auto')
       const requested =
         scaleSetting === 'auto' ? Math.min(native.devicePixelRatio || 1, 2) : Number(scaleSetting)
+      const box = getTargetBox(element)
+      const plan = computeCaptureScale(
+        box.width,
+        box.height,
+        Number.isFinite(requested) ? requested : 1
+      )
+      const baseColor = followPage
+        ? resolveBackdropColor(element)
+        : String(this.settings.get('capture.background') ?? '#ffffff')
+      const complex = !transparent && followPage && hasComplexBackground(element)
+      const scene = complex ? await captureBackdropScene(element, box, plan.ratio, baseColor) : null
+      const background = transparent ? undefined : scene ? undefined : baseColor
 
       const result = await captureElement(element, {
         expandNested,
         backgroundColor: background,
-        pixelRatio: Number.isFinite(requested) ? requested : undefined,
+        backgroundScene: scene ?? undefined,
+        pixelRatio: plan.ratio,
         filter: (node) => shouldCaptureNode(node) && !isMarkedUiNode(node)
       })
 
