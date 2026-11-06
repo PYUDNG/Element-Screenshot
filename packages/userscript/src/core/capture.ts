@@ -36,6 +36,18 @@ const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
 const ERROR_SOURCE_LIMIT = 512
 const NON_RENDERING_TAGS = new Set(['SCRIPT', 'NOSCRIPT'])
+const SVG_PAINT_ATTRIBUTES = [
+  'fill',
+  'stroke',
+  'stop-color',
+  'flood-color',
+  'lighting-color',
+  'color',
+  'solid-color',
+  'fill-opacity',
+  'stroke-opacity',
+  'opacity'
+] as const
 
 /**
  * html-to-image inlines every `<img>` whose `src` is not a data URL. Pages with
@@ -130,6 +142,46 @@ export function computeCaptureScale(
     height: safeHeight,
     ratio: rounded,
     limited: rounded < requested - 0.0005
+  }
+}
+
+/**
+ * SVG presentation attributes are cloned as attributes, not as computed
+ * styles. A value such as `fill="var(--brand)"` therefore loses its definition
+ * when the clone is detached from the themed ancestor, and the paint falls back
+ * to black. Resolve those attributes to their computed paint values while the
+ * clone is built, then restore the page exactly afterwards.
+ */
+export function inlineSvgPaintVariables(root: Element): () => void {
+  const snapshots: Array<{ element: Element; name: string; value: string }> = []
+  const svgRoots: Element[] = []
+  if (root.tagName?.toUpperCase() === 'SVG') svgRoots.push(root)
+  for (const svg of Array.from(native.querySelectorAll(root, 'svg'))) svgRoots.push(svg)
+
+  for (const svg of svgRoots) {
+    for (const element of [svg, ...Array.from(native.querySelectorAll(svg, '*'))]) {
+      for (const name of SVG_PAINT_ATTRIBUTES) {
+        const value = native.getAttribute(element, name)
+        if (!value || !value.includes('var(')) continue
+        let computed: string
+        try {
+          computed = native.getComputedStyle(element).getPropertyValue(name).trim()
+        } catch {
+          continue
+        }
+        if (!computed || computed.includes('var(') || computed === value) continue
+        snapshots.push({ element, name, value })
+        native.setAttribute(element, name, computed)
+      }
+    }
+  }
+
+  return () => {
+    for (let index = snapshots.length - 1; index >= 0; index -= 1) {
+      const snapshot = snapshots[index]
+      if (!snapshot) continue
+      native.setAttribute(snapshot.element, snapshot.name, snapshot.value)
+    }
   }
 }
 
@@ -387,6 +439,7 @@ export async function captureElement(
   )
 
   const restore = expandForCapture(element, box, options.expandNested !== false)
+  const restoreSvg = inlineSvgPaintVariables(element)
 
   try {
     await nextFrame()
@@ -423,6 +476,7 @@ export async function captureElement(
       sourceHeight: plan.height
     }
   } finally {
+    restoreSvg()
     restore()
   }
 }

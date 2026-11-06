@@ -1,6 +1,6 @@
 {
   "name": "element-shot",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "private": true,
   "type": "module",
   "description": "Userscript that captures any page element, including its full scrollable content.",

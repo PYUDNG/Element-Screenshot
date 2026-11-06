@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.10] - 2026-11-07
+
+### Fixed
+
+- SVG logos and icons whose `fill`, `stroke` or related paint attributes use
+  CSS custom properties (for example DeepSeek’s
+  `fill="var(--dsw-alias-brand-primary)"`) no longer disappear or turn black in
+  captures. These attributes are resolved to their computed paint values while
+  the clone is built, then restored on the live page.
+
 ## [0.2.9] - 2026-11-06
 
 ### Added

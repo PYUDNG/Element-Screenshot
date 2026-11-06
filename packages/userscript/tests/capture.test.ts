@@ -14,6 +14,7 @@ import {
   computeCaptureScale,
   describeCaptureError,
   handleImageError,
+  inlineSvgPaintVariables,
   shouldCaptureNode
 } from '../src/core/capture'
 import { native } from '../src/core/native'
@@ -54,6 +55,28 @@ describe('capture filtering', () => {
     expect(shouldCaptureNode(script)).toBe(false)
     expect(shouldCaptureNode(noscript)).toBe(false)
     expect(shouldCaptureNode(svgScript as unknown as HTMLElement)).toBe(false)
+  })
+})
+
+describe('SVG paint variables', () => {
+  it('inlines var() paint attributes and restores the live page', () => {
+    const wrapper = document.createElement('div')
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('fill', 'var(--brand)')
+    svg.appendChild(path)
+    wrapper.appendChild(svg)
+    document.body.appendChild(wrapper)
+
+    const style = {
+      getPropertyValue: (name: string) => (name === 'fill' ? 'rgb(86, 134, 254)' : '')
+    } as CSSStyleDeclaration
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue(style)
+
+    const restore = inlineSvgPaintVariables(wrapper)
+    expect(path.getAttribute('fill')).toBe('rgb(86, 134, 254)')
+    restore()
+    expect(path.getAttribute('fill')).toBe('var(--brand)')
   })
 })
 
