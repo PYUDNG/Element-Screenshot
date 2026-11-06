@@ -283,19 +283,25 @@ export async function captureElement(
   options: CaptureOptions = {}
 ): Promise<CaptureResult> {
   const box = getTargetBox(element)
-  let inlineStyle: Partial<CSSStyleDeclaration> | undefined
+  // The capture box is the element's border box, so the cloned root must not
+  // keep its own margins: they would shift the element inside the crop.
+  const rootStyle: Partial<CSSStyleDeclaration> = { margin: '0' }
   try {
     const style = native.getComputedStyle(element)
-    if (style.display === 'inline') {
+    const display = style.display
+    if (display === 'inline') {
       const fontSize = Number.parseFloat(style.fontSize) || 16
       // An inline root is laid out in a line box with a strut, which pushes the
       // glyphs below the element's 12px border box. Render it as a block and
       // leave one extra font-size of height so descenders are not clipped.
       box.height += Math.ceil(fontSize)
-      inlineStyle = {
-        display: 'block',
-        lineHeight: `${Math.ceil(fontSize * 1.5)}px`
-      } as Partial<CSSStyleDeclaration>
+      rootStyle.display = 'block'
+      rootStyle.lineHeight = `${Math.ceil(fontSize * 1.5)}px`
+    } else if (display.startsWith('inline-')) {
+      // inline-flex / inline-block / inline-grid still participate in a line
+      // box when used as the clone root. Use their block-level equivalent.
+      const blockDisplay = display.slice('inline-'.length)
+      rootStyle.display = blockDisplay === 'block' ? 'block' : blockDisplay
     }
   } catch {
     // Keep the measured box when computed styles are unavailable.
@@ -325,7 +331,7 @@ export async function captureElement(
       type: 'image/png',
       imagePlaceholder: TRANSPARENT_PIXEL,
       onImageErrorHandler: handleImageError,
-      style: inlineStyle,
+      style: rootStyle,
       filter: options.filter
     })
     if (!blob) throw new Error('html-to-image returned an empty blob')

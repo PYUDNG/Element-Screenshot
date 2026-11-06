@@ -326,7 +326,44 @@ describe('scroll expansion planning', () => {
 
     const options = toBlobMock.mock.calls[0]?.[1]
     expect(options.height).toBe(24)
-    expect(options.style).toMatchObject({ display: 'block', lineHeight: '18px' })
+    expect(options.style).toMatchObject({ margin: '0', display: 'block', lineHeight: '18px' })
+  })
+
+  it('removes margins and uses the block-level display for inline-flex roots', async () => {
+    const element = document.createElement('button')
+    document.body.appendChild(element)
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 100,
+      width: 52,
+      height: 32,
+      right: 152,
+      bottom: 132,
+      x: 100,
+      y: 100,
+      toJSON: () => ({})
+    } as DOMRect)
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      display: 'inline-flex',
+      marginTop: '8px',
+      marginRight: '4px',
+      marginBottom: '0px',
+      marginLeft: '4px',
+      fontSize: '14px',
+      borderLeftWidth: '0px',
+      borderRightWidth: '0px',
+      borderTopWidth: '0px',
+      borderBottomWidth: '0px',
+      overflowX: 'visible',
+      overflowY: 'visible'
+    } as CSSStyleDeclaration)
+
+    await captureElement(element, { expandNested: false, pixelRatio: 1 })
+
+    const options = toBlobMock.mock.calls[0]?.[1]
+    expect(options.width).toBe(52)
+    expect(options.height).toBe(32)
+    expect(options.style).toMatchObject({ margin: '0', display: 'flex' })
   })
 
   it('does not wait forever when requestAnimationFrame is paused', async () => {

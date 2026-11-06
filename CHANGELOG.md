@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.7] - 2026-11-06
+
+### Fixed
+
+- Element captures now match the picker’s selection box when the target has
+  margins. The capture box is the border box, but the cloned root kept its own
+  `margin`, shifting buttons such as asmr.one’s `button.q-btn` down-right and
+  cropping their edge. The root margin is now cleared for every capture.
+- Inline-level roots (`inline-flex`, `inline-block`, `inline-grid`, …) are
+  rendered with their block-level equivalent, so they no longer sit inside a
+  line box that offsets the crop.
+
 ## [0.2.6] - 2026-11-06
 
 ### Fixed
