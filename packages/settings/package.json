@@ -1,6 +1,6 @@
 {
   "name": "@element-shot/settings",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "A drop-in, declarative settings panel library for userscripts (Vue 3 + Tailwind CSS 4).",
   "license": "MIT",
   "type": "module",

@@ -114,6 +114,45 @@ describe('page background resolution', () => {
     expect(resolveBackdropColor(card)).toBe('rgb(128, 128, 128)')
   })
 
+  it('keeps the body backdrop when elementsFromPoint omits its zero-height box', () => {
+    const html = document.documentElement
+    const body = document.body
+    const panel = document.createElement('div')
+    const card = document.createElement('div')
+    body.appendChild(panel)
+    panel.appendChild(card)
+
+    mockBackgrounds(
+      new Map([
+        [html, 'rgba(0, 0, 0, 0)'],
+        [body, 'rgb(21, 21, 23)'],
+        [panel, 'rgba(0, 0, 0, 0)'],
+        [card, 'rgba(0, 0, 0, 0)']
+      ])
+    )
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([card, panel, html])
+
+    expect(resolveBackdropColor(card)).toBe('rgb(21, 21, 23)')
+  })
+
+  it('does not composite body or html twice when they are in the paint stack', () => {
+    const html = document.documentElement
+    const body = document.body
+    const card = document.createElement('div')
+    body.appendChild(card)
+
+    mockBackgrounds(
+      new Map([
+        [html, 'rgb(255, 255, 255)'],
+        [body, 'rgba(0, 0, 0, 0.5)'],
+        [card, 'rgba(0, 0, 0, 0)']
+      ])
+    )
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([card, body, html])
+
+    expect(resolveBackdropColor(card)).toBe('rgb(128, 128, 128)')
+  })
+
   it('samples the average color of a readable background image', () => {
     const html = document.documentElement
     const body = document.body

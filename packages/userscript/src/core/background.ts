@@ -109,6 +109,26 @@ function composite(top: Rgba, bottom: Rgba): Rgba {
   }
 }
 
+/**
+ * The page canvas is not always represented by a hit-tested element. Pages with
+ * a fixed application root often leave `body` with a zero-height box while its
+ * background still paints the whole canvas, so `elementsFromPoint` omits it.
+ * Start from the real root/body colors instead of assuming white.
+ */
+function pageBaseColor(doc: Document): Rgba {
+  let painted = WHITE
+  for (const root of [doc.documentElement, doc.body]) {
+    if (!root) continue
+    try {
+      const color = parseCssColor(native.getComputedStyle(root).backgroundColor)
+      if (color && color.a > 0) painted = composite(color, painted)
+    } catch {
+      // Keep the colors that were readable.
+    }
+  }
+  return painted
+}
+
 function parentElementOf(element: Element): Element | null {
   if (element.parentElement) return element.parentElement
   const root = element.getRootNode()
@@ -180,12 +200,16 @@ function averageImageColor(image: HTMLImageElement): Rgba | null {
  * a fallback for off-screen or unmeasurable elements.
  */
 export function resolveBackdropColor(element: Element): string {
+  const doc = element.ownerDocument
   const layers = backdropLayers(element)
   if (layers && layers.length > 0) {
-    let painted = WHITE
+    let painted = pageBaseColor(doc)
     for (let index = layers.length - 1; index >= 0; index -= 1) {
       const layer = layers[index]
       if (!layer) continue
+      // The root/body colors are already the base. `elementsFromPoint` may omit
+      // body entirely when it has a zero-height box.
+      if (layer === doc.documentElement || layer === doc.body) continue
       let style: CSSStyleDeclaration
       try {
         style = native.getComputedStyle(layer)
@@ -202,7 +226,6 @@ export function resolveBackdropColor(element: Element): string {
     return `rgb(${Math.round(painted.r)}, ${Math.round(painted.g)}, ${Math.round(painted.b)})`
   }
 
-  const doc = element.ownerDocument
   const chain: string[] = []
   let current = parentElementOf(element)
   let guard = 0

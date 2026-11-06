@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.8] - 2026-11-06
+
+### Fixed
+
+- Dark pages whose background lives on `body` no longer produce a white
+  capture. `document.elementsFromPoint()` can omit a zero-height `body` even
+  though its background paints the canvas, and `resolveBackdropColor()` used to
+  start from a fixed white base when that happened. The root and body colors are
+  now composited as the page base, so DeepSeek’s `#151517` backdrop is preserved
+  and its sticky-header cover blends into the capture.
+- The root/body backgrounds are skipped in the paint-stack loop when the hit
+  test already returns them, avoiding double compositing.
+
 ## [0.2.7] - 2026-11-06
 
 ### Fixed
