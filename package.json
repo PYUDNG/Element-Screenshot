@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "playground": "node scripts/serve-playground.mjs",
+    "release:notes": "node scripts/extract-release-notes.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build"
   },
   "devDependencies": {

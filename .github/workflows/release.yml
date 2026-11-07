@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches package.json
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+          if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PACKAGE_VERSION"
+            exit 1
+          fi
+
+      - name: Lint, typecheck, test and build
+        run: pnpm check
+
+      - name: Extract human-readable release notes
+        shell: bash
+        run: |
+          node scripts/extract-release-notes.mjs "${GITHUB_REF_NAME#v}" > release-notes.md
+          echo "----- release notes -----"
+          cat release-notes.md
+          echo "-------------------------"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Element Shot ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            packages/userscript/dist/element-shot.user.js
+            packages/userscript/dist/element-shot.meta.js
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
