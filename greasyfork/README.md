@@ -5,7 +5,7 @@
   2. 图片使用 PYUDNG/Element-Screenshot 的 raw 绝对地址；仓库迁移时同步更新。
 -->
 
-# 网页元素截图 Element Shot
+# 网页元素截图 Element Screenshot
 
 一键把网页上的任意元素，连同它被滚动隐藏的内容，完整保存成一张长图。
 

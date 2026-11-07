@@ -108,7 +108,7 @@ describe('image failure tolerance', () => {
     Object.defineProperty(event, 'target', { value: image })
 
     expect(() => handleImageError(event)).not.toThrow()
-    expect(warn).toHaveBeenCalledWith('[element-shot] image skipped:', image.src)
+    expect(warn).toHaveBeenCalledWith('[element-screenshot] image skipped:', image.src)
   })
 
   it('describes an image with no source', () => {
@@ -118,13 +118,13 @@ describe('image failure tolerance', () => {
     Object.defineProperty(event, 'target', { value: image })
 
     handleImageError(event)
-    expect(warn).toHaveBeenCalledWith('[element-shot] image skipped:', '(no source)')
+    expect(warn).toHaveBeenCalledWith('[element-screenshot] image skipped:', '(no source)')
   })
 
   it('accepts a string error from an image handler', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     handleImageError('broken resource')
-    expect(warn).toHaveBeenCalledWith('[element-shot] image skipped:', 'broken resource')
+    expect(warn).toHaveBeenCalledWith('[element-screenshot] image skipped:', 'broken resource')
   })
 })
 

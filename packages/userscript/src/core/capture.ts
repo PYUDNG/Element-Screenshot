@@ -90,13 +90,13 @@ export function shouldCaptureNode(node: HTMLElement): boolean {
  */
 export function handleImageError(event: Event | string): void {
   if (typeof event === 'string') {
-    console.warn('[element-shot] image skipped:', truncate(event, ERROR_SOURCE_LIMIT))
+    console.warn('[element-screenshot] image skipped:', truncate(event, ERROR_SOURCE_LIMIT))
     return
   }
   const target = event.target as HTMLImageElement | null
   const source = target?.currentSrc || target?.src || ''
   console.warn(
-    '[element-shot] image skipped:',
+    '[element-screenshot] image skipped:',
     source ? truncate(source, ERROR_SOURCE_LIMIT) : '(no source)'
   )
 }

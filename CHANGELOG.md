@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-08
+
+### Changed
+
+- Renamed the project from **Element Shot** to **Element Screenshot** across the
+  userscript name, package names, build output, data attributes, log prefixes
+  and documentation.
+- Added localized userscript metadata for Simplified Chinese and Traditional
+  Chinese names/descriptions using `vite-plugin-monkey` locale objects. The
+  default name is English, and the namespace, homepage and support URLs now
+  point at the GitHub repository.
+- Added GitHub Actions CI for pushes and pull requests, plus a tag-driven
+  release workflow whose release notes are extracted from this changelog.
+
 ## [0.2.10] - 2026-11-07
 
 ### Fixed
@@ -229,7 +243,7 @@ All notable changes to this project are documented here. The format follows
   a built-in reset action.
 - Include/exclude site policies with host, glob, path-glob and regex rules plus
   an “enable on this site” recovery flow.
-- Reusable `@element-shot/settings` library with declarative schema, dynamic
+- Reusable `@element-screenshot/settings` library with declarative schema, dynamic
   field registration, custom field rendering, GM/localStorage/memory adapters
   and ESM + IIFE outputs.
 - `gmFetchPlugin` that rewrites html-to-image `fetch` and `XMLHttpRequest` calls

@@ -15,17 +15,28 @@ export default defineConfig({
     vue(),
     tailwindcss(),
     gmFetchPlugin({
-      nativeAdapter: 'virtual:element-shot-native-adapter'
+      nativeAdapter: 'virtual:element-screenshot-native-adapter'
     }),
     monkey({
       entry: 'src/main.ts',
       userscript: {
-        name: 'Element Shot',
-        namespace: 'https://github.com/element-shot/element-shot',
+        name: {
+          '': 'Element Screenshot',
+          'zh-CN': '网页元素截图',
+          'zh-TW': '網頁元素截圖'
+        },
+        namespace: 'https://github.com/PYUDNG/Element-Screenshot',
         version: pkg.version,
-        description:
-          'Capture any page element, including its full scrollable content. Screenshot picker with layered element selection, copy and save.',
-        author: 'Element Shot contributors',
+        description: {
+          '': 'Capture any page element, including its full scrollable content. Full-page and element screenshots with layered picking, copy and save.',
+          'zh-CN':
+            '完整截取网页中的任意元素，包括被滚动隐藏的内容；支持层级选择、长截图、复制与保存。',
+          'zh-TW':
+            '完整截取網頁中的任意元素，包括被捲動隱藏的內容；支援層級選擇、長截圖、複製與儲存。'
+        },
+        author: 'Element Screenshot contributors',
+        homepageURL: 'https://github.com/PYUDNG/Element-Screenshot',
+        supportURL: 'https://github.com/PYUDNG/Element-Screenshot/issues',
         match: ['*://*/*'],
         'run-at': 'document-start',
         noframes: true,
@@ -41,7 +52,7 @@ export default defineConfig({
         connect: ['*']
       },
       build: {
-        fileName: 'element-shot.user.js',
+        fileName: 'element-screenshot.user.js',
         metaFileName: true
       },
       server: {
@@ -51,12 +62,14 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@element-shot/settings': fileURLToPath(new URL('../settings/src/index.ts', import.meta.url)),
+      '@element-screenshot/settings': fileURLToPath(
+        new URL('../settings/src/index.ts', import.meta.url)
+      ),
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       'virtual:gm-fetch-adapter': fileURLToPath(
         new URL('./src/net/gm-adapter.ts', import.meta.url)
       ),
-      'virtual:element-shot-native-adapter': fileURLToPath(
+      'virtual:element-screenshot-native-adapter': fileURLToPath(
         new URL('./src/core/native.ts', import.meta.url)
       )
     }

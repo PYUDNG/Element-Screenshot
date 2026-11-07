@@ -1,6 +1,6 @@
 {
-  "name": "element-shot",
-  "version": "0.2.10",
+  "name": "element-screenshot",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Userscript that captures any page element, including its full scrollable content.",
@@ -15,7 +15,7 @@
     "vue": "^3.5.44"
   },
   "devDependencies": {
-    "@element-shot/settings": "workspace:*",
+    "@element-screenshot/settings": "workspace:*",
     "vite-plugin-monkey": "^8.1.1"
   }
 }

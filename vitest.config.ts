@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@element-shot/settings': fileURLToPath(
+      '@element-screenshot/settings': fileURLToPath(
         new URL('./packages/settings/src/index.ts', import.meta.url)
       ),
       '@': fileURLToPath(new URL('./packages/userscript/src', import.meta.url))

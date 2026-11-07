@@ -21,7 +21,7 @@ const files = new Map([
   ['/hooked.html', join(root, 'playground/hooked.html')],
   ['/gm-stub.js', join(root, 'playground/gm-stub.js')],
   ['/sample.svg', join(root, 'playground/sample.svg')],
-  ['/element-shot.user.js', join(root, 'packages/userscript/dist/element-shot.user.js')],
+  ['/element-screenshot.user.js', join(root, 'packages/userscript/dist/element-screenshot.user.js')],
   ['/settings-iife.html', join(root, 'playground/settings-iife.html')],
   ['/settings-iife.js', join(root, 'packages/settings/dist/iife/userscript-settings.iife.js')],
   ['/settings-esm.html', join(root, 'playground/settings-esm.html')],

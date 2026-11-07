@@ -1,4 +1,4 @@
-import { isEditableTarget, matchesShortcut, parseShortcut } from '@element-shot/settings'
+import { isEditableTarget, matchesShortcut, parseShortcut } from '@element-screenshot/settings'
 import { native } from './native'
 
 export interface HotkeyOptions {

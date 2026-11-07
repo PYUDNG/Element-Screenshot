@@ -171,14 +171,14 @@ function runAction(): void {
       actionBusy.value = true
       result
         .catch((error: unknown) => {
-          console.error('[element-shot/settings] action failed', error)
+          console.error('[element-screenshot/settings] action failed', error)
         })
         .finally(() => {
           actionBusy.value = false
         })
     }
   } catch (error) {
-    console.error('[element-shot/settings] action failed', error)
+    console.error('[element-screenshot/settings] action failed', error)
   }
 }
 

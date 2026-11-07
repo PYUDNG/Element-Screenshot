@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import { CameraIcon } from '@element-shot/settings'
+import { CameraIcon } from '@element-screenshot/settings'
 import type { ShotAppApi } from './api'
 
 const props = defineProps<{

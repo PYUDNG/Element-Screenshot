@@ -134,7 +134,7 @@ export interface NativeSnapshot {
 
 function call<T>(method: AnyMethod | undefined, receiver: unknown, args: unknown[]): T {
   if (typeof method !== 'function') {
-    throw new TypeError('[element-shot] native API is unavailable')
+    throw new TypeError('[element-screenshot] native API is unavailable')
   }
   return Reflect.apply(method, receiver, args) as T
 }
@@ -298,7 +298,7 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
     },
     toBlob: (canvas, callback, type, quality) => {
       if (!canvasToBlob) {
-        throw new TypeError('[element-shot] canvas.toBlob is unavailable')
+        throw new TypeError('[element-screenshot] canvas.toBlob is unavailable')
       }
       canvasToBlob.call(canvas, callback, type, quality)
     },
@@ -435,7 +435,7 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
       for (const prefix of used) {
         if (declared.has(prefix)) continue
         const uri =
-          KNOWN_NAMESPACE_URIS[prefix] ?? `urn:element-shot:unbound:${prefix}`
+          KNOWN_NAMESPACE_URIS[prefix] ?? `urn:element-screenshot:unbound:${prefix}`
         call<void>(setAttributeMethod as unknown as AnyMethod, root, [
           `xmlns:${prefix}`,
           uri

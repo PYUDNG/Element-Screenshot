@@ -7,7 +7,7 @@
 - 这是一个 pnpm workspace，目标是构建一个 Vue 3 + TypeScript + Tailwind CSS 4 的用户脚本：对任意网页元素做完整滚动截图。
 - 用户脚本入口：`packages/userscript/src/main.ts`
 - 设置库：`packages/settings`
-- 构建产物：`packages/userscript/dist/element-shot.user.js`（`dist/` 被 git 忽略）
+- 构建产物：`packages/userscript/dist/element-screenshot.user.js`（`dist/` 被 git 忽略）
 - 包管理器：pnpm 10；Node.js >= 22.12。
 
 ## 常用命令
@@ -73,7 +73,7 @@ scripts/serve-playground.mjs      本地 playground 服务器
 ### 推荐的脚本更新闭环
 
 1. `pnpm build`
-2. 用 Violentmonkey MCP 的 `scripts_list` 找 `Element Shot` 的 id。
+2. 用 Violentmonkey MCP 的 `scripts_list` 找 `Element Screenshot` 的 id。
 3. `scripts_write` 写入完整构建产物，保留 `id`，源码必须包含完整 `==UserScript==` 元数据。
 4. 用 Playwright 重新导航/刷新目标页面，让 Violentmonkey 重新注入。
 5. 用 Playwright 执行 DOM 检查、点击、截图、控制台验证。

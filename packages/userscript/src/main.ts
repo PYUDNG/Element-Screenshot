@@ -13,8 +13,8 @@ import {
   createGMStorage,
   createI18n,
   createSettings
-} from '@element-shot/settings'
-import type { SettingsController } from '@element-shot/settings'
+} from '@element-screenshot/settings'
+import type { SettingsController } from '@element-screenshot/settings'
 import cssText from './styles.css?inline'
 import { appMessages } from './messages'
 import { createSettingsTabs } from './config/schema'
@@ -35,7 +35,7 @@ const storage = createGMStorage(
     setValue: (key, value) => GM_setValue(key, value),
     deleteValue: (key) => GM_deleteValue(key)
   },
-  'element-shot:'
+  'element-screenshot:'
 )
 
 const settings: SettingsController = createSettings({
@@ -96,7 +96,7 @@ function registerMenus(): void {
       const id = GM_registerMenuCommand(label, onClick)
       if (typeof id === 'string' || typeof id === 'number') menuIds.push(id)
     } catch (error) {
-      console.error('[element-shot] menu registration failed', error)
+      console.error('[element-screenshot] menu registration failed', error)
     }
   }
 
@@ -135,7 +135,7 @@ function start(): void {
   try {
     boot()
   } catch (error) {
-    console.error('[element-shot] failed to start', error)
+    console.error('[element-screenshot] failed to start', error)
   }
 }
 

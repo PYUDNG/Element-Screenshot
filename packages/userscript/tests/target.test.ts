@@ -16,7 +16,7 @@ afterEach(() => {
 describe('element stack', () => {
   it('returns topmost elements and filters the script UI', () => {
     const ui = document.createElement('div')
-    ui.setAttribute('data-element-shot-root', '')
+    ui.setAttribute('data-element-screenshot-root', '')
     const target = document.createElement('div')
     const body = document.body
     document.body.append(target)

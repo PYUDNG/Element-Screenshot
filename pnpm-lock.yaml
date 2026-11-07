@@ -96,7 +96,7 @@ importers:
         specifier: ^3.5.44
         version: 3.5.45(typescript@6.0.3)
     devDependencies:
-      '@element-shot/settings':
+      '@element-screenshot/settings':
         specifier: workspace:*
         version: link:../settings
       vite-plugin-monkey:

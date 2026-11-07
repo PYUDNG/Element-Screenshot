@@ -58,11 +58,11 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Element Shot ${{ github.ref_name }}
+          name: Element Screenshot ${{ github.ref_name }}
           body_path: release-notes.md
           files: |
-            packages/userscript/dist/element-shot.user.js
-            packages/userscript/dist/element-shot.meta.js
+            packages/userscript/dist/element-screenshot.user.js
+            packages/userscript/dist/element-screenshot.meta.js
           fail_on_unmatched_files: true
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}

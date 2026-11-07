@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertIcon, CheckIcon, InfoIcon } from '@element-shot/settings'
+import { AlertIcon, CheckIcon, InfoIcon } from '@element-screenshot/settings'
 import type { ToastItem } from './api'
 
 defineProps<{

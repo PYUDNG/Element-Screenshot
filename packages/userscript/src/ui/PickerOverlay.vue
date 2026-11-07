@@ -11,7 +11,7 @@ import {
   MaximizeIcon,
   MinusIcon,
   PlusIcon
-} from '@element-shot/settings'
+} from '@element-screenshot/settings'
 import type { ShotAppApi } from './api'
 import { computePickerLabelPosition } from './picker-label'
 
@@ -81,7 +81,7 @@ const selectedDimensions = computed(() => {
   <div class="pointer-events-none fixed inset-0">
     <div
       v-if="isolatePointer"
-      data-element-shot-pick-surface
+      data-element-screenshot-pick-surface
       class="pointer-events-auto fixed inset-0 z-0 cursor-crosshair"
       aria-hidden="true"
     />

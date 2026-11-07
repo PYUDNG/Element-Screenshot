@@ -137,7 +137,7 @@ export async function captureBackdropScene(
   if (sources.length === 0) return null
 
   const wrapper = doc.createElement('div')
-  wrapper.setAttribute('data-element-shot-ignore', '')
+  wrapper.setAttribute('data-element-screenshot-ignore', '')
   wrapper.style.position = 'fixed'
   wrapper.style.left = '0'
   wrapper.style.top = '0'
@@ -160,7 +160,7 @@ export async function captureBackdropScene(
 
   const host = doc.createElement('div')
   host.style.display = 'none'
-  host.setAttribute('data-element-shot-ignore', '')
+  host.setAttribute('data-element-screenshot-ignore', '')
   host.appendChild(wrapper)
   const parent = doc.body ?? doc.documentElement
   if (!parent) return null
@@ -186,7 +186,7 @@ export async function captureBackdropScene(
     })
     return blob
   } catch (error) {
-    console.warn('[element-shot] backdrop scene failed', error)
+    console.warn('[element-screenshot] backdrop scene failed', error)
     return null
   } finally {
     host.remove()

@@ -1,4 +1,4 @@
-# @element-shot/settings
+# @element-screenshot/settings
 
 A drop-in, declarative settings panel for userscripts. Vue 3 + TypeScript + Tailwind CSS 4, no component library, rendered inside a Shadow DOM so it cannot leak styles into the host page.
 
@@ -14,7 +14,7 @@ A drop-in, declarative settings panel for userscripts. Vue 3 + TypeScript + Tail
 This repository is a pnpm workspace. Build the package first:
 
 ```bash
-pnpm --filter @element-shot/settings build
+pnpm --filter @element-screenshot/settings build
 ```
 
 Artifacts:
@@ -29,13 +29,13 @@ dist/*.d.ts                          # types
 In a bundled userscript, import the source package or the built ESM:
 
 ```ts
-import { createSettings } from '@element-shot/settings/auto'
+import { createSettings } from '@element-screenshot/settings/auto'
 ```
 
 `auto` loads the compiled Tailwind CSS string and injects it into the panel's shadow root. Use the root entry when you want to provide your own stylesheet (for example, a single Tailwind build shared with your userscript UI):
 
 ```ts
-import { createSettings } from '@element-shot/settings'
+import { createSettings } from '@element-screenshot/settings'
 import css from './my-styles.css?inline'
 
 const settings = createSettings({ styles: css, tabs: [] })
@@ -75,7 +75,7 @@ The IIFE has no external dependency; Vue is included.
 ## Quick start
 
 ```ts
-import { createI18n, createGMStorage, createSettings } from '@element-shot/settings/auto'
+import { createI18n, createGMStorage, createSettings } from '@element-screenshot/settings/auto'
 
 const i18n = createI18n({
   defaultLocale: 'en',
@@ -263,7 +263,7 @@ import {
   createGMStorage,
   createLocalStorageStorage,
   createMemoryStorage
-} from '@element-shot/settings'
+} from '@element-screenshot/settings'
 
 createGMStorage({ getValue, setValue, deleteValue }, 'my-script:')
 createLocalStorageStorage('my-script:')
@@ -312,7 +312,7 @@ i18n.t('my.hello', { name: 'Ada' })
 SVG-only icon components are exported individually:
 
 ```ts
-import { CameraIcon, SettingsIcon, iconMap, type IconName } from '@element-shot/settings'
+import { CameraIcon, SettingsIcon, iconMap, type IconName } from '@element-screenshot/settings'
 ```
 
 Use `icon: 'camera'` in a tab and `icon: 'reset'` on an action field. Add your own SVG component to the panel via a custom field if needed. Emoji are intentionally not used anywhere.
@@ -329,9 +329,9 @@ If you provide your own `styles`, make sure the Tailwind build scans this packag
 ## Development
 
 ```bash
-pnpm --filter @element-shot/settings dev      # demo at the printed URL
-pnpm --filter @element-shot/settings build    # ESM + d.ts + IIFE
-pnpm --filter @element-shot/settings typecheck
+pnpm --filter @element-screenshot/settings dev      # demo at the printed URL
+pnpm --filter @element-screenshot/settings build    # ESM + d.ts + IIFE
+pnpm --filter @element-screenshot/settings typecheck
 ```
 
 The demo lives in `index.html` and `demo/main.ts`. It also demonstrates dynamic field registration.

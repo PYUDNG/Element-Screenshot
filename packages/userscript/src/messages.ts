@@ -1,4 +1,4 @@
-import type { LocaleDefinition } from '@element-shot/settings'
+import type { LocaleDefinition } from '@element-screenshot/settings'
 
 const zhCN: LocaleDefinition = {
   code: 'zh-CN',

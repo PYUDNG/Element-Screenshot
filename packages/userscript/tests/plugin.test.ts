@@ -101,8 +101,8 @@ export async function cloneNode(node, options, isRoot) {
     expect(result.changed).toBe(true)
     expect(result.code).toContain('lastIndexOf')
     expect(result.code).toContain('DOMParser')
-    expect(result.code).toContain('__elementShotSvgCache')
-    expect(result.code).toContain('__elementShotNative.document.getElementById')
+    expect(result.code).toContain('__elementScreenshotSvgCache')
+    expect(result.code).toContain('__elementScreenshotNative.document.getElementById')
     expect(result.code).not.toContain('clone.querySelector(id)')
     expect(result.code).toContain('export async function cloneNode')
   })
@@ -135,13 +135,13 @@ export async function cloneNode(node, options, isRoot) {
     `
     const result = patchNativeCalls(source)
     expect(result.changed).toBe(true)
-    expect(result.code).toContain('__elementShotNative.canvas.toDataURL(canvas)')
-    expect(result.code).toContain('__elementShotNative.canvas.toDataURL(canvas, ')
-    expect(result.code).toContain('__elementShotNative.canvas.toBlob(canvas, done')
-    expect(result.code).toContain('__elementShotNative.canvas.getContext(canvas)')
-    expect(result.code).toContain('__elementShotNative.canvas.fillRect(context, ')
-    expect(result.code).toContain('__elementShotNative.canvas.drawImage(context, ')
-    expect(result.code).toContain('__elementShotNative.cloneNode(node, isSVGElement(node))')
+    expect(result.code).toContain('__elementScreenshotNative.canvas.toDataURL(canvas)')
+    expect(result.code).toContain('__elementScreenshotNative.canvas.toDataURL(canvas, ')
+    expect(result.code).toContain('__elementScreenshotNative.canvas.toBlob(canvas, done')
+    expect(result.code).toContain('__elementScreenshotNative.canvas.getContext(canvas)')
+    expect(result.code).toContain('__elementScreenshotNative.canvas.fillRect(context, ')
+    expect(result.code).toContain('__elementScreenshotNative.canvas.drawImage(context, ')
+    expect(result.code).toContain('__elementScreenshotNative.cloneNode(node, isSVGElement(node))')
     expect(result.code).toContain('canvas fill handles the backdrop')
   })
 
@@ -159,10 +159,10 @@ export async function nodeToDataURL(node, width, height) {
 `
     const result = patchSvgSerialization(source)
     expect(result.changed).toBe(true)
-    expect(result.code).toContain('__elementShotNative.sanitizeSvgAttributes(svg)')
-    expect(result.code).toContain('__elementShotNative.sanitizeSvgNamespaces(svg)')
-    expect(result.code).toContain('__elementShotNative.serializeSvg(svg)')
-    expect(result.code).toContain('.then(__elementShotNative.sanitizeXmlText)')
+    expect(result.code).toContain('__elementScreenshotNative.sanitizeSvgAttributes(svg)')
+    expect(result.code).toContain('__elementScreenshotNative.sanitizeSvgNamespaces(svg)')
+    expect(result.code).toContain('__elementScreenshotNative.serializeSvg(svg)')
+    expect(result.code).toContain('.then(__elementScreenshotNative.sanitizeXmlText)')
     expect(result.code).not.toContain('new XMLSerializer')
     expect(result.code).toContain('export async function nodeToDataURL')
   })
@@ -185,7 +185,7 @@ export async function nodeToDataURL(node, width, height) {
     expect(transformed?.code).toContain('sanitizeSvgAttributes')
     expect(transformed?.code).toContain('sanitizeSvgNamespaces')
     expect(transformed?.code).toContain('sanitizeXmlText')
-    expect(transformed?.code).toContain('__elementShotNative.serializeSvg(svg)')
+    expect(transformed?.code).toContain('__elementScreenshotNative.serializeSvg(svg)')
   })
 
   it('injects the native prelude only when configured', () => {
@@ -196,10 +196,10 @@ export async function nodeToDataURL(node, width, height) {
     ) => { code: string } | null
     const source = `export const value = 1`
     const transformed = transform(source, '/repo/node_modules/html-to-image/es/mimes.js')
-    expect(transformed?.code).toContain('import { native as __elementShotNative }')
-    expect(transformed?.code).toContain('const document = __elementShotNative.document')
+    expect(transformed?.code).toContain('import { native as __elementScreenshotNative }')
+    expect(transformed?.code).toContain('const document = __elementScreenshotNative.document')
     expect(transformed?.code).toContain(
-      'const HTMLCanvasElement = __elementShotNative.HTMLCanvasElement'
+      'const HTMLCanvasElement = __elementScreenshotNative.HTMLCanvasElement'
     )
   })
 

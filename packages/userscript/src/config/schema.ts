@@ -1,5 +1,5 @@
-import { DEFAULT_SHORTCUT } from '@element-shot/settings'
-import type { SettingsTab } from '@element-shot/settings'
+import { DEFAULT_SHORTCUT } from '@element-screenshot/settings'
+import type { SettingsTab } from '@element-screenshot/settings'
 import { isValidSiteRule } from '../core/site-policy'
 
 const validateRule = (value: string): string | null =>

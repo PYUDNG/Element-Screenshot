@@ -26,7 +26,7 @@ const IGNORED_TAGS = new Set([
 ])
 
 export function isUiElement(element: Element): boolean {
-  return element.closest('[data-element-shot-root]') !== null
+  return element.closest('[data-element-screenshot-root]') !== null
 }
 
 /**

@@ -395,7 +395,7 @@ export function createSettings(options: SettingsControllerOptions = {}): Setting
 
     previousFocus = document.activeElement
     host = document.createElement('div')
-    host.setAttribute('data-element-shot-settings', '')
+    host.setAttribute('data-element-screenshot-settings', '')
     host.style.cssText =
       'position:fixed;inset:0;z-index:2147483647;pointer-events:none;color-scheme:normal;'
     const shadow = host.attachShadow({ mode: 'open' })
@@ -408,7 +408,7 @@ export function createSettings(options: SettingsControllerOptions = {}): Setting
     app = createApp(SettingsRoot, { controller })
     app.config.errorHandler = (error) => {
       options.onError?.(error)
-      console.error('[element-shot/settings]', error)
+      console.error('[element-screenshot/settings]', error)
     }
     app.mount(mountPoint)
     isOpen.value = true

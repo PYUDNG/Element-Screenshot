@@ -17,32 +17,32 @@ export interface RewriteResult {
 }
 
 const DEFAULT_ADAPTER = 'virtual:gm-fetch'
-const NATIVE_VIRTUAL = 'virtual:element-shot-native'
-const NATIVE_ADAPTER = 'virtual:element-shot-native-adapter'
+const NATIVE_VIRTUAL = 'virtual:element-screenshot-native'
+const NATIVE_ADAPTER = 'virtual:element-screenshot-native-adapter'
 
-const NATIVE_PRELUDE = `import { native as __elementShotNative } from '${NATIVE_VIRTUAL}';
-const window = __elementShotNative.window;
-const document = __elementShotNative.document;
-const getComputedStyle = __elementShotNative.getComputedStyle;
-const requestAnimationFrame = __elementShotNative.requestAnimationFrame;
-const setTimeout = __elementShotNative.setTimeout;
-const clearTimeout = __elementShotNative.clearTimeout;
-const Image = __elementShotNative.Image;
-const XMLSerializer = __elementShotNative.XMLSerializer;
-const Blob = __elementShotNative.Blob;
-const FileReader = __elementShotNative.FileReader;
-const URL = __elementShotNative.URL;
-const DOMParser = __elementShotNative.DOMParser;
-const Element = __elementShotNative.Element;
-const HTMLElement = __elementShotNative.HTMLElement;
-const HTMLCanvasElement = __elementShotNative.HTMLCanvasElement;
-const HTMLVideoElement = __elementShotNative.HTMLVideoElement;
-const HTMLIFrameElement = __elementShotNative.HTMLIFrameElement;
-const HTMLTextAreaElement = __elementShotNative.HTMLTextAreaElement;
-const HTMLInputElement = __elementShotNative.HTMLInputElement;
-const HTMLSelectElement = __elementShotNative.HTMLSelectElement;
-const HTMLImageElement = __elementShotNative.HTMLImageElement;
-const SVGImageElement = __elementShotNative.SVGImageElement;
+const NATIVE_PRELUDE = `import { native as __elementScreenshotNative } from '${NATIVE_VIRTUAL}';
+const window = __elementScreenshotNative.window;
+const document = __elementScreenshotNative.document;
+const getComputedStyle = __elementScreenshotNative.getComputedStyle;
+const requestAnimationFrame = __elementScreenshotNative.requestAnimationFrame;
+const setTimeout = __elementScreenshotNative.setTimeout;
+const clearTimeout = __elementScreenshotNative.clearTimeout;
+const Image = __elementScreenshotNative.Image;
+const XMLSerializer = __elementScreenshotNative.XMLSerializer;
+const Blob = __elementScreenshotNative.Blob;
+const FileReader = __elementScreenshotNative.FileReader;
+const URL = __elementScreenshotNative.URL;
+const DOMParser = __elementScreenshotNative.DOMParser;
+const Element = __elementScreenshotNative.Element;
+const HTMLElement = __elementScreenshotNative.HTMLElement;
+const HTMLCanvasElement = __elementScreenshotNative.HTMLCanvasElement;
+const HTMLVideoElement = __elementScreenshotNative.HTMLVideoElement;
+const HTMLIFrameElement = __elementScreenshotNative.HTMLIFrameElement;
+const HTMLTextAreaElement = __elementScreenshotNative.HTMLTextAreaElement;
+const HTMLInputElement = __elementScreenshotNative.HTMLInputElement;
+const HTMLSelectElement = __elementScreenshotNative.HTMLSelectElement;
+const HTMLImageElement = __elementScreenshotNative.HTMLImageElement;
+const SVGImageElement = __elementScreenshotNative.SVGImageElement;
 `
 
 type Node = { type: string; [key: string]: unknown }
@@ -420,12 +420,12 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
     if (clone.nodeType !== 1 && clone.nodeType !== 9 && clone.nodeType !== 11) {
         return clone;
     }
-    const uses = __elementShotNative.querySelectorAll(clone, 'use');
+    const uses = __elementScreenshotNative.querySelectorAll(clone, 'use');
     if (uses.length === 0) {
         return clone;
     }
     const processedDefs = {};
-    const cache = options.__elementShotSvgCache || (options.__elementShotSvgCache = new Map());
+    const cache = options.__elementScreenshotSvgCache || (options.__elementScreenshotSvgCache = new Map());
     const idFrom = (value) => {
         if (!value) return '';
         const index = value.lastIndexOf('#');
@@ -433,26 +433,26 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
     };
     const findById = (root, id) => {
         if (!root || !id) return null;
-        if (root === __elementShotNative.document) {
-            return __elementShotNative.document.getElementById(id);
+        if (root === __elementScreenshotNative.document) {
+            return __elementScreenshotNative.document.getElementById(id);
         }
-        const nodes = __elementShotNative.querySelectorAll(root, '[id]');
+        const nodes = __elementScreenshotNative.querySelectorAll(root, '[id]');
         for (let index = 0; index < nodes.length; index += 1) {
-            if (__elementShotNative.getAttribute(nodes[index], 'id') === id) return nodes[index];
+            if (__elementScreenshotNative.getAttribute(nodes[index], 'id') === id) return nodes[index];
         }
         return null;
     };
     for (let i = 0; i < uses.length; i++) {
         const use = uses[i];
-        const href = __elementShotNative.getAttribute(use, 'href') || __elementShotNative.getAttribute(use, 'xlink:href');
+        const href = __elementScreenshotNative.getAttribute(use, 'href') || __elementScreenshotNative.getAttribute(use, 'xlink:href');
         const id = idFrom(href);
         if (!id) continue;
         if (findById(clone, id)) {
-            __elementShotNative.setAttribute(use, 'href', '#' + id);
-            __elementShotNative.removeAttribute(use, 'xlink:href');
+            __elementScreenshotNative.setAttribute(use, 'href', '#' + id);
+            __elementScreenshotNative.removeAttribute(use, 'xlink:href');
             continue;
         }
-        let definition = findById(__elementShotNative.document, id);
+        let definition = findById(__elementScreenshotNative.document, id);
         if (!definition && href && !href.startsWith('#')) {
             const base = (clone.ownerDocument && clone.ownerDocument.baseURI) || document.baseURI;
             try {
@@ -471,26 +471,26 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
             }
         }
         if (!definition || processedDefs[id]) continue;
-        processedDefs[id] = __elementShotNative.cloneNode(definition, true);
-        __elementShotNative.setAttribute(use, 'href', '#' + id);
-        __elementShotNative.removeAttribute(use, 'xlink:href');
+        processedDefs[id] = __elementScreenshotNative.cloneNode(definition, true);
+        __elementScreenshotNative.setAttribute(use, 'href', '#' + id);
+        __elementScreenshotNative.removeAttribute(use, 'xlink:href');
     }
     const nodes = Object.values(processedDefs);
     if (nodes.length) {
         const ns = 'http://www.w3.org/2000/svg';
-        const svg = __elementShotNative.document.createElementNS(ns, 'svg');
-        __elementShotNative.setAttribute(svg, 'xmlns', ns);
+        const svg = __elementScreenshotNative.document.createElementNS(ns, 'svg');
+        __elementScreenshotNative.setAttribute(svg, 'xmlns', ns);
         svg.style.position = 'absolute';
         svg.style.width = '0';
         svg.style.height = '0';
         svg.style.overflow = 'hidden';
         svg.style.display = 'none';
-        const defs = __elementShotNative.document.createElementNS(ns, 'defs');
-        __elementShotNative.appendChild(svg, defs);
+        const defs = __elementScreenshotNative.document.createElementNS(ns, 'defs');
+        __elementScreenshotNative.appendChild(svg, defs);
         for (let i = 0; i < nodes.length; i++) {
-            __elementShotNative.appendChild(defs, nodes[i]);
+            __elementScreenshotNative.appendChild(defs, nodes[i]);
         }
-        __elementShotNative.appendChild(clone, svg);
+        __elementScreenshotNative.appendChild(clone, svg);
     }
     return clone;
 }
@@ -514,10 +514,10 @@ export function patchSvgSerialization(code: string): { code: string; changed: bo
 
   const replacement = `export async function svgToDataURL(svg) {
     return Promise.resolve()
-        .then(() => __elementShotNative.sanitizeSvgAttributes(svg))
-        .then(() => __elementShotNative.sanitizeSvgNamespaces(svg))
-        .then(() => __elementShotNative.serializeSvg(svg))
-        .then(__elementShotNative.sanitizeXmlText)
+        .then(() => __elementScreenshotNative.sanitizeSvgAttributes(svg))
+        .then(() => __elementScreenshotNative.sanitizeSvgNamespaces(svg))
+        .then(() => __elementScreenshotNative.serializeSvg(svg))
+        .then(__elementScreenshotNative.sanitizeXmlText)
         .then(encodeURIComponent)
         .then((html) => 'data:image/svg+xml;charset=utf-8,' + html);
 }
@@ -554,36 +554,36 @@ export function patchNativeCalls(code: string): { code: string; changed: boolean
    */
   const withoutRootBackground = next.replace(
     /if \(options\.backgroundColor\) \{\s*style\.backgroundColor = options\.backgroundColor;\s*\}/g,
-    '/* element-shot: canvas fill handles the backdrop */'
+    '/* element-screenshot: canvas fill handles the backdrop */'
   )
   if (withoutRootBackground !== next) {
     next = withoutRootBackground
     changed = true
   }
 
-  replace(`canvas.getContext('2d')`, '__elementShotNative.canvas.getContext(canvas)')
-  replace('canvas.toBlob(', '__elementShotNative.canvas.toBlob(canvas, ')
+  replace(`canvas.getContext('2d')`, '__elementScreenshotNative.canvas.getContext(canvas)')
+  replace('canvas.toBlob(', '__elementScreenshotNative.canvas.toBlob(canvas, ')
   next = next.replace(/\bcanvas\.toDataURL\(([^()]*)\)/g, (_match, args: string) => {
     changed = true
     return args
-      ? `__elementShotNative.canvas.toDataURL(canvas, ${args})`
-      : '__elementShotNative.canvas.toDataURL(canvas)'
+      ? `__elementScreenshotNative.canvas.toDataURL(canvas, ${args})`
+      : '__elementScreenshotNative.canvas.toDataURL(canvas)'
   })
-  replace('context.fillRect(', '__elementShotNative.canvas.fillRect(context, ')
-  replace('context.drawImage(', '__elementShotNative.canvas.drawImage(context, ')
-  replace('ctx.getImageData(', '__elementShotNative.canvas.getImageData(ctx, ')
-  replace('ctx?.drawImage(', 'ctx && __elementShotNative.canvas.drawImage(ctx, ')
-  replace('canvas.cloneNode(false)', '__elementShotNative.cloneNode(canvas, false)')
-  replace('iframe.cloneNode(false)', '__elementShotNative.cloneNode(iframe, false)')
+  replace('context.fillRect(', '__elementScreenshotNative.canvas.fillRect(context, ')
+  replace('context.drawImage(', '__elementScreenshotNative.canvas.drawImage(context, ')
+  replace('ctx.getImageData(', '__elementScreenshotNative.canvas.getImageData(ctx, ')
+  replace('ctx?.drawImage(', 'ctx && __elementScreenshotNative.canvas.drawImage(ctx, ')
+  replace('canvas.cloneNode(false)', '__elementScreenshotNative.cloneNode(canvas, false)')
+  replace('iframe.cloneNode(false)', '__elementScreenshotNative.cloneNode(iframe, false)')
   replace(
     'node.cloneNode(isSVGElement(node))',
-    '__elementShotNative.cloneNode(node, isSVGElement(node))'
+    '__elementScreenshotNative.cloneNode(node, isSVGElement(node))'
   )
-  replace('new XMLSerializer().serializeToString(svg)', '__elementShotNative.serializeSvg(svg)')
-  replace('win.getComputedStyle(node)', '__elementShotNative.getComputedStyle(node)')
+  replace('new XMLSerializer().serializeToString(svg)', '__elementScreenshotNative.serializeSvg(svg)')
+  replace('win.getComputedStyle(node)', '__elementScreenshotNative.getComputedStyle(node)')
   replace(
     'toArray(node.ownerDocument.styleSheets)',
-    'toArray(__elementShotNative.document.styleSheets)'
+    'toArray(__elementScreenshotNative.document.styleSheets)'
   )
 
   return { code: next, changed }
@@ -617,7 +617,7 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
   const exclude = options.exclude ?? (() => false)
 
   return {
-    name: 'element-shot:gm-fetch',
+    name: 'element-screenshot:gm-fetch',
     enforce: 'pre',
     resolveId(id) {
       if (id === virtualId) return resolvedId

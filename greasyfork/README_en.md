@@ -4,7 +4,7 @@
   Images use absolute raw URLs from PYUDNG/Element-Screenshot; update them if the repository moves.
 -->
 
-# Element Shot
+# Element Screenshot
 
 Capture any element on a web page — including everything hidden inside its scrollable area — as one complete long image.
 

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "paths": {
-      "@element-shot/settings": ["./packages/settings/src/index.ts"]
+      "@element-screenshot/settings": ["./packages/settings/src/index.ts"]
     },
     "types": ["node", "vite/client"]
   },

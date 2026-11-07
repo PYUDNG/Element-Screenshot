@@ -33,7 +33,7 @@
     window.__menuCommands = menus
   }
   window.GM_info = {
-    script: { version: '0.2.0', name: 'Element Shot', namespace: 'playground' }
+    script: { version: '0.2.0', name: 'Element Screenshot', namespace: 'playground' }
   }
   window.GM_xmlhttpRequest = (options) => {
     const controller = new AbortController()

@@ -60,7 +60,7 @@ function toBodySource(init: RequestInit, request: Request | null): string | unde
   if (typeof body === 'string') return body
   if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams)
     return body.toString()
-  throw new TypeError('[element-shot] GM fetch only supports text request bodies')
+  throw new TypeError('[element-screenshot] GM fetch only supports text request bodies')
 }
 
 function withUrl(response: Response, url: string): Response {
@@ -94,7 +94,7 @@ export function createGMFetch(options: GMFetchOptions): GMFetch {
           ? input.href
           : (requestInput?.url ?? '')
 
-    if (!url) throw new TypeError('[element-shot] GM fetch requires a URL')
+    if (!url) throw new TypeError('[element-screenshot] GM fetch requires a URL')
 
     // html-to-image passes stylesheet URLs such as `//fonts.gstatic.com/...`
     // verbatim. GM_xmlhttpRequest needs an absolute URL; leaving it relative
@@ -112,7 +112,7 @@ export function createGMFetch(options: GMFetchOptions): GMFetch {
 
     if (url.startsWith('data:')) {
       if (nativeFetch) return nativeFetch(url, init)
-      throw new TypeError('[element-shot] data URLs require native fetch')
+      throw new TypeError('[element-screenshot] data URLs require native fetch')
     }
 
     const method = (init.method ?? requestInput?.method ?? 'GET').toUpperCase()
@@ -189,7 +189,7 @@ export function createGMFetch(options: GMFetchOptions): GMFetch {
               try {
                 const status = Number(response.status) || 0
                 if (status < 200 || status > 599) {
-                  fail(new TypeError(`[element-shot] Request failed: ${status} ${url}`))
+                  fail(new TypeError(`[element-screenshot] Request failed: ${status} ${url}`))
                   return
                 }
 
@@ -228,10 +228,10 @@ export function createGMFetch(options: GMFetchOptions): GMFetch {
             })()
           },
           onerror: () => {
-            fail(new TypeError(`[element-shot] Network error: ${url}`))
+            fail(new TypeError(`[element-screenshot] Network error: ${url}`))
           },
           ontimeout: () => {
-            fail(new TypeError(`[element-shot] Request timed out: ${url}`))
+            fail(new TypeError(`[element-screenshot] Request timed out: ${url}`))
           },
           onabort: () => {
             fail(new DOMException('The operation was aborted.', 'AbortError'))

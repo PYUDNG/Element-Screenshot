@@ -2,7 +2,7 @@ function pad(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-/** `element-shot-example.com-20260101-120000.png` */
+/** `element-screenshot-example.com-20260101-120000.png` */
 export function buildScreenshotName(url: string, date = new Date()): string {
   let host: string
   try {
@@ -22,5 +22,5 @@ export function buildScreenshotName(url: string, date = new Date()): string {
     date.getHours()
   )}${pad(date.getMinutes())}${pad(date.getSeconds())}`
 
-  return `element-shot-${host}-${stamp}.png`
+  return `element-screenshot-${host}-${stamp}.png`
 }

@@ -1,7 +1,7 @@
 import { createApp, reactive, watch } from 'vue'
 import type { App } from 'vue'
-import { applyShadowStyles } from '@element-shot/settings'
-import type { I18n, SettingsController } from '@element-shot/settings'
+import { applyShadowStyles } from '@element-screenshot/settings'
+import type { I18n, SettingsController } from '@element-screenshot/settings'
 import {
   captureElement,
   computeCaptureScale,
@@ -44,9 +44,9 @@ type SavePickerWindow = Window & {
 const FAB_MARGIN = 12
 const SNAP_DISTANCE = 48
 const UI_MARKERS = [
-  'data-element-shot-root',
-  'data-element-shot-settings',
-  'data-element-shot-ignore'
+  'data-element-screenshot-root',
+  'data-element-screenshot-settings',
+  'data-element-screenshot-ignore'
 ] as const
 
 function isMarkedUiNode(node: EventTarget): boolean {
@@ -106,7 +106,7 @@ export class ShotApp implements ShotAppApi {
   mount(): void {
     if (this.host) return
     const host = native.document.createElement('div')
-    native.setAttribute(host, 'data-element-shot-root', '')
+    native.setAttribute(host, 'data-element-screenshot-root', '')
     host.style.cssText =
       'position:fixed;inset:0;z-index:2147483646;pointer-events:none;color-scheme:normal;'
     const shadow = host.attachShadow({ mode: 'open' })
@@ -119,7 +119,7 @@ export class ShotApp implements ShotAppApi {
 
     this.app = createApp(InPageApp, { app: this })
     this.app.config.errorHandler = (error) => {
-      console.error('[element-shot] ui error', error)
+      console.error('[element-screenshot] ui error', error)
     }
     this.app.mount(container)
 
@@ -196,7 +196,7 @@ export class ShotApp implements ShotAppApi {
       this.toast('app.toast.copied', 'success')
       this.reset()
     } catch (error) {
-      console.error('[element-shot] copy failed', error)
+      console.error('[element-screenshot] copy failed', error)
       this.toast('app.toast.copyFailed', 'error')
     }
   }
@@ -228,7 +228,7 @@ export class ShotApp implements ShotAppApi {
       this.reset()
     } catch (error) {
       if (isAbortError(error)) return
-      console.error('[element-shot] save failed', error)
+      console.error('[element-screenshot] save failed', error)
       this.toast('app.toast.saveFailed', 'error')
     }
   }
@@ -402,7 +402,7 @@ export class ShotApp implements ShotAppApi {
     } catch (error) {
       if (token !== this.captureToken) return
       const reason = describeCaptureError(error)
-      console.error('[element-shot] capture failed', reason, error)
+      console.error('[element-screenshot] capture failed', reason, error)
       this.state.error = reason
       this.toast('app.toast.captureFailedDetail', 'error', { reason })
     } finally {
@@ -437,7 +437,7 @@ export class ShotApp implements ShotAppApi {
     anchor.download = name
     anchor.rel = 'noopener'
     anchor.style.display = 'none'
-    native.setAttribute(anchor, 'data-element-shot-ignore', '')
+    native.setAttribute(anchor, 'data-element-screenshot-ignore', '')
     const parent = native.document.body ?? native.document.documentElement
     if (parent) native.appendChild(parent, anchor)
     native.click(anchor)

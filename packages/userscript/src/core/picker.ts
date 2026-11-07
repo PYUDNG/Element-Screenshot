@@ -136,7 +136,7 @@ export class ElementPicker {
     return path.some(
       (node) =>
         (node as Node).nodeType === 1 &&
-        native.getAttribute(node as Element, 'data-element-shot-pick-surface') !== null
+        native.getAttribute(node as Element, 'data-element-screenshot-pick-surface') !== null
     )
   }
 

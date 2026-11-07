@@ -81,7 +81,7 @@ describe('native API snapshot', () => {
     svg.appendChild(div)
 
     expect(native.sanitizeSvgNamespaces(svg)).toBe(2)
-    expect(svg.getAttribute('xmlns:wiz')).toBe('urn:element-shot:unbound:wiz')
+    expect(svg.getAttribute('xmlns:wiz')).toBe('urn:element-screenshot:unbound:wiz')
     expect(svg.getAttribute('xmlns:xlink')).toBe('http://www.w3.org/1999/xlink')
     expect(native.sanitizeSvgNamespaces(svg)).toBe(0)
   })

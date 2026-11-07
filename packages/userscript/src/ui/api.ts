@@ -1,4 +1,4 @@
-import type { I18n, SettingsController } from '@element-shot/settings'
+import type { I18n, SettingsController } from '@element-screenshot/settings'
 
 export type PickerMode = 'idle' | 'picking' | 'selected'
 export type ToastTone = 'info' | 'success' | 'error'
