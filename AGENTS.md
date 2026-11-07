@@ -139,6 +139,12 @@ msedge.exe `
 
 Greasyfork 版本不要添加站外安装链接；Greasyfork 图片使用 `PYUDNG/Element-Screenshot` 的 raw 绝对地址；仓库迁移时同步更新。Greasyfork 的本地化说明由平台/同步工具按语言选择对应文件。
 
+### Greasyfork 构建
+
+Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false`，并通过
+`formatInlineCss()` 把 Tailwind 的内联 CSS 拆成可读的多行字符串。不要为了
+减小体积重新开启 JS/CSS minify，否则上传会再次被拒绝。
+
 ## 已验证过的关键坑
 
 ### 背景取色

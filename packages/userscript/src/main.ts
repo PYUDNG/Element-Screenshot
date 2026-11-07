@@ -1,3 +1,10 @@
+/*!
+ * Element Screenshot
+ * Bundled libraries:
+ * - Vue 3.5.44 (MIT) — https://github.com/vuejs/core
+ * - html-to-image 1.11.13 (MIT) — https://github.com/bubkoo/html-to-image
+ * - Tailwind CSS 4.3.4 (MIT) — https://github.com/tailwindlabs/tailwindcss
+ */
 import { native } from './core/native'
 import { watch } from 'vue'
 import {
