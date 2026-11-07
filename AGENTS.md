@@ -122,13 +122,22 @@ msedge.exe `
    - `packages/settings/package.json`
    - `packages/userscript/package.json`
    - `CHANGELOG.md`
-   - `README.md` / `README.en.md` 的版本号（仅版本行；不要覆盖用户未提交的 README 改写）
+   - README 中若有版本号、安装链接或 Greasyfork 链接，一并同步
 4. `pnpm build`。
 5. 安装并做真实页面验证。
 6. commit，使用 Conventional Commits；必要时打 tag `vX.Y.Z`。
 7. 复杂高风险功能尽量单独 commit/tag，方便回滚。
 
 不要提交 `dist/`、`coverage/`、`node_modules/`；它们已被忽略。
+
+### README 版本
+
+- GitHub 中文：`README.md`
+- GitHub English：`README.en.md`
+- Greasyfork 中文：`greasyfork/README.md`
+- Greasyfork English：`greasyfork/README_en.md`
+
+Greasyfork 版本不要添加站外安装链接；Greasyfork 图片使用 `PYUDNG/Element-Screenshot` 的 raw 绝对地址；仓库迁移时同步更新。Greasyfork 的本地化说明由平台/同步工具按语言选择对应文件。
 
 ## 已验证过的关键坑
 
