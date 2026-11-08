@@ -134,7 +134,8 @@ msedge.exe `
 
 - GitHub 中文：`README.md`
 - GitHub English：`README.en.md`
-- Greasyfork 中文：`greasyfork/README.md`
+- Greasyfork 中文：`greasyfork/README_zh-CN.md`
+- Greasyfork 繁體中文：`greasyfork/README_zh-TW.md`
 - Greasyfork English：`greasyfork/README_en.md`
 
 Greasyfork 版本不要添加站外安装链接；Greasyfork 图片使用 `PYUDNG/Element-Screenshot` 的 raw 绝对地址；仓库迁移时同步更新。Greasyfork 的本地化说明由平台/同步工具按语言选择对应文件。
