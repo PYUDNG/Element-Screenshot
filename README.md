@@ -148,12 +148,11 @@ playground/            本地验收页与 GM 桩
 
 ## 致谢
 
-- [html-to-image](https://github.com/bubkoo/html-to-image)：DOM 克隆与 SVG 栅格化。
-- [Vue 3](https://vuejs.org/)、[Tailwind CSS](https://tailwindcss.com/)：设置面板与界面。
-- [Vite](https://vite.dev/)、[vite-plugin-monkey](https://github.com/lisonge/vite-plugin-monkey)：构建与 userscript 打包。
-- [Vitest](https://vitest.dev/)、[ESLint](https://eslint.org/)、[Prettier](https://prettier.io/)：测试与代码质量。
-- [pnpm](https://pnpm.io/)：workspace 与依赖管理。
-- 开发与验证过程中使用了 DeepSeek Harness、Playwright MCP 和 Violentmonkey MCP。
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：开源、好用、高度可自定义的 Harness。
+- [Violentmonkey](https://violentmonkey.github.io/) 和 [Violentmonkey MCP](https://github.com/violentmonkey/mcp)：开源、好用、带 AI 开发支持的用户脚本管理器。
+- [html-to-image](https://github.com/bubkoo/html-to-image)：实现精密又不失优雅的截图渲染基础设施。
+- [Playwright](https://playwright.dev/)、[Vitest](https://vitest.dev/)、[ESLint](https://eslint.org/)、[TypeScript](https://www.typescriptlang.org/)、[Git](https://git-scm.com/)：高质量开发工具链。
+- [Vue 3](https://vuejs.org/)、[Tailwind CSS](https://tailwindcss.com/)：现代化的 UI 框架。
 
 ## 许可
 

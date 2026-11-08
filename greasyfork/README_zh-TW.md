@@ -106,12 +106,11 @@
 
 ## 致謝
 
-- [html-to-image](https://github.com/bubkoo/html-to-image)：DOM 複製與 SVG 點陣化。
-- [Vue 3](https://vuejs.org/)、[Tailwind CSS](https://tailwindcss.com/)：設定面板與介面。
-- [Vite](https://vite.dev/)、[vite-plugin-monkey](https://github.com/lisonge/vite-plugin-monkey)：建置與 userscript 打包。
-- [Vitest](https://vitest.dev/)、[ESLint](https://eslint.org/)、[Prettier](https://prettier.io/)：測試與程式碼品質。
-- [pnpm](https://pnpm.io/)：workspace 與依賴管理。
-- 開發與驗證過程中使用了 DeepSeek Harness、Playwright MCP 和 Violentmonkey MCP。
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：開源、好用、高度可自訂的 Harness。
+- [Violentmonkey](https://violentmonkey.github.io/) 與 [Violentmonkey MCP](https://github.com/violentmonkey/mcp)：開源、好用、帶 AI 開發支援的使用者腳本管理器。
+- [html-to-image](https://github.com/bubkoo/html-to-image)：實現精密又不失優雅的截圖渲染基礎設施。
+- [Playwright](https://playwright.dev/)、[Vitest](https://vitest.dev/)、[ESLint](https://eslint.org/)、[TypeScript](https://www.typescriptlang.org/)、[Git](https://git-scm.com/)：高品質開發工具鏈。
+- [Vue 3](https://vuejs.org/)、[Tailwind CSS](https://tailwindcss.com/)：現代化的 UI 框架。
 
 ## 回饋
 

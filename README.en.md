@@ -148,12 +148,11 @@ Common traps:
 
 ## Acknowledgements
 
-- [html-to-image](https://github.com/bubkoo/html-to-image) for DOM cloning and SVG rasterization.
-- [Vue 3](https://vuejs.org/) and [Tailwind CSS](https://tailwindcss.com/) for the settings UI.
-- [Vite](https://vite.dev/) and [vite-plugin-monkey](https://github.com/lisonge/vite-plugin-monkey) for the build and userscript packaging.
-- [Vitest](https://vitest.dev/), [ESLint](https://eslint.org/) and [Prettier](https://prettier.io/) for tests and code quality.
-- [pnpm](https://pnpm.io/) for the workspace and dependency management.
-- Development and verification used DeepSeek Harness, Playwright MCP and Violentmonkey MCP.
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — an open-source, easy-to-use harness that is highly customizable.
+- [Violentmonkey](https://violentmonkey.github.io/) and [Violentmonkey MCP](https://github.com/violentmonkey/mcp) — an open-source, easy-to-use userscript manager with AI-assisted development.
+- [html-to-image](https://github.com/bubkoo/html-to-image) — precise yet elegant screenshot rendering infrastructure.
+- [Playwright](https://playwright.dev/), [Vitest](https://vitest.dev/), [ESLint](https://eslint.org/), [TypeScript](https://www.typescriptlang.org/) and [Git](https://git-scm.com/) — a high-quality development toolchain.
+- [Vue 3](https://vuejs.org/) and [Tailwind CSS](https://tailwindcss.com/) — a modern UI framework.
 
 ## License
 
