@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] - 2026-11-08
+
+### Changed
+
+- Release assets are now named `script.user.js` and `script.meta.js` so
+  Greasyfork's GitHub webhook can sync the latest release automatically.
+
 ## [0.3.1] - 2026-11-08
 
 ### Fixed

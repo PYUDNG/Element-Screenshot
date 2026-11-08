@@ -7,7 +7,7 @@
 - 这是一个 pnpm workspace，目标是构建一个 Vue 3 + TypeScript + Tailwind CSS 4 的用户脚本：对任意网页元素做完整滚动截图。
 - 用户脚本入口：`packages/userscript/src/main.ts`
 - 设置库：`packages/settings`
-- 构建产物：`packages/userscript/dist/element-screenshot.user.js`（`dist/` 被 git 忽略）
+- 构建产物：`packages/userscript/dist/script.user.js`（`dist/` 被 git 忽略）
 - 包管理器：pnpm 10；Node.js >= 22.12。
 
 ## 常用命令

@@ -102,7 +102,7 @@ export default defineConfig({
         connect: ['*']
       },
       build: {
-        fileName: 'element-screenshot.user.js',
+        fileName: 'script.user.js',
         metaFileName: true
       },
       server: {

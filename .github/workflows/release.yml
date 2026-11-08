@@ -61,8 +61,8 @@ jobs:
           name: Element Screenshot ${{ github.ref_name }}
           body_path: release-notes.md
           files: |
-            packages/userscript/dist/element-screenshot.user.js
-            packages/userscript/dist/element-screenshot.meta.js
+            packages/userscript/dist/script.user.js
+            packages/userscript/dist/script.meta.js
           fail_on_unmatched_files: true
           generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}

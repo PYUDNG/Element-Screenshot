@@ -41,13 +41,14 @@
       }
     </style>
     <script src="/gm-stub.js"></script>
-    <script src="/element-screenshot.user.js"></script>
+    <script src="/script.user.js"></script>
   </head>
   <body>
     <h1>Hook resistance check</h1>
     <p>
       The userscript loads in the head, then this page monkey-patches common DOM, Canvas and
-      serialization APIs. Capture should still work because Element Screenshot keeps native references.
+      serialization APIs. Capture should still work because Element Screenshot keeps native
+      references.
     </p>
     <div id="hook-probe">Hook probe — hovering turns this block orange.</div>
     <p id="hook-status">hooks not installed yet</p>
