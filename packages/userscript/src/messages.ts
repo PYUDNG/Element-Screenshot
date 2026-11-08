@@ -61,7 +61,8 @@ const zhCN: LocaleDefinition = {
       },
       hint: {
         pickTitle: '选择元素',
-        pick: '滚轮或 + / − 切换层级 · Ctrl+A 整页 · Esc 退出',
+        pick: '滚轮或 + / − 切换层级 · 拖动框选区域 · Ctrl+A 整页 · Esc 退出',
+        region: '松开鼠标截取所选区域',
         selected: 'Ctrl+C 复制 · Ctrl+S 或双击保存 · Esc 关闭',
         rendering: '正在渲染…',
         ready: '已就绪',
@@ -159,7 +160,8 @@ const zhTW: LocaleDefinition = {
       },
       hint: {
         pickTitle: '選擇元素',
-        pick: '滾輪或 + / − 切換層級 · Ctrl+A 整頁 · Esc 離開',
+        pick: '滾輪或 + / − 切換層級 · 拖曳框選區域 · Ctrl+A 整頁 · Esc 離開',
+        region: '放開滑鼠截取所選區域',
         selected: 'Ctrl+C 複製 · Ctrl+S 或雙擊儲存 · Esc 關閉',
         rendering: '正在轉譯…',
         ready: '已就緒',
@@ -260,7 +262,8 @@ const en: LocaleDefinition = {
       },
       hint: {
         pickTitle: 'Pick an element',
-        pick: 'Wheel or + / − to change layer · Ctrl+A full page · Esc to exit',
+        pick: 'Wheel or + / − to change layer · Drag to select a region · Ctrl+A full page · Esc to exit',
+        region: 'Release to capture the selected region',
         selected: 'Ctrl+C to copy · Ctrl+S or double-click to save · Esc to close',
         rendering: 'Rendering…',
         ready: 'Ready',

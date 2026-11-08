@@ -13,6 +13,7 @@ Capture any element on a web page — including everything hidden inside its scr
 
 - **Complete long captures** — expand the target's internal scroll containers automatically, so content outside the viewport is included instead of stitching screenshots one screen at a time.
 - **Any element or the whole page** — hover to preview, use the wheel or `+` / `-` to walk the element stack, and press `Ctrl+A` to capture the full page.
+- **Drag a region** — press and drag a rectangle over the page; on release that exact region is captured, with nested scroll positions, sticky headers and fixed overlays replayed as you see them.
 - **What you select is what you get** — the selection frame covers the element's complete scroll range, and the output matches that box rather than only the visible viewport.
 - **High-resolution export** — export at 1× / 2× / 3×. Very large pages are downscaled automatically when they exceed the browser's canvas limits.
 - **Faithful backgrounds** — solid colors, gradients, background images and dark themes are preserved; transparent regions no longer default to white.
@@ -74,14 +75,15 @@ After installing, refresh the target page. A camera floating button appears near
 
 ### Pick an element
 
-| Action                 | Result                               |
-| ---------------------- | ------------------------------------ |
-| Move the mouse         | Preview the element under the cursor |
-| Wheel down / `+` / `↓` | Select a more deeply nested element  |
-| Wheel up / `-` / `↑`   | Select an outer element              |
-| Click / `Enter`        | Confirm and start rendering          |
-| `Ctrl+A` / `Cmd+A`     | Capture the whole page               |
-| `Esc`                  | Cancel                               |
+| Action                 | Result                                 |
+| ---------------------- | -------------------------------------- |
+| Move the mouse         | Preview the element under the cursor   |
+| Wheel down / `+` / `↓` | Select a more deeply nested element    |
+| Wheel up / `-` / `↑`   | Select an outer element                |
+| Click / `Enter`        | Confirm and start rendering            |
+| Press and drag (4px+)  | Select a rectangle; release to capture |
+| `Ctrl+A` / `Cmd+A`     | Capture the whole page                 |
+| `Esc`                  | Cancel                                 |
 
 After selection:
 
@@ -108,7 +110,10 @@ After selection:
 - Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, but its contents may not be fully included in the render.
 - Cross-origin iframes cannot be picked. Video, WebGL and canvas content depends on the current pixels and may be blank.
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
-- `position: sticky/fixed` elements are handled against the renderer's viewport and may differ from a manually stitched capture.
+- Region capture is limited to the current viewport; scroll to the target before dragging.
+- When a region spans several independently scrolled panes, only the primary pane's scroll position is replayed.
+- In region captures, a scrolled container's border, radius and shadow are drawn against its grown box and may not sit on the visible edge; its background is preserved.
+- `position: sticky/fixed` elements in full-page captures are handled against the renderer's viewport and may differ from a manually stitched capture.
 - Cross-origin fonts can only be inlined when the stylesheet is readable; otherwise they fall back to system fonts.
 - Interaction isolation suppresses hover by default; turn it off when a hover state is required.
 - Complex backgrounds currently cover gradients and background images on `html` / `body`; pseudo-elements, masks and all fixed/absolute layers may still differ.

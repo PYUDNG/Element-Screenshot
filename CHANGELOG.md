@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Drag a rectangle on the page to capture exactly that region. The region is
+  rendered from the live viewport, so scrolled containers, sticky headers and
+  fixed overlays appear where they are on screen, and the result is cropped to
+  the dragged box at the configured export scale.
+
 ## [0.3.3] - 2026-11-08
 
 ### Fixed

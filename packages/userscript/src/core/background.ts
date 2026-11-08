@@ -193,6 +193,16 @@ function averageImageColor(image: HTMLImageElement): Rgba | null {
 }
 
 /**
+ * The page canvas color alone, ignoring whatever happens to be painted on top
+ * of it. Region captures render the whole page root, so they only need the
+ * colour behind transparent areas.
+ */
+export function resolvePageBackground(doc: Document = document): string {
+  const color = pageBaseColor(doc)
+  return `rgb(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)})`
+}
+
+/**
  * Resolve the opaque color visible behind an element. html-to-image paints this
  * behind the clone, so transparent regions match the page instead of a fixed
  * white canvas. The paint stack at the element's center is preferred because

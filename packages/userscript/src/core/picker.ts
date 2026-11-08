@@ -1,5 +1,8 @@
 import { native } from './native'
+import { exceedsDragThreshold, isCaptureRegion, regionFromPoints } from './region'
+import type { Point } from './region'
 import { getElementStack, resolveCandidate } from './target'
+import type { TargetBox } from './target'
 
 export interface ElementPickerOptions {
   onHover: (element: Element | null, index: number, total: number) => void
@@ -7,11 +10,24 @@ export interface ElementPickerOptions {
   onCancel: () => void
   onCursor?: (x: number, y: number) => void
   isUiEvent?: (event: Event) => boolean
+  /** A drag passed the click threshold and became a rectangle. */
+  onRegionStart?: () => void
+  onRegionChange?: (rect: TargetBox) => void
+  onRegionEnd?: (rect: TargetBox) => void
+  onRegionCancel?: () => void
+}
+
+interface DragSession {
+  start: Point
+  current: Point
+  moved: boolean
 }
 
 /**
  * Page-level element picker. All listeners live in the capture phase so page
- * handlers never see the clicks, wheel or keystrokes used for selection.
+ * handlers never see the clicks, wheels, drags or keystrokes used for
+ * selection. A press that stays inside the drag threshold still picks the
+ * element under the cursor; a longer press drags out a capture region.
  */
 export class ElementPicker {
   private active = false
@@ -19,6 +35,8 @@ export class ElementPicker {
   private index = 0
   private cursor = { x: 0, y: 0 }
   private rafId = 0
+  private drag: DragSession | null = null
+  private suppressClick = false
   private previousCursor = ''
   private previousCursorPriority = ''
   private previousUserSelect = ''
@@ -33,6 +51,8 @@ export class ElementPicker {
   start(): void {
     if (this.active) return
     this.active = true
+    this.drag = null
+    this.suppressClick = false
 
     const rootStyle = (native.document.documentElement ?? document.documentElement).style
     this.previousCursor = rootStyle.getPropertyValue('cursor')
@@ -45,7 +65,9 @@ export class ElementPicker {
     native.addEventListener(window, 'mousemove', this.handleMouseMove, true)
     native.addEventListener(window, 'pointerdown', this.handlePointerDown, true)
     native.addEventListener(window, 'mousedown', this.handlePointerDown, true)
-    native.addEventListener(window, 'mouseup', this.handlePointerDown, true)
+    native.addEventListener(window, 'mouseup', this.handlePointerUp, true)
+    native.addEventListener(window, 'pointerup', this.handlePointerUp, true)
+    native.addEventListener(window, 'pointermove', this.handlePointerMove, true)
     native.addEventListener(window, 'click', this.handleClick, true)
     native.addEventListener(window, 'dblclick', this.handleDblClick, true)
     native.addEventListener(window, 'wheel', this.handleWheel, { capture: true, passive: false })
@@ -53,6 +75,7 @@ export class ElementPicker {
     native.addEventListener(window, 'contextmenu', this.handleContextMenu, true)
     native.addEventListener(window, 'dragstart', this.handleDragStart, true)
     native.addEventListener(window, 'resize', this.handleResize, true)
+    native.addEventListener(window, 'blur', this.handleBlur, true)
 
     this.cursor = {
       x: Math.round(window.innerWidth / 2),
@@ -65,11 +88,15 @@ export class ElementPicker {
   stop(): void {
     if (!this.active) return
     this.active = false
+    this.drag = null
+    this.suppressClick = false
 
     native.removeEventListener(window, 'mousemove', this.handleMouseMove, true)
     native.removeEventListener(window, 'pointerdown', this.handlePointerDown, true)
     native.removeEventListener(window, 'mousedown', this.handlePointerDown, true)
-    native.removeEventListener(window, 'mouseup', this.handlePointerDown, true)
+    native.removeEventListener(window, 'mouseup', this.handlePointerUp, true)
+    native.removeEventListener(window, 'pointerup', this.handlePointerUp, true)
+    native.removeEventListener(window, 'pointermove', this.handlePointerMove, true)
     native.removeEventListener(window, 'click', this.handleClick, true)
     native.removeEventListener(window, 'dblclick', this.handleDblClick, true)
     native.removeEventListener(window, 'wheel', this.handleWheel, true)
@@ -77,6 +104,7 @@ export class ElementPicker {
     native.removeEventListener(window, 'contextmenu', this.handleContextMenu, true)
     native.removeEventListener(window, 'dragstart', this.handleDragStart, true)
     native.removeEventListener(window, 'resize', this.handleResize, true)
+    native.removeEventListener(window, 'blur', this.handleBlur, true)
 
     if (this.rafId) {
       native.cancelAnimationFrame(this.rafId)
@@ -113,6 +141,8 @@ export class ElementPicker {
     // getElementStack returns topmost first; reverse so index 0 is the
     // outermost layer and the innermost element is selected initially.
     this.stack = getElementStack(this.cursor.x, this.cursor.y).reverse()
+    // A running drag owns the box, so keep the layer index stable until it ends.
+    if (this.drag) return
     this.index = Math.max(0, this.stack.length - 1)
     this.emitHover()
   }
@@ -140,6 +170,64 @@ export class ElementPicker {
     )
   }
 
+  private viewport(): { width: number; height: number } {
+    return { width: window.innerWidth, height: window.innerHeight }
+  }
+
+  private startDrag(event: MouseEvent): void {
+    if (this.drag || event.button !== 0) return
+    const point = { x: event.clientX, y: event.clientY }
+    this.drag = { start: point, current: point, moved: false }
+    this.suppressClick = false
+  }
+
+  /**
+   * Update the running drag. Returns true when the event belonged to a drag, so
+   * the caller skips hover hit-testing for it.
+   */
+  private updateDrag(event: MouseEvent): boolean {
+    const drag = this.drag
+    if (!drag) return false
+
+    if (drag.current.x === event.clientX && drag.current.y === event.clientY) return true
+    drag.current = { x: event.clientX, y: event.clientY }
+    if (!drag.moved && !exceedsDragThreshold(drag.start, drag.current)) {
+      return true
+    }
+    if (!drag.moved) {
+      drag.moved = true
+      this.options.onRegionStart?.()
+    }
+    this.options.onRegionChange?.(regionFromPoints(drag.start, drag.current, this.viewport()))
+    return true
+  }
+
+  /** Finish the drag; a plain click is handed back to the click handler. */
+  private endDrag(event: MouseEvent): boolean {
+    const drag = this.drag
+    if (!drag) return false
+
+    this.updateDrag(event)
+    this.drag = null
+    if (!drag.moved) return false
+
+    // A drag also fires `click`; consume it so the region is not replaced by
+    // the element under the release point.
+    this.suppressClick = true
+    const rect = regionFromPoints(drag.start, drag.current, this.viewport())
+    this.stop()
+    if (isCaptureRegion(rect)) this.options.onRegionEnd?.(rect)
+    else this.options.onRegionCancel?.()
+    return true
+  }
+
+  private cancelDrag(): boolean {
+    if (!this.drag) return false
+    this.drag = null
+    this.options.onRegionCancel?.()
+    return true
+  }
+
   private selectAll(): void {
     const root = document.documentElement
     this.stop()
@@ -162,17 +250,40 @@ export class ElementPicker {
     if (!this.active || this.isUi(event)) return
     this.cursor = { x: event.clientX, y: event.clientY }
     this.options.onCursor?.(this.cursor.x, this.cursor.y)
+    if (this.updateDrag(event)) return
     this.scheduleRefresh()
+  }
+
+  private readonly handlePointerMove = (event: PointerEvent): void => {
+    if (!this.active || !this.drag) return
+    if (this.isUi(event)) return
+    this.updateDrag(event)
   }
 
   private readonly handlePointerDown = (event: Event): void => {
     if (!this.active || this.isUi(event)) return
     event.preventDefault()
     event.stopImmediatePropagation()
+    this.startDrag(event as MouseEvent)
+  }
+
+  private readonly handlePointerUp = (event: Event): void => {
+    if (!this.active) return
+    if (this.endDrag(event as MouseEvent)) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
   }
 
   private readonly handleClick = (event: MouseEvent): void => {
-    if (!this.active || this.isUi(event)) return
+    if (!this.active) return
+    if (this.suppressClick) {
+      this.suppressClick = false
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      return
+    }
+    if (this.isUi(event)) return
     event.preventDefault()
     event.stopImmediatePropagation()
     this.selectCurrent()
@@ -188,6 +299,7 @@ export class ElementPicker {
     if (!this.active || this.isUi(event)) return
     event.preventDefault()
     event.stopImmediatePropagation()
+    if (this.drag) return
     if (event.deltaY > 0) this.cycle(1)
     else if (event.deltaY < 0) this.cycle(-1)
   }
@@ -197,6 +309,13 @@ export class ElementPicker {
 
     const key = event.key
     const command = event.ctrlKey || event.metaKey
+
+    if (key === 'Escape' && this.drag) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      this.cancelDrag()
+      return
+    }
 
     if (command && key.toLowerCase() === 'a') {
       event.preventDefault()
@@ -260,10 +379,16 @@ export class ElementPicker {
 
   private readonly handleResize = (): void => {
     if (!this.active) return
+    if (this.drag) this.cancelDrag()
     this.cursor = {
       x: Math.min(this.cursor.x, window.innerWidth - 1),
       y: Math.min(this.cursor.y, window.innerHeight - 1)
     }
     this.refresh()
+  }
+
+  private readonly handleBlur = (): void => {
+    if (!this.active) return
+    this.cancelDrag()
   }
 }

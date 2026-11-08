@@ -1,5 +1,10 @@
 import { toBlob } from 'html-to-image'
+import { blobToDrawable, canvasToBlob } from './canvas'
 import { native } from './native'
+import { clampRegion } from './region'
+import { planCrop, cropBlob } from './crop'
+import { applyScrollReplay, collectScrollReplay } from './scroll-replay'
+import type { ScrollReplay } from './scroll-replay'
 import { getTargetBox } from './target'
 import type { TargetBox } from './target'
 
@@ -30,6 +35,15 @@ export interface CaptureScalePlan {
   height: number
   ratio: number
   limited: boolean
+}
+
+export interface RegionCaptureOptions extends CaptureOptions {
+  /**
+   * Replay collected for this capture. Collected from `rect` when omitted; the
+   * collection has to happen right before the clone is built so the offsets
+   * still match what the user sees.
+   */
+  replay?: ScrollReplay
 }
 
 const DEFAULT_MAX_DIMENSION = 16_384
@@ -421,40 +435,6 @@ function nextFrame(): Promise<void> {
   })
 }
 
-interface Drawable {
-  source: CanvasImageSource
-  close: () => void
-}
-
-async function blobToDrawable(blob: Blob): Promise<Drawable> {
-  if (typeof createImageBitmap === 'function') {
-    const bitmap = await createImageBitmap(blob)
-    return { source: bitmap, close: () => bitmap.close() }
-  }
-
-  const url = native.createObjectURL?.(blob)
-  if (!url) throw new Error('Object URLs are not supported')
-  try {
-    const image = native.document.createElement('img')
-    await new Promise<void>((resolve, reject) => {
-      const timer = native.setTimeout(() => reject(new Error('Image decode timed out')), 5_000)
-      image.onload = () => {
-        native.clearTimeout(timer)
-        resolve()
-      }
-      image.onerror = () => {
-        native.clearTimeout(timer)
-        reject(new Error('Image decode failed'))
-      }
-      image.src = url
-    })
-    return { source: image, close: () => native.revokeObjectURL?.(url) }
-  } catch (error) {
-    native.revokeObjectURL?.(url)
-    throw error
-  }
-}
-
 async function compositeScene(
   scene: Blob,
   content: Blob,
@@ -479,16 +459,7 @@ async function compositeScene(
     foreground.close()
   }
 
-  return new Promise<Blob>((resolve, reject) => {
-    native.canvas.toBlob(
-      canvas,
-      (blob) => {
-        if (blob) resolve(blob)
-        else reject(new Error('Canvas returned an empty backdrop composite'))
-      },
-      'image/png'
-    )
-  })
+  return canvasToBlob(canvas)
 }
 
 /**
@@ -578,5 +549,113 @@ export async function captureElement(
   } finally {
     restoreSvg()
     restore()
+  }
+}
+
+/**
+ * Render the current viewport and crop one rectangle out of it.
+ *
+ * A drag region is not an element, so it cannot be handed to html-to-image
+ * directly. The page root is rendered on a viewport-sized surface instead, with
+ * two corrections that make the clone match what the user sees:
+ *
+ * 1. the clone root is shifted by the window scroll *and* the summed scroll of
+ *    the clipped containers around the region, because a clone never carries
+ *    `scrollTop`;
+ * 2. those containers stop clipping while the clone is built, and sticky
+ *    elements are pinned, so their scrolled content is laid out where the crop
+ *    expects it.
+ *
+ * Rendering the viewport rather than the whole document also keeps `fixed`
+ * elements anchored to the crop coordinate system and avoids downscaling a
+ * huge page just to keep a small region sharp.
+ */
+export async function captureRegion(
+  rect: TargetBox,
+  options: RegionCaptureOptions = {}
+): Promise<CaptureResult> {
+  const doc = native.document
+  const root = doc.documentElement
+  if (!root) throw new Error('The page has no document element')
+
+  const win = root.ownerDocument.defaultView ?? window
+  const viewport = {
+    width: Math.max(1, Math.round(win.innerWidth)),
+    height: Math.max(1, Math.round(win.innerHeight))
+  }
+  const region = clampRegion(rect, viewport)
+  const replay = options.replay ?? collectScrollReplay(region)
+  const shift = {
+    x: Math.round((win.scrollX ?? 0) + replay.offset.x),
+    y: Math.round((win.scrollY ?? 0) + replay.offset.y)
+  }
+
+  const requestedRatio = options.pixelRatio ?? Math.min(native.devicePixelRatio || 1, 2)
+  const plan = computeCaptureScale(
+    viewport.width,
+    viewport.height,
+    requestedRatio,
+    options.maxDimension,
+    options.maxArea
+  )
+
+  let computed: CSSStyleDeclaration | null = null
+  try {
+    computed = native.getComputedStyle(root)
+  } catch {
+    // Render with the defaults below when computed styles are unavailable.
+  }
+  const rootStyle = rootPlacementStyle(computed)
+  // `relative` (not a transform) keeps the shifted root from becoming the
+  // containing block of `fixed` descendants, so overlays stay at their
+  // viewport coordinates.
+  rootStyle.position = 'relative'
+  rootStyle.inset = 'auto'
+  rootStyle.transform = 'none'
+  rootStyle.top = `${-shift.y}px`
+  rootStyle.left = `${-shift.x}px`
+
+  const surface = { left: 0, top: 0, width: viewport.width, height: viewport.height }
+  // Order matters: sticky positions are measured before the clip removal resets
+  // the scroll offsets, and both snapshots are restored in reverse.
+  const restoreReplay = applyScrollReplay(replay)
+  const restore = expandForCapture(root, surface, false)
+  const restoreSvg = inlineSvgPaintVariables(root)
+
+  try {
+    await nextFrame()
+    await nextFrame()
+
+    const rendered = await toBlob(root as HTMLElement, {
+      width: viewport.width,
+      height: viewport.height,
+      pixelRatio: plan.ratio,
+      backgroundColor: options.backgroundColor,
+      skipAutoScale: true,
+      cacheBust: false,
+      type: 'image/png',
+      imagePlaceholder: TRANSPARENT_PIXEL,
+      onImageErrorHandler: handleImageError,
+      style: rootStyle,
+      filter: options.filter
+    })
+    if (!rendered) throw new Error('html-to-image returned an empty blob')
+
+    const crop = planCrop(region, plan.ratio, viewport.width, viewport.height)
+    const blob = await cropBlob(rendered, crop)
+
+    return {
+      blob,
+      width: crop.width,
+      height: crop.height,
+      scale: plan.ratio,
+      limited: plan.limited,
+      sourceWidth: region.width,
+      sourceHeight: region.height
+    }
+  } finally {
+    restoreSvg()
+    restore()
+    restoreReplay()
   }
 }

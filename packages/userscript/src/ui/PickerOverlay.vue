@@ -47,6 +47,43 @@ const boxStyle = computed<CSSProperties>(() => {
   }
 })
 
+const marqueeStyle = computed<CSSProperties>(() => {
+  const marquee = state.marquee
+  if (!marquee) return {}
+  return {
+    left: `${marquee.left}px`,
+    top: `${marquee.top}px`,
+    width: `${marquee.width}px`,
+    height: `${marquee.height}px`,
+    borderColor: borderColor.value,
+    borderWidth: `${borderWidth.value}px`,
+    borderStyle: 'dashed',
+    boxSizing: 'border-box',
+    // Dim everything outside the rectangle without a second full-screen layer.
+    boxShadow: '0 0 0 100vmax rgb(0 0 0 / 0.22)'
+  }
+})
+
+const marqueeLabelStyle = computed(() => {
+  const marquee = state.marquee
+  if (!marquee) return {}
+  const position = computePickerLabelPosition(
+    marquee.left,
+    marquee.top,
+    state.viewport.width,
+    state.viewport.height
+  )
+  return {
+    left: `${position.left}px`,
+    top: `${position.top}px`,
+    maxWidth: `${position.maxWidth}px`
+  }
+})
+
+const marqueeSize = computed(() =>
+  state.marquee ? `${state.marquee.width} × ${state.marquee.height}` : ''
+)
+
 const labelStyle = computed(() => {
   const box = state.box
   if (!box) return {}
@@ -86,10 +123,25 @@ const selectedDimensions = computed(() => {
       aria-hidden="true"
     />
 
-    <template v-if="state.mode === 'picking'">
+    <template v-if="state.mode === 'picking' && !state.marquee">
       <div class="fixed inset-y-0 w-px bg-blue-500/35" :style="{ left: `${state.cursor.x}px` }" />
       <div class="fixed inset-x-0 h-px bg-blue-500/35" :style="{ top: `${state.cursor.y}px` }" />
     </template>
+
+    <div
+      v-if="state.marquee"
+      class="pointer-events-none fixed z-[5]"
+      :style="marqueeStyle"
+      aria-hidden="true"
+    />
+
+    <div
+      v-if="state.marquee"
+      class="pointer-events-none fixed z-10 flex items-center gap-2 rounded-md border border-zinc-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 shadow-sm tabular-nums backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-200"
+      :style="marqueeLabelStyle"
+    >
+      {{ marqueeSize }}
+    </div>
 
     <div v-if="state.box" class="fixed" :style="boxStyle" aria-hidden="true" />
 
@@ -157,7 +209,13 @@ const selectedDimensions = computed(() => {
           </button>
         </div>
 
-        <span class="hidden text-[11px] text-zinc-500 dark:text-zinc-400 md:inline">
+        <span
+          v-if="state.marquee"
+          class="hidden text-[11px] text-zinc-500 dark:text-zinc-400 md:inline"
+        >
+          {{ t('app.hint.region') }}
+        </span>
+        <span v-else class="hidden text-[11px] text-zinc-500 dark:text-zinc-400 md:inline">
           {{ t('app.hint.pick') }}
         </span>
 

@@ -35,6 +35,8 @@ export interface ShotState {
   mode: PickerMode
   hover: PickerHover | null
   box: PickerBox | null
+  /** Rectangle being dragged out; only set while the pointer button is down. */
+  marquee: PickerBox | null
   cursor: { x: number; y: number }
   capturing: boolean
   ready: boolean

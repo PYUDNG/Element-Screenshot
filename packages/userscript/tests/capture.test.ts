@@ -1,15 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as CropModule from '../src/core/crop'
 
-const { toBlobMock } = vi.hoisted(() => ({
-  toBlobMock: vi.fn()
+const { toBlobMock, cropBlobMock } = vi.hoisted(() => ({
+  toBlobMock: vi.fn(),
+  cropBlobMock: vi.fn()
 }))
 
 vi.mock('html-to-image', () => ({
   toBlob: toBlobMock
 }))
 
+vi.mock('../src/core/crop', async (importOriginal) => {
+  const actual = await importOriginal<typeof CropModule>()
+  return { ...actual, cropBlob: cropBlobMock }
+})
+
 import {
   captureElement,
+  captureRegion,
   collectScrollTargets,
   computeCaptureScale,
   describeCaptureError,
@@ -20,6 +28,7 @@ import {
   shouldCaptureNode
 } from '../src/core/capture'
 import { native } from '../src/core/native'
+import { EMPTY_SCROLL_REPLAY } from '../src/core/scroll-replay'
 import { getTargetBox } from '../src/core/target'
 
 function setMetrics(
@@ -39,6 +48,8 @@ function setMetrics(
 beforeEach(() => {
   toBlobMock.mockReset()
   toBlobMock.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+  cropBlobMock.mockReset()
+  cropBlobMock.mockResolvedValue(new Blob(['crop'], { type: 'image/png' }))
 })
 
 afterEach(() => {
@@ -525,5 +536,128 @@ describe('scroll expansion planning', () => {
 
     await captureElement(element, { expandNested: false, pixelRatio: 1 })
     expect(toBlobMock).toHaveBeenCalled()
+  })
+})
+
+describe('region capture', () => {
+  it('renders the viewport, then crops the dragged rectangle', async () => {
+    const rect = { left: 100, top: 60, width: 200, height: 120 }
+
+    const result = await captureRegion(rect, {
+      pixelRatio: 2,
+      backgroundColor: '#ffffff',
+      replay: { ancestors: [], sticky: [], offset: { x: 0, y: 300 } }
+    })
+
+    const options = toBlobMock.mock.calls[0]?.[1]
+    expect(options).toMatchObject({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      pixelRatio: 2,
+      backgroundColor: '#ffffff',
+      skipAutoScale: true,
+      type: 'image/png'
+    })
+    expect(options.style).toMatchObject({
+      position: 'relative',
+      inset: 'auto',
+      top: '-300px',
+      left: '0px',
+      margin: '0',
+      transform: 'none'
+    })
+    expect(cropBlobMock).toHaveBeenCalledWith(expect.anything(), {
+      sx: 200,
+      sy: 120,
+      sw: 400,
+      sh: 240,
+      width: 400,
+      height: 240
+    })
+    expect(result).toMatchObject({
+      width: 400,
+      height: 240,
+      scale: 2,
+      sourceWidth: 200,
+      sourceHeight: 120,
+      limited: false
+    })
+    expect(document.documentElement.getAttribute('style')).toBeNull()
+  })
+
+  it('clamps a rectangle to the viewport', async () => {
+    const result = await captureRegion(
+      { left: window.innerWidth - 24, top: window.innerHeight - 68, width: 200, height: 200 },
+      { pixelRatio: 1, replay: EMPTY_SCROLL_REPLAY }
+    )
+
+    expect(cropBlobMock).toHaveBeenCalledWith(expect.anything(), {
+      sx: window.innerWidth - 24,
+      sy: window.innerHeight - 68,
+      sw: 24,
+      sh: 68,
+      width: 24,
+      height: 68
+    })
+    expect(result).toMatchObject({ width: 24, height: 68, sourceWidth: 24, sourceHeight: 68 })
+  })
+
+  it('collects the scroll replay when the caller does not supply one', async () => {
+    const target = document.createElement('div')
+    const scroller = document.createElement('div')
+    scroller.append(target)
+    document.body.append(scroller)
+    scroller.scrollTop = 640
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([target])
+
+    await captureRegion(
+      { left: 0, top: 0, width: 200, height: 100 },
+      { pixelRatio: 1, backgroundColor: '#fff' }
+    )
+
+    const options = toBlobMock.mock.calls[0]?.[1]
+    expect(options.style.top).toBe('-640px')
+    expect(scroller.getAttribute('style')).toBeNull()
+    expect(scroller.scrollTop).toBe(640)
+  })
+
+  it('stops the scroll ancestors from clipping while rendering', async () => {
+    const scroller = document.createElement('div')
+    scroller.setAttribute('style', 'overflow:auto')
+    document.body.append(scroller)
+    scroller.scrollTop = 120
+
+    let clipping = ''
+    toBlobMock.mockImplementation(() => {
+      clipping = scroller.style.getPropertyValue('overflow')
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+
+    await captureRegion(
+      { left: 0, top: 0, width: 100, height: 100 },
+      {
+        pixelRatio: 1,
+        replay: {
+          ancestors: [{ element: scroller, scrollTop: 120, scrollLeft: 0 }],
+          sticky: [],
+          offset: { x: 0, y: 120 }
+        }
+      }
+    )
+
+    expect(clipping).toBe('visible')
+    expect(scroller.getAttribute('style')).toBe('overflow:auto')
+    expect(scroller.scrollTop).toBe(120)
+  })
+
+  it('rejects an empty render', async () => {
+    toBlobMock.mockResolvedValue(null)
+    await expect(
+      captureRegion(
+        { left: 0, top: 0, width: 100, height: 100 },
+        { pixelRatio: 1, replay: EMPTY_SCROLL_REPLAY }
+      )
+    ).rejects.toThrow('html-to-image returned an empty blob')
+    expect(cropBlobMock).not.toHaveBeenCalled()
   })
 })

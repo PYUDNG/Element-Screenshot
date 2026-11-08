@@ -19,6 +19,7 @@ const files = new Map([
   ['/', join(root, 'playground/index.html')],
   ['/index.html', join(root, 'playground/index.html')],
   ['/hooked.html', join(root, 'playground/hooked.html')],
+  ['/region.html', join(root, 'playground/region.html')],
   ['/gm-stub.js', join(root, 'playground/gm-stub.js')],
   ['/sample.svg', join(root, 'playground/sample.svg')],
   ['/script.user.js', join(root, 'packages/userscript/dist/script.user.js')],

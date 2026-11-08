@@ -4,16 +4,19 @@ import { applyShadowStyles } from '@element-screenshot/settings'
 import type { I18n, SettingsController } from '@element-screenshot/settings'
 import {
   captureElement,
+  captureRegion,
   computeCaptureScale,
   describeCaptureError,
   shouldCaptureNode
 } from '../core/capture'
-import { resolveBackdropColor } from '../core/background'
+import { resolveBackdropColor, resolvePageBackground } from '../core/background'
 import { captureBackdropScene, hasComplexBackground } from '../core/backdrop-scene'
 import { buildScreenshotName } from '../core/filename'
 import { native } from '../core/native'
 import { ElementPicker } from '../core/picker'
+import { clampRegion } from '../core/region'
 import { describeTarget, getTargetBox } from '../core/target'
+import type { TargetBox } from '../core/target'
 import InPageApp from './InPageApp.vue'
 import type { PickerHover, ShotAppApi, ShotState, ToastTone } from './api'
 
@@ -67,6 +70,7 @@ export class ShotApp implements ShotAppApi {
     mode: 'idle',
     hover: null,
     box: null,
+    marquee: null,
     cursor: { x: 0, y: 0 },
     capturing: false,
     ready: false,
@@ -98,6 +102,12 @@ export class ShotApp implements ShotAppApi {
       onCancel: () => this.reset(),
       onCursor: (x, y) => {
         this.state.cursor = { x, y }
+      },
+      onRegionStart: () => this.handleRegionStart(),
+      onRegionChange: (rect) => this.handleRegionChange(rect),
+      onRegionEnd: (rect) => this.handleRegion(rect),
+      onRegionCancel: () => {
+        this.state.marquee = null
       },
       isUiEvent: (event) => this.isUiEvent(event)
     })
@@ -174,6 +184,7 @@ export class ShotApp implements ShotAppApi {
     this.state.mode = 'idle'
     this.state.hover = null
     this.state.box = null
+    this.state.marquee = null
     this.state.capturing = false
     this.state.ready = false
     this.state.error = null
@@ -350,6 +361,7 @@ export class ShotApp implements ShotAppApi {
   private handleSelect(element: Element): void {
     this.state.mode = 'selected'
     this.state.hover = null
+    this.state.marquee = null
     this.state.box = getTargetBox(element)
     this.state.capturing = true
     this.state.ready = false
@@ -362,6 +374,73 @@ export class ShotApp implements ShotAppApi {
     this.installGuards()
     const token = (this.captureToken += 1)
     this.pending = this.renderCapture(element, token)
+  }
+
+  private handleRegionStart(): void {
+    this.state.hover = null
+    this.state.box = null
+    this.state.marquee = null
+  }
+
+  private handleRegionChange(rect: TargetBox): void {
+    this.state.marquee = rect
+  }
+
+  private handleRegion(rect: TargetBox): void {
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    const box = clampRegion(rect, viewport)
+
+    this.state.mode = 'selected'
+    this.state.hover = null
+    this.state.marquee = null
+    this.state.box = box
+    this.state.capturing = true
+    this.state.ready = false
+    this.state.error = null
+    this.state.captureSize = null
+
+    const active = document.activeElement
+    if (active instanceof HTMLElement) active.blur()
+
+    this.installGuards()
+    const token = (this.captureToken += 1)
+    this.pending = this.renderRegionCapture(box, token)
+  }
+
+  private async renderRegionCapture(rect: TargetBox, token: number): Promise<void> {
+    try {
+      const transparent = Boolean(this.settings.get('capture.transparent'))
+      const followPage = this.settings.get('capture.backgroundAuto') !== false
+      const scaleSetting = String(this.settings.get('capture.scale') ?? 'auto')
+      const requested =
+        scaleSetting === 'auto' ? Math.min(native.devicePixelRatio || 1, 2) : Number(scaleSetting)
+      const background = transparent
+        ? undefined
+        : followPage
+          ? resolvePageBackground()
+          : String(this.settings.get('capture.background') ?? '#ffffff')
+
+      const result = await captureRegion(rect, {
+        pixelRatio: Number.isFinite(requested) && requested > 0 ? requested : 1,
+        backgroundColor: background,
+        filter: (node) => shouldCaptureNode(node) && !isMarkedUiNode(node)
+      })
+
+      if (token !== this.captureToken) return
+
+      this.blob = result.blob
+      this.state.captureSize = { width: result.width, height: result.height }
+      this.state.ready = true
+      if (result.limited) this.toast('app.toast.downscaled', 'info')
+    } catch (error) {
+      if (token !== this.captureToken) return
+      const reason = describeCaptureError(error)
+      console.error('[element-screenshot] region capture failed', reason, error)
+      this.state.error = reason
+      this.toast('app.toast.captureFailedDetail', 'error', { reason })
+    } finally {
+      if (token === this.captureToken) this.state.capturing = false
+    }
   }
 
   private async renderCapture(element: Element, token: number): Promise<void> {
@@ -450,6 +529,7 @@ export class ShotApp implements ShotAppApi {
     this.pending = null
     this.state.hover = null
     this.state.box = null
+    this.state.marquee = null
     this.state.capturing = false
     this.state.ready = false
     this.state.error = null

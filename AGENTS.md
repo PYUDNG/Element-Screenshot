@@ -66,11 +66,12 @@ pnpm check            # lint + typecheck + coverage + build，提交前必须通
 packages/settings/                可复用设置库（schema、存储、快捷键、i18n、Vue 组件）
 packages/userscript/src/main.ts   用户脚本入口
 packages/userscript/src/core/     截图、选择器、背景、原生 API 快照、XML/SVG 清理
+                                  区域截图：region.ts / scroll-replay.ts / crop.ts / canvas.ts
 packages/userscript/src/net/      GM_xmlhttpRequest 适配
 packages/userscript/src/plugin/   Vite 插件：注入 GM fetch/XHR 适配并 patch html-to-image
 packages/userscript/src/ui/       Shadow DOM UI、InPageApp/Fab/PickerOverlay
 packages/userscript/tests/        Vitest + jsdom 测试
-playground/                       本地测试页与 GM stub
+playground/                       本地测试页与 GM stub（index.html 元素、region.html 区域截图）
 scripts/serve-playground.mjs      本地 playground 服务器
 ```
 
@@ -84,6 +85,18 @@ scripts/serve-playground.mjs      本地 playground 服务器
 → html-to-image 克隆并嵌入资源
 → SVG / XML 清理
 → canvas 转 PNG
+→ 复制或保存
+```
+
+区域截图链路：
+
+```text
+拖拽出矩形
+→ collectScrollReplay() 采样滚动链 / sticky（采集即快照）
+→ 根节点按 窗口滚动 + Σ滚动容器 做 relative 偏移
+→ applyScrollReplay() 去掉裁剪 + 钉住 sticky
+→ html-to-image 渲染整个视口
+→ planCrop() + cropBlob() 按矩形裁剪
 → 复制或保存
 ```
 
@@ -220,6 +233,23 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 实现：`packages/userscript/src/core/capture.ts` 的 `rootPlacementStyle()`，只清除位置（`position` 改 `relative` + `inset: auto`、纯平移的 `transform` 改 `none`），保留尺寸与缩放；
 - 判断“纯平移”用 `pureTranslation()`：只接受线性部分为单位矩阵的 `matrix` / `matrix3d`，带 `scale` / `rotate` / `skew` 的一律不动，因为缩放会改变裁剪框与视觉尺寸的对应关系；
 - 调试这类问题直接读元素 computed `transform`：如果 `matrix(1, 0, 0, 1, tx, ty)` 的 `tx/ty` 与 `getBoundingClientRect()` 的 `left/top` 相同，就是这个坑。
+
+### 区域截图（拖拽）
+
+- 拖拽框选不是元素截图，模型是「渲染面 + 裁剪框」：`captureRegion(rect)` 以 `documentElement` 为根渲染整个视口（`innerWidth × innerHeight`），再按 `rect` 裁剪；
+- html-to-image 不携带 `scrollTop`，所以必须把滚动「重放」：
+  - 窗口滚动：克隆根加 `position: relative; top: -window.scrollY; left: -window.scrollX`；
+  - 内部滚动容器：收集区域所在的滚动祖先链（`core/scroll-replay.ts`），临时 `overflow: visible` 去掉裁剪，把各层 `scrollTop/scrollLeft` **求和**后一起并入根偏移；
+  - 光去裁剪不够：滚动容器的背景只画在自己的盒子上，根偏移会把盒子一起移走，裁剪区就会露出页面底色；所以还要把 `height` 临时撑到 `scrollHeight`（撑高后盒子位置若变化就回退，宁可缺背景也不能让内容错位）；
+  - 因为根偏移和裁剪用的是同一组坐标，裁剪框始终等于 `rect`，不会随滚动量漂移；
+- 不要用 `transform` 做根偏移：它会让克隆根成为 `fixed` 后代的包含块，固定弹窗/浮层会跟着被移出画布；`relative` 不会；
+- 渲染面必须等于视口而不是拖拽矩形：`position: fixed` 元素以 `foreignObject` 为包含块，只有渲染面=视口时它的坐标才和屏幕上一致；
+- `sticky` 元素要临时改成 `position: relative` 并加「当前屏幕位置 − 静态位置」的偏移钉住；不要改成 `fixed`，那会脱离文档流、让后面的内容整体上移，裁剪坐标全错；
+- 裁剪用 `core/crop.ts` 的 `planCrop()` 把 CSS 像素映射到设备像素：只做一次 `round`，再夹到位图范围内；
+- 交互：拖拽超过 4px 进入框选，区域小于 8×8 视为点击；`Esc` 先取消拖拽再退出；`window.blur` 取消拖拽；区域模式强制 `expandNested=false`（要的是所见即所得）；`suppressClick` 用来吃掉拖拽后浏览器补发的 `click`；
+- 已知边界：只在视口内框选；区域覆盖多个独立滚动面板时只重放主链（中心 + 四角采样中滚动量最大的那条）；iframe 内部不处理；
+- 验证页：`playground/region.html`（内部滚动面板 + 吸顶表头 + fixed 工具条），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；
+- 调试顺序：渲染卡住先看 `applyScrollReplay()` 的 DOM 预处理；内容整体偏移先核对「窗口滚动 + Σ滚动容器」，再核对 sticky 的「屏幕 − 静态」偏移。
 
 ## 验证建议
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { native } from '../src/core/native'
-import { parseCssColor, resolveBackdropColor } from '../src/core/background'
+import { parseCssColor, resolveBackdropColor, resolvePageBackground } from '../src/core/background'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -182,5 +182,16 @@ describe('page background resolution', () => {
     vi.spyOn(native.canvas, 'getImageData').mockReturnValue({ data: pixels } as ImageData)
 
     expect(resolveBackdropColor(card)).toBe('rgb(32, 32, 32)')
+  })
+
+  it('reports the page canvas color for region captures', () => {
+    mockBackgrounds(
+      new Map([
+        [document.documentElement, 'rgb(9, 9, 11)'],
+        [document.body, 'rgba(0, 0, 0, 0)']
+      ])
+    )
+
+    expect(resolvePageBackground()).toBe('rgb(9, 9, 11)')
   })
 })

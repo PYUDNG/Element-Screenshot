@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Element Screenshot — Region capture playground</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #eef2ff;
+        color: #111827;
+      }
+      header {
+        padding: 32px 32px 16px;
+        max-width: 1040px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      header p {
+        margin: 0;
+        color: #4b5563;
+        font-size: 13px;
+        line-height: 1.7;
+      }
+      main {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 16px 32px 80px;
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+      }
+      .panel {
+        flex: 0 0 420px;
+        height: 300px;
+        overflow: auto;
+        background: #fff;
+        border: 1px solid #c7d2fe;
+        border-radius: 10px;
+        font-size: 13px;
+      }
+      .panel-head {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: 10px 14px;
+        background: #e0e7ff;
+        border-bottom: 1px solid #c7d2fe;
+        font-weight: 600;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 14px;
+        border-bottom: 1px solid #eef2ff;
+      }
+      .row:nth-child(3n) {
+        background: #f8fafc;
+      }
+      .tag {
+        color: #2563eb;
+        font-weight: 600;
+      }
+      .filler {
+        flex: 1 1 auto;
+        height: 1200px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 10px;
+        background: repeating-linear-gradient(90deg, #fafafa 0 24px, #f1f5f9 24px 48px);
+        color: #94a3b8;
+        font-size: 12px;
+        padding: 12px;
+      }
+      #fixedbar {
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: #111827;
+        color: #fff;
+        font-size: 13px;
+      }
+      code {
+        background: #e0e7ff;
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Region capture playground</h1>
+      <p>
+        先滚动
+        <code>#panel</code> 内部列表，再拖拽框选面板：截图应显示当前滚动位置的行、粘在面板顶部的
+        <code>.panel-head</code>、以及右下角
+        <code>#fixedbar</code>（若落在框选区域内）。页面本身也可以滚动， 用来验证窗口滚动偏移。
+      </p>
+    </header>
+    <main>
+      <div class="panel" id="panel">
+        <div class="panel-head">Sticky header</div>
+      </div>
+      <div class="filler">page filler — scroll the window and drag a region over the panel</div>
+    </main>
+    <div id="fixedbar">fixed toolbar</div>
+
+    <script src="/gm-stub.js"></script>
+    <script>
+      ;(() => {
+        const panel = document.getElementById('panel')
+        for (let index = 1; index <= 40; index += 1) {
+          const row = document.createElement('div')
+          row.className = 'row'
+          row.innerHTML =
+            '<span>Row ' +
+            String(index).padStart(2, '0') +
+            '</span>' +
+            '<span class="tag">v' +
+            index +
+            '</span>'
+          panel.append(row)
+        }
+
+        const originalToBlob = HTMLCanvasElement.prototype.toBlob
+        HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+          return originalToBlob.call(
+            this,
+            (blob) => {
+              window.__lastShot = { blob, width: this.width, height: this.height }
+              callback(blob)
+            },
+            type,
+            quality
+          )
+        }
+      })()
+    </script>
+    <script src="/script.user.js"></script>
+  </body>
+</html>
