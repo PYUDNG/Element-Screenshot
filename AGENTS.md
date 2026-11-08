@@ -15,8 +15,7 @@
 - 公开名称：**Element Screenshot**
 - 仓库：<https://github.com/PYUDNG/Element-Screenshot>
 - 当前版本：`0.3.2`
-- 当前 commit：`3030fa9 ci: name release asset script.user.js`
-- 当前 tag：`v0.3.2`
+- 当前 tag：`v0.3.2`（具体 commit 以 `git log --oneline --decorate -5` 为准）
 - Release 资产：
   - `script.user.js`
   - `script.meta.js`
