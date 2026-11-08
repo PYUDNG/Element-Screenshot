@@ -10,6 +10,41 @@
 - 构建产物：`packages/userscript/dist/script.user.js`（`dist/` 被 git 忽略）
 - 包管理器：pnpm 10；Node.js >= 22.12。
 
+## 当前发布状态（2026-11-08）
+
+- 公开名称：**Element Screenshot**
+- 仓库：<https://github.com/PYUDNG/Element-Screenshot>
+- 当前版本：`0.3.2`
+- 当前 commit：`3030fa9 ci: name release asset script.user.js`
+- 当前 tag：`v0.3.2`
+- Release 资产：
+  - `script.user.js`
+  - `script.meta.js`
+- 最新脚本直链：
+  <https://github.com/PYUDNG/Element-Screenshot/releases/latest/download/script.user.js>
+- Greasyfork 的 GitHub webhook 依赖 release 资产名 **`script.user.js`**，不要改回其他文件名。
+- GitHub Actions：
+  - push / PR 跑 `ci.yml`
+  - push `v*` tag 跑 `release.yml`
+  - release notes 从 `CHANGELOG.md` 对应版本段落提取
+- Greasyfork README 直链：
+  - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_en.md`
+  - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-CN.md`
+  - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-TW.md`
+- Greasyfork 脚本页尚未写入 GitHub README 的安装表格；发布后把「即将上线」替换成实际脚本链接。
+
+## 文档同步规则
+
+每次重大更改或发版后，必须在同一轮对话中同步更新：
+
+1. 本文件的「当前发布状态」和受影响的操作说明；
+2. `CHANGELOG.md`，它同时是 Release notes 的来源；
+3. `README.md` / `README.en.md` 中的安装链接、版本或功能描述；
+4. 必要时同步 `greasyfork/README_zh-CN.md`、`README_zh-TW.md`、`README_en.md`；
+5. 资产名、构建路径或 workflow 变化时，同步 `.github/workflows/`、`scripts/`、`playground/`。
+
+如果上下文被压缩，先重新读本文件、`git status` 和 `git log`，不要依赖聊天记忆。
+
 ## 常用命令
 
 ```bash
