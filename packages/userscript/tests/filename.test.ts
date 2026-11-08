@@ -14,6 +14,8 @@ describe('screenshot file names', () => {
     expect(buildScreenshotName('https://例子.test/a', date)).toMatch(
       /^element-screenshot-.*-20261105-160708\.png$/
     )
-    expect(buildScreenshotName('not a url', date)).toBe('element-screenshot-page-20261105-160708.png')
+    expect(buildScreenshotName('not a url', date)).toBe(
+      'element-screenshot-page-20261105-160708.png'
+    )
   })
 })

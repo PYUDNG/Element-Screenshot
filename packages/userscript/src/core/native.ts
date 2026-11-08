@@ -398,19 +398,11 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
     sanitizeSvgNamespaces: (root) => {
       const elements = [root, ...Array.from(querySelectorAll(root, '*'))]
       const declared = new Set(['xml', 'xmlns'])
-      const rootNames = call<string[]>(
-        getAttributeNamesMethod as unknown as AnyMethod,
-        root,
-        []
-      )
+      const rootNames = call<string[]>(getAttributeNamesMethod as unknown as AnyMethod, root, [])
       for (const name of rootNames) {
         if (!name.startsWith('xmlns:')) continue
         const prefix = name.slice('xmlns:'.length)
-        const value = call<string | null>(
-          getAttributeMethod as unknown as AnyMethod,
-          root,
-          [name]
-        )
+        const value = call<string | null>(getAttributeMethod as unknown as AnyMethod, root, [name])
         if (prefix && value) declared.add(prefix)
       }
 
@@ -419,11 +411,7 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
         const elementPrefix = namePrefix(element.localName || element.tagName)
         if (elementPrefix) used.add(elementPrefix)
 
-        const names = call<string[]>(
-          getAttributeNamesMethod as unknown as AnyMethod,
-          element,
-          []
-        )
+        const names = call<string[]>(getAttributeNamesMethod as unknown as AnyMethod, element, [])
         for (const name of names) {
           if (name.startsWith('xmlns:')) continue
           const prefix = namePrefix(name)
@@ -434,12 +422,8 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
       let added = 0
       for (const prefix of used) {
         if (declared.has(prefix)) continue
-        const uri =
-          KNOWN_NAMESPACE_URIS[prefix] ?? `urn:element-screenshot:unbound:${prefix}`
-        call<void>(setAttributeMethod as unknown as AnyMethod, root, [
-          `xmlns:${prefix}`,
-          uri
-        ])
+        const uri = KNOWN_NAMESPACE_URIS[prefix] ?? `urn:element-screenshot:unbound:${prefix}`
+        call<void>(setAttributeMethod as unknown as AnyMethod, root, [`xmlns:${prefix}`, uri])
         added += 1
       }
       return added

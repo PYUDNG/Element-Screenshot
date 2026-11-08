@@ -579,7 +579,10 @@ export function patchNativeCalls(code: string): { code: string; changed: boolean
     'node.cloneNode(isSVGElement(node))',
     '__elementScreenshotNative.cloneNode(node, isSVGElement(node))'
   )
-  replace('new XMLSerializer().serializeToString(svg)', '__elementScreenshotNative.serializeSvg(svg)')
+  replace(
+    'new XMLSerializer().serializeToString(svg)',
+    '__elementScreenshotNative.serializeSvg(svg)'
+  )
   replace('win.getComputedStyle(node)', '__elementScreenshotNative.getComputedStyle(node)')
   replace(
     'toArray(node.ownerDocument.styleSheets)',

@@ -203,17 +203,16 @@ describe('root placement', () => {
   })
 
   it('reads a translation out of a 3d matrix', () => {
-    expect(
-      pureTranslation('matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12, 34, 0, 1)')
-    ).toEqual({ x: 12, y: 34 })
+    expect(pureTranslation('matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12, 34, 0, 1)')).toEqual({
+      x: 12,
+      y: 34
+    })
   })
 
   it('refuses matrices that also scale, rotate or move in z', () => {
     expect(pureTranslation('matrix(2, 0, 0, 2, 10, 10)')).toBeNull()
     expect(pureTranslation('matrix(0.707107, 0.707107, -0.707107, 0.707107, 4, 4)')).toBeNull()
-    expect(
-      pureTranslation('matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1)')
-    ).toBeNull()
+    expect(pureTranslation('matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1)')).toBeNull()
   })
 
   it('does not rewrite a transform that has no offset', () => {
