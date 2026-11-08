@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] - 2026-11-08
+
+### Fixed
+
+- Elements that are moved into place by the page are no longer captured with
+  their content shifted and clipped. The clone root now drops a translation-only
+  `transform` and a `fixed`/`absolute`/`sticky` inset, so it starts at the crop
+  origin instead of inheriting the element's on-page position. XiaoHongShu's note
+  detail modal, which is positioned with `transform: translate(...)`, lost its
+  whole comment column before this fix.
+
 ## [0.3.2] - 2026-11-08
 
 ### Changed

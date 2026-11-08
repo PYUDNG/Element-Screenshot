@@ -14,8 +14,8 @@
 
 - 公开名称：**Element Screenshot**
 - 仓库：<https://github.com/PYUDNG/Element-Screenshot>
-- 当前版本：`0.3.2`
-- 当前 tag：`v0.3.2`（具体 commit 以 `git log --oneline --decorate -5` 为准）
+- 当前版本：`0.3.3`
+- 当前 tag：`v0.3.3`（具体 commit 以 `git log --oneline --decorate -5` 为准）
 - Release 资产：
   - `script.user.js`
   - `script.meta.js`
@@ -211,6 +211,15 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 截图框是 border box，克隆根必须清除 `margin`；
 - `inline` / `inline-*` 根会进入行盒，要改成对应的块级 display；
 - 元素内部滚动容器需要在截图前展开，截完恢复。
+
+### 克隆根的位置
+
+- html-to-image 把克隆根直接放进 `<foreignObject>`，但会把元素自己的 computed 位置一起复制过去；
+- 任何让元素在页面上发生位移的样式（`transform: translate(...)`、`translate`、`position: fixed/absolute` 的 inset）都会让整棵克隆在裁剪框里偏移，超出部分被裁掉；
+- 居中弹窗是最常见的触发场景：小红书笔记详情 `#noteContainer` 用 `transform: translate(...) scale(1)` 定位，修复前整个评论区被切掉；
+- 实现：`packages/userscript/src/core/capture.ts` 的 `rootPlacementStyle()`，只清除位置（`position` 改 `relative` + `inset: auto`、纯平移的 `transform` 改 `none`），保留尺寸与缩放；
+- 判断“纯平移”用 `pureTranslation()`：只接受线性部分为单位矩阵的 `matrix` / `matrix3d`，带 `scale` / `rotate` / `skew` 的一律不动，因为缩放会改变裁剪框与视觉尺寸的对应关系；
+- 调试这类问题直接读元素 computed `transform`：如果 `matrix(1, 0, 0, 1, tx, ty)` 的 `tx/ty` 与 `getBoundingClientRect()` 的 `left/top` 相同，就是这个坑。
 
 ## 验证建议
 

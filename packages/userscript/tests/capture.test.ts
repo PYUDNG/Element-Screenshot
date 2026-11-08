@@ -15,6 +15,8 @@ import {
   describeCaptureError,
   handleImageError,
   inlineSvgPaintVariables,
+  pureTranslation,
+  rootPlacementStyle,
   shouldCaptureNode
 } from '../src/core/capture'
 import { native } from '../src/core/native'
@@ -187,6 +189,110 @@ describe('target box measurement', () => {
       width: 402,
       height: 802
     })
+  })
+})
+
+describe('root placement', () => {
+  it('reads a translation out of a 2d matrix', () => {
+    expect(pureTranslation('matrix(1, 0, 0, 1, 276, 32)')).toEqual({ x: 276, y: 32 })
+    expect(pureTranslation('none')).toBeNull()
+    expect(pureTranslation('')).toBeNull()
+    expect(pureTranslation(undefined)).toBeNull()
+    expect(pureTranslation('not-a-matrix')).toBeNull()
+    expect(pureTranslation('matrix(1, 0, 0)')).toBeNull()
+  })
+
+  it('reads a translation out of a 3d matrix', () => {
+    expect(
+      pureTranslation('matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12, 34, 0, 1)')
+    ).toEqual({ x: 12, y: 34 })
+  })
+
+  it('refuses matrices that also scale, rotate or move in z', () => {
+    expect(pureTranslation('matrix(2, 0, 0, 2, 10, 10)')).toBeNull()
+    expect(pureTranslation('matrix(0.707107, 0.707107, -0.707107, 0.707107, 4, 4)')).toBeNull()
+    expect(
+      pureTranslation('matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1)')
+    ).toBeNull()
+  })
+
+  it('does not rewrite a transform that has no offset', () => {
+    const style = rootPlacementStyle({
+      position: 'static',
+      transform: 'matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)'
+    } as CSSStyleDeclaration)
+
+    expect(style.transform).toBeUndefined()
+  })
+
+  it('moves a fixed, translated clone root back to the crop origin', () => {
+    const style = rootPlacementStyle({
+      position: 'fixed',
+      transform: 'matrix(1, 0, 0, 1, 276, 32)'
+    } as CSSStyleDeclaration)
+
+    expect(style).toEqual({
+      margin: '0',
+      position: 'relative',
+      inset: 'auto',
+      transform: 'none'
+    })
+  })
+
+  it('leaves a static element without placement overrides', () => {
+    expect(
+      rootPlacementStyle({ position: 'static', transform: 'none' } as CSSStyleDeclaration)
+    ).toEqual({ margin: '0' })
+    expect(rootPlacementStyle(null)).toEqual({ margin: '0' })
+  })
+
+  it('keeps a scaling transform so the crop still matches the visible box', () => {
+    const style = rootPlacementStyle({
+      position: 'absolute',
+      transform: 'matrix(0.5, 0, 0, 0.5, 0, 0)'
+    } as CSSStyleDeclaration)
+
+    expect(style.transform).toBeUndefined()
+    expect(style.position).toBe('relative')
+  })
+
+  it('passes the placement overrides to html-to-image', async () => {
+    const element = document.createElement('div')
+    document.body.appendChild(element)
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 276,
+      top: 32,
+      width: 880,
+      height: 630,
+      right: 1156,
+      bottom: 662,
+      x: 276,
+      y: 32,
+      toJSON: () => ({})
+    } as DOMRect)
+    setMetrics(element, {
+      scrollWidth: 880,
+      scrollHeight: 630,
+      clientWidth: 880,
+      clientHeight: 630
+    })
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      display: 'flex',
+      position: 'static',
+      transform: 'matrix(1, 0, 0, 1, 276, 32)',
+      borderLeftWidth: '0px',
+      borderRightWidth: '0px',
+      borderTopWidth: '0px',
+      borderBottomWidth: '0px',
+      overflowX: 'visible',
+      overflowY: 'visible'
+    } as CSSStyleDeclaration)
+
+    await captureElement(element, { expandNested: false, pixelRatio: 1 })
+
+    const options = toBlobMock.mock.calls[0]?.[1]
+    expect(options.style).toMatchObject({ margin: '0', transform: 'none' })
+    expect(options.style.position).toBeUndefined()
   })
 })
 

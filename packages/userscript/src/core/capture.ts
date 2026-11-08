@@ -221,6 +221,100 @@ export function collectScrollTargets(root: Element): Element[] {
   return Array.from(new Set(targets))
 }
 
+const MATRIX_TOLERANCE = 0.001
+
+function near(value: number, expected: number): boolean {
+  return Math.abs(value - expected) <= MATRIX_TOLERANCE
+}
+
+export interface TranslationOffset {
+  x: number
+  y: number
+}
+
+function parseNumbers(value: string): number[] | null {
+  const numbers = value.split(',').map((item) => Number(item.trim()))
+  return numbers.every((item) => Number.isFinite(item)) ? numbers : null
+}
+
+/**
+ * A computed `transform` that only moves the element has an identity linear
+ * part. Scaling, rotation and skew are layout-visible and must be kept, so they
+ * are reported as unsupported and left untouched.
+ */
+export function pureTranslation(transform: string | undefined | null): TranslationOffset | null {
+  const value = (transform ?? '').trim()
+  if (!value || value === 'none') return null
+
+  const flat = /^matrix\(\s*([^)]*)\)$/.exec(value)
+  if (flat) {
+    const numbers = parseNumbers(flat[1] ?? '')
+    if (!numbers || numbers.length !== 6) return null
+    const [a, b, c, d, e, f] = numbers as [number, number, number, number, number, number]
+    if (!near(a, 1) || !near(d, 1) || !near(b, 0) || !near(c, 0)) return null
+    return { x: e, y: f }
+  }
+
+  const spatial = /^matrix3d\(\s*([^)]*)\)$/.exec(value)
+  if (spatial) {
+    const numbers = parseNumbers(spatial[1] ?? '')
+    if (!numbers || numbers.length !== 16) return null
+    const at = (index: number): number => numbers[index] ?? Number.NaN
+    const identity =
+      near(at(0), 1) &&
+      near(at(1), 0) &&
+      near(at(2), 0) &&
+      near(at(3), 0) &&
+      near(at(4), 0) &&
+      near(at(5), 1) &&
+      near(at(6), 0) &&
+      near(at(7), 0) &&
+      near(at(8), 0) &&
+      near(at(9), 0) &&
+      near(at(10), 1) &&
+      near(at(11), 0)
+    return identity ? { x: at(12), y: at(13) } : null
+  }
+
+  return null
+}
+
+/**
+ * html-to-image renders the clone as the only child of an SVG `foreignObject`
+ * whose origin is the crop origin, but it copies the element's computed
+ * placement onto that clone. Anything that moved the element on the page —
+ * a transform translation, or a fixed/absolute inset — therefore moves the
+ * whole clone inside the crop, and the overflowing part is cut off.
+ *
+ * XiaoHongShu lays its note modal out at the top-left corner and slides it into
+ * place with `transform: translate(...)`, so the clone was shifted by the same
+ * offset and lost the entire comment column.
+ *
+ * Only placement is reset: dimensions, scale and internal transforms stay as
+ * they are, because they define what the crop is supposed to contain.
+ */
+export function rootPlacementStyle(
+  computed: CSSStyleDeclaration | null | undefined
+): Partial<CSSStyleDeclaration> {
+  const style: Partial<CSSStyleDeclaration> = { margin: '0' }
+  if (!computed) return style
+
+  const position = computed.position
+  if (position && position !== 'static') {
+    // `relative` keeps a containing block for absolutely positioned
+    // descendants while putting the element itself back at the crop origin.
+    style.position = 'relative'
+    style.inset = 'auto'
+  }
+
+  const offset = pureTranslation(computed.transform)
+  if (offset && (offset.x !== 0 || offset.y !== 0)) {
+    style.transform = 'none'
+  }
+
+  return style
+}
+
 type StylableElement = Element & { style: CSSStyleDeclaration }
 
 function setImportant(element: Element, property: string, value: string): void {
@@ -406,11 +500,17 @@ export async function captureElement(
   options: CaptureOptions = {}
 ): Promise<CaptureResult> {
   const box = getTargetBox(element)
-  // The capture box is the element's border box, so the cloned root must not
-  // keep its own margins: they would shift the element inside the crop.
-  const rootStyle: Partial<CSSStyleDeclaration> = { margin: '0' }
+  let computed: CSSStyleDeclaration | null = null
   try {
-    const style = native.getComputedStyle(element)
+    computed = native.getComputedStyle(element)
+  } catch {
+    // Keep the measured box when computed styles are unavailable.
+  }
+  // The capture box is the element's border box, so the cloned root must not
+  // keep the placement and margins that moved it inside the page.
+  const rootStyle = rootPlacementStyle(computed)
+  try {
+    const style = computed ?? native.getComputedStyle(element)
     const display = style.display
     if (display === 'inline') {
       const fontSize = Number.parseFloat(style.fontSize) || 16
