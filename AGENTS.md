@@ -14,8 +14,8 @@
 
 - 公开名称：**Element Screenshot**
 - 仓库：<https://github.com/PYUDNG/Element-Screenshot>
-- 当前版本：`0.4.0`
-- 当前 tag：`v0.4.0`（具体 commit 以 `git log --oneline --decorate -5` 为准）
+- 当前版本：`0.5.0`（悬浮按钮贴边半隐藏、渲染分片让出事件循环）
+- 当前 tag：`v0.4.0`；`v0.5.0` 尚未发布（发布前确认 `CHANGELOG.md` 的 0.5.0 段落已写好）
 - Release 资产：
   - `script.user.js`
   - `script.meta.js`
@@ -178,6 +178,15 @@ msedge.exe `
 - 更适合用专用自动化 Profile，并只绑定 `127.0.0.1`；
 - 本机进程仍可访问 loopback 端口，防火墙不能真正隔离。
 
+实测好用的几个细节（临时脚本放仓库外，例如 `%TEMP%\es-cdp\`，不要污染工作区）：
+
+- 新开页面用 `PUT http://127.0.0.1:9222/json/new?<url>`，直接连返回的 `webSocketDebuggerUrl`；**不要**在 `/json/list` 里按 `type === 'page'` 取第一个，可能拿到扩展安装页。
+- 输入用 `Input.dispatchMouseEvent`（`mousePressed` → 多次 `mouseMoved` + `buttons: 1` → `mouseReleased`），会正常产出 pointer 事件；`Emulation.setDeviceMetricsOverride` 先设成 1400×900 让坐标稳定。
+- 新 profile 里没有 Violentmonkey，所以直接访问 `http://127.0.0.1:4176/region.html`（**不带** `?vm=1`），页面自己注入 `dist/script.user.js`；`pnpm build` 后重新导航即可换版本，也可以把不同构建产物互相覆盖到 `dist/` 做 A/B。
+- 想要早于用户脚本的原生快照打点，用 `Page.addScriptToEvaluateOnNewDocument` 包一层 `HTMLCanvasElement.prototype.toBlob` / `CanvasRenderingContext2D.prototype.drawImage` / `XMLSerializer.prototype.serializeToString` / `window.encodeURIComponent`：快照会把这些包装函数当成「原生」实现，所以截图链路会走你的包装（页面里后来自己 hook 是无效的）。借此既能分阶段计时，也能在最后一帧 `toDataURL` 取出 PNG 做像素比对。
+- 页面里的 GM 存储（playground stub）在 `localStorage` 的 `gm:*` 下，`window.__resetPlayground()` 会清空并 reload；`__resetPlayground` 之后要重新轮询 FAB 是否挂载。
+- `Page.captureScreenshot` 带 `clip`（CSS 像素）可以只截某个小区域，便于直接看 FAB 的半隐藏状态。
+
 ## 发布流程
 
 1. 修改代码并新增/更新测试。
@@ -227,6 +236,26 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 截图前需要把 SVG paint 属性里的 `var()` 解析成 computed value，截完恢复；
 - 相关实现：`packages/userscript/src/core/capture.ts` 的 `inlineSvgPaintVariables()`；
 - 典型页面：DeepSeek 左上角 logo。
+
+### 主线程渲染与分片让出
+
+- 渲染不可能离开主线程：html-to-image 需要真实 DOM，克隆、`getComputedStyle`、样式内联都只能在页面线程做；不能指望 Worker（`new Worker(blob:)` 还受页面 CSP `worker-src` 限制）。
+- html-to-image 的 `cloneNode` 用微任务链递归，整棵子树在一个任务里跑完 → 页面冻结到克隆结束。`vite` 插件里的 `patchCloneYield()` 在 `cloneNode` 入口插入 `await __elementScreenshotYield()`，按 **8ms 时间预算**（`CLONE_CHUNK_MS`）换让出：`native.yieldToMain()` 优先 `scheduler.yield()`，其次 `MessageChannel`（不受 timer 4ms clamp），最后 `setTimeout`。
+- 预算按时间算而不是按节点数：单个节点可能极贵（巨大的内联 `style`、深子树）。
+- 这类 patch 依赖 prelude 注入的 `__elementScreenshotNative`，所以和 `patchSvgSerialization` 一样只在 `nativeAdapter` 开启时加入；`patchCloneYield` 必须排在 `patchSvgSymbols` **之后**，否则它插在 `cloneNode` 前面的 helper 会被 `patchSvgSymbols` 的整段替换一起删掉。
+- 实测（`playground/region.html`，3 面板 + 嵌套，1400×900）：最长阻塞任务 638ms → 223ms，长任务总时长 1257ms → 482ms，总耗时 1393ms → 1338ms（噪声内），裁剪出的 PNG 字节完全一致。
+- 剩余的一次 200ms 级长任务来自「把数 MB 的 SVG data URL 交给浏览器解析」和「把切片 data URL 写进 `background-image` 内联样式」，都是单次调用，无法切片；要再降只能改成 blob URL 流，属于另一个量级的工作且有 CSP 风险。
+- 分片让出意味着页面自己的任务有机会在截图过程中运行：截图期间页面样式是被临时改写过的（切片隐藏子内容等），这也是为什么不要顺手把让出点加得过于频繁。
+
+### 悬浮按钮（FAB）
+
+- 位置与贴边状态的几何计算在 `packages/userscript/src/ui/fab-position.ts`（纯函数，`tests/fab-position.test.ts` 覆盖），`shot-app.ts` 只负责读写设置，`Fab.vue` 只负责渲染。
+- 两种静止状态：未贴边时保持 `FAB_MARGIN`(12px) 间距；贴边时**只在一条边上**贴合（`left/top` = 0 或 `viewport - size`），另一半靠 `transform: translateX/Y(±50%)` 甩到视口外，`opacity: 0.55`。不要允许同时贴两条边（角落会剩四分之一圆，既找不到也点不到）。
+- 吸附距离 `DOCK_DISTANCE` 只有 10px（旧实现是 48px），所以「贴边」一定是刻意拖过去的；拖动过程中坐标允许到达 0 / `viewport - size`，否则永远拖不到边。
+- 贴边轴固定，另一轴仍受 `FAB_MARGIN` 约束；`trigger.fabX/fabY` 存的是自由轴的 ratio，`trigger.fabDock`（隐藏的 `text` 字段，`''|left|right|top|bottom`）存贴边轴。「重置悬浮按钮」必须同时清空 `trigger.fabDock`。
+- **hover 不能用 `pointerenter/pointerleave` 判断**：拖动时 `setPointerCapture` 会抑制 enter/leave，松手后按钮可能贴着光标却仍半隐藏，且光标不离开再回来就不会恢复。现在改成在 `window` 上监听 `pointermove`，用**静止（露出）矩形**做命中测试，并在 `pointerup` 里按松手位置刷新一次；`pointerout` 的 `relatedTarget === null` 用于光标离开窗口时复位。命中测试用露出矩形而不是当前视觉位置，才不会在滑动过程中来回抖动。
+- `(hover: hover)` 为假的设备（触屏）直接不隐藏，否则只剩半个圆可点。
+- 验证：`fabQuery` 读 `button.style.left/top` + computed `transform`/`opacity`，期望 `< 0px / -24 / 0.55`、`0px / none / 1` 两组；注意贴边后的 `getBoundingClientRect().x` 已经是 `-24`（含 transform），CDP 里要用可见半边的坐标去点。
 
 ### html-to-image / 浏览器 API
 

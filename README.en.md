@@ -71,6 +71,8 @@ After installing, refresh the target page. A camera floating button appears near
 - press `Alt+Shift+S` (configurable);
 - or use the userscript menu → “Capture element”.
 
+The button is draggable. Drop it within 10px of a viewport edge and it docks: half of it hides outside the viewport at reduced opacity, and it only slides fully back in — opaque again — while the pointer is on it. Anywhere else it keeps the normal margin. Both the position and the docked edge are remembered.
+
 ### Pick an element
 
 | Action                 | Result                                 |
@@ -115,6 +117,7 @@ After selection:
 - Cross-origin fonts can only be inlined when the stylesheet is readable; otherwise they fall back to system fonts.
 - Interaction isolation suppresses hover by default; turn it off when a hover state is required.
 - Complex backgrounds currently cover gradients and background images on `html` / `body`; pseudo-elements, masks and all fixed/absolute layers may still differ.
+- Rendering cannot leave the main thread: cloning and style inlining now yield to the event loop every ~8 ms, so the page no longer freezes for long stretches, but the total time is unchanged. The final viewport render still hands the browser a multi-megabyte SVG data URL to parse, which can be one ~200 ms hitch.
 
 ## Development
 

@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-09
+
+### Added
+
+- The floating capture button docks to a viewport edge. Dropped within 10px of an
+  edge it sits flush, parks half of itself outside the viewport at reduced
+  opacity, and slides fully back in — opaque again — while the pointer is on it.
+  The docked edge is stored next to the position, so a reload keeps it parked.
+  Hover is derived from the pointer position (not `pointerenter`/`pointerleave`),
+  because a pointer capture suppresses enter/leave and used to leave the button
+  parked under the cursor after a drag.
+
+### Changed
+
+- The button only snaps when the drop is really at an edge: the old 48px snap
+  distance is gone (`DOCK_DISTANCE` = 10px). A drop further inside stays exactly
+  where it was released instead of jumping to the margin.
+- Rendering yields to the event loop while it clones the page. html-to-image
+  clones the subtree and inlines every node's computed style in one
+  uninterrupted microtask chain, which froze the tab for as long as the clone
+  took; the clone now hands the event loop back after ~8 ms of DOM work
+  (`scheduler.yield`, then a `MessageChannel` task, then a timer). On the region
+  playground this cut the longest blocking task from ~640 ms to ~220 ms and the
+  total blocking time by ~60%, with identical pixels and no change in total
+  duration.
+
 ## [0.4.0] - 2026-11-09
 
 ### Added

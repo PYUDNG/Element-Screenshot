@@ -64,6 +64,8 @@ Capture any element on a web page — including everything hidden inside its scr
 - press `Alt+Shift+S` (configurable);
 - or use the userscript menu → “Capture element”.
 
+The button is draggable. Drop it within 10px of a viewport edge and it docks: half of it hides outside the viewport at reduced opacity and only slides back in while the pointer is on it. Both the position and the docked edge are remembered.
+
 ### Pick an element
 
 | Action                 | Result                                 |
@@ -107,6 +109,7 @@ After selection:
 - `position: sticky/fixed` elements in full-page captures are handled against the renderer's viewport and may differ from a manually stitched capture.
 - Cross-origin fonts can only be inlined when the stylesheet is readable; otherwise they fall back to system fonts.
 - Interaction isolation suppresses hover by default; turn it off when a hover state is required.
+- Rendering stays on the main thread: cloning yields to the event loop every ~8 ms so the page no longer freezes for long stretches, but the final viewport render can still hitch for ~200 ms.
 
 ## Acknowledgements
 
