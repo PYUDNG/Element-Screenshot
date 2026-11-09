@@ -27,7 +27,7 @@ import { appMessages } from './messages'
 import { createSettingsTabs } from './config/schema'
 import { installHotkey } from './core/hotkey'
 import { enableSiteForUrl, isSiteEnabled } from './core/site-policy'
-import { createShotApp } from './ui/shot-app'
+import { createShotApp, UI_ROOT_ATTRIBUTE } from './ui/shot-app'
 import type { ShotApp } from './ui/shot-app'
 
 const i18n = createI18n({
@@ -79,6 +79,13 @@ function readList(key: string): string[] {
 
 function mountUi(): void {
   if (shot) return
+  // A second copy of the script (two installs, or a local build injected next to
+  // the manager's copy) would open a second UI and both would fight over the
+  // same pointer events. The first one to mount wins.
+  if (native.document.querySelector(`[${UI_ROOT_ATTRIBUTE}]`)) {
+    console.info('[element-screenshot] another instance is already running; skipping')
+    return
+  }
   shot = createShotApp({ settings, i18n, styles: cssText })
   shot.mount()
   installHotkey({

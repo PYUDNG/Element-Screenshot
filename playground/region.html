@@ -237,6 +237,14 @@
         }
       })()
     </script>
-    <script src="/script.user.js"></script>
+    <script>
+      // `?vm=1` keeps the page from injecting the build so the copy installed in
+      // Violentmonkey is the only instance (two copies would both open the UI).
+      if (!new URLSearchParams(location.search).has('vm')) {
+        const script = document.createElement('script')
+        script.src = '/script.user.js'
+        document.body.append(script)
+      }
+    </script>
   </body>
 </html>

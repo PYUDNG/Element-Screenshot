@@ -46,8 +46,10 @@ type SavePickerWindow = Window & {
 
 const FAB_MARGIN = 12
 const SNAP_DISTANCE = 48
+/** Marks the shadow host; also used to keep a second script copy from mounting. */
+export const UI_ROOT_ATTRIBUTE = 'data-element-screenshot-root'
 const UI_MARKERS = [
-  'data-element-screenshot-root',
+  UI_ROOT_ATTRIBUTE,
   'data-element-screenshot-settings',
   'data-element-screenshot-ignore'
 ] as const
@@ -116,7 +118,7 @@ export class ShotApp implements ShotAppApi {
   mount(): void {
     if (this.host) return
     const host = native.document.createElement('div')
-    native.setAttribute(host, 'data-element-screenshot-root', '')
+    native.setAttribute(host, UI_ROOT_ATTRIBUTE, '')
     host.style.cssText =
       'position:fixed;inset:0;z-index:2147483646;pointer-events:none;color-scheme:normal;'
     const shadow = host.attachShadow({ mode: 'open' })

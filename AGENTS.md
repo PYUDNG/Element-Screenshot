@@ -124,10 +124,25 @@ scripts/serve-playground.mjs      本地 playground 服务器
 ### 推荐的脚本更新闭环
 
 1. `pnpm build`
-2. 用 Violentmonkey MCP 的 `scripts_list` 找 `Element Screenshot` 的 id。
-3. `scripts_write` 写入完整构建产物，保留 `id`，源码必须包含完整 `==UserScript==` 元数据。
-4. 用 Playwright 重新导航/刷新目标页面，让 Violentmonkey 重新注入。
-5. 用 Playwright 执行 DOM 检查、点击、截图、控制台验证。
+2. 用 `invoke_tool` 把构建产物直接写进 Violentmonkey，**不要**把源码当作参数自己发：
+
+   ```json
+   {
+     "tool": "mcp__violentmonkey__scripts_write",
+     "files": { "code": "packages/userscript/dist/script.user.js" },
+     "args": { "id": 355, "enabled": true },
+     "saveResultTo": ".playwright-mcp/vm-write-result.json"
+   }
+   ```
+
+   构建产物约 470 KB，走 `scripts_write` 的 `code` 参数会把整份源码塞进对话上下文（十几万 token），`invoke_tool` 直接从文件读，不进上下文。返回值同样用 `saveResultTo` 落到文件，只回一个 preview。
+   `scripts_get` 的结果会溢出到临时文件，需要核对内容时读那个 spill 文件，不要让整份源码进上下文。
+3. 用 Playwright 重新导航/刷新目标页面，让 Violentmonkey 重新注入。
+4. 用 Playwright 执行 DOM 检查、点击、截图、控制台验证。
+
+`?vm=1`：playground 页面的这个参数会跳过注入 `dist/script.user.js`，只用 Violentmonkey 里那份。VM 里装了同名脚本时务必带上它，否则两份实例会同时挂 UI/抢事件。
+
+Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = ... })` 能早于 VM 的快照生效，所以 `window.__lastShot` 在 VM 实例下同样可用，便于取出截图做像素比对。
 
 `scripts_write` 不需要标签页授权。只有 `tabs_list`、`tab_scripts`、`tab_reload`、`script_logs` 需要用户在 Violentmonkey 中授权标签页；常规更新流程可以不用。
 
@@ -253,7 +268,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
   - 直接写在容器里的文本节点用 `color: transparent` 隐藏，并把 computed 的 `border-*-color` 显式写回，避免 `currentColor` 边框一起变透明；
 - 最后整页渲染一次，根节点只按**窗口滚动**做 `relative` 偏移（不再有 `Σ滚动容器`），再按 `rect` 裁剪；
 - 字体 CSS 用 `getFontEmbedCSS()` 只解析一次，通过 `fontEmbedCSS` 传给所有切片和整页渲染，否则每次渲染都会重新遍历样式表，多面板时通常能省下数秒；
-- 多面板的代价是「每个滚动容器一次渲染」：实测 3 个面板 + 1 个嵌套面板的区域约 10 秒，单面板约 5 秒；
+- 多面板的代价是「每个滚动容器一次渲染」：实测单面板约 5 秒，3 个面板 + 1 个嵌套面板约 10～15 秒（第一次渲染有数秒的一次性开销，之后每个容器约 1 秒；不同机器/页面波动不小）；测量耗时不要在页面里挂高频轮询 + 每次 `toBlob` 都做 `FileReader`，那会明显放大数字；
 - `mode: 'chain'` 是旧的单链重放（`core/scroll-replay.ts`）：只在 `captureRegion` 里当兜底，切片路径抛错时自动降级，它的已知问题是多个独立面板只还原主链、容器背景/边框按撑高后的盒子绘制；
 - 不要用 `transform` 做根偏移：它会让克隆根成为 `fixed` 后代的包含块，固定弹窗/浮层会跟着被移出画布；`relative` 不会；
 - 渲染面必须等于视口而不是拖拽矩形：`position: fixed` 元素以 `foreignObject` 为包含块，只有渲染面=视口时它的坐标才和屏幕上一致；

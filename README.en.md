@@ -111,7 +111,7 @@ After selection:
 - Cross-origin iframes cannot be picked. Video, WebGL and canvas content depends on the current pixels and may be blank.
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
 - Region capture is limited to the current viewport; scroll to the target before dragging.
-- Every scrolled container inside the region costs one more render, so captures slow down as panes pile up; a typical 1–2 pane region takes a few seconds.
+- Every scrolled container inside the region costs one more render: a few seconds for a single pane, and 10–15 seconds for four in our measurements.
 - Inside a scrolled pane, pseudo-element overlays, `mix-blend-mode`, and descendants positioned outside the pane's clip may differ slightly from the page.
 - `position: sticky/fixed` elements in full-page captures are handled against the renderer's viewport and may differ from a manually stitched capture.
 - Cross-origin fonts can only be inlined when the stylesheet is readable; otherwise they fall back to system fonts.

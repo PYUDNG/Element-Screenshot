@@ -33,6 +33,9 @@ All notable changes to this project are documented here. The format follows
   every scrolled container.
 - Region captures no longer leak a container's border arc into the rebuilt
   picture when the container is scrolled.
+- A second copy of the script (two installs, or a local build injected next to
+  the manager's copy) no longer opens a second UI that fights the first one over
+  the same pointer events; the first instance to mount wins.
 
 ## [0.3.3] - 2026-11-08
 
