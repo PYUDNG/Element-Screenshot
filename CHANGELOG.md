@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-11-09
 
 ### Added
 
@@ -22,10 +22,11 @@ All notable changes to this project are documented here. The format follows
   rendered and cropped. Several independent panes, nested panes and panes with
   borders, rounded corners or gradient backgrounds therefore all keep their own
   scroll offset, and no descendant element is repositioned while the clone is
-  built. The previous single-chain replay is still available as `mode: 'chain'`
-  and is used as a fallback when a slice render fails.
+  built.
 - The webfont CSS is resolved once per capture and shared by every render, which
   keeps a multi-pane region from re-inlining the same fonts over and over.
+- The old single-chain replay (`core/scroll-replay.ts`, `mode: 'chain'`) is gone;
+  region capture has one rendering path now.
 
 ### Fixed
 

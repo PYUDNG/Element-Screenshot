@@ -30,7 +30,6 @@ import {
   shouldCaptureNode
 } from '../src/core/capture'
 import { native } from '../src/core/native'
-import { EMPTY_SCROLL_REPLAY } from '../src/core/scroll-replay'
 import { getTargetBox } from '../src/core/target'
 
 function setMetrics(
@@ -544,12 +543,12 @@ describe('scroll expansion planning', () => {
 describe('region capture', () => {
   it('renders the viewport, then crops the dragged rectangle', async () => {
     const rect = { left: 100, top: 60, width: 200, height: 120 }
+    vi.spyOn(window, 'scrollX', 'get').mockReturnValue(40)
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(300)
 
     const result = await captureRegion(rect, {
-      mode: 'chain',
       pixelRatio: 2,
-      backgroundColor: '#ffffff',
-      replay: { ancestors: [], sticky: [], offset: { x: 0, y: 300 } }
+      backgroundColor: '#ffffff'
     })
 
     const options = toBlobMock.mock.calls[0]?.[1]
@@ -565,7 +564,7 @@ describe('region capture', () => {
       position: 'relative',
       inset: 'auto',
       top: '-300px',
-      left: '0px',
+      left: '-40px',
       margin: '0',
       transform: 'none'
     })
@@ -591,7 +590,7 @@ describe('region capture', () => {
   it('clamps a rectangle to the viewport', async () => {
     const result = await captureRegion(
       { left: window.innerWidth - 24, top: window.innerHeight - 68, width: 200, height: 200 },
-      { pixelRatio: 1, replay: EMPTY_SCROLL_REPLAY }
+      { pixelRatio: 1 }
     )
 
     expect(cropBlobMock).toHaveBeenCalledWith(expect.anything(), {
@@ -605,62 +604,10 @@ describe('region capture', () => {
     expect(result).toMatchObject({ width: 24, height: 68, sourceWidth: 24, sourceHeight: 68 })
   })
 
-  it('collects the scroll replay when the caller does not supply one', async () => {
-    const target = document.createElement('div')
-    const scroller = document.createElement('div')
-    scroller.append(target)
-    document.body.append(scroller)
-    scroller.scrollTop = 640
-    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([target])
-
-    await captureRegion(
-      { left: 0, top: 0, width: 200, height: 100 },
-      { mode: 'chain', pixelRatio: 1, backgroundColor: '#fff' }
-    )
-
-    const options = toBlobMock.mock.calls[0]?.[1]
-    expect(options.style.top).toBe('-640px')
-    expect(scroller.getAttribute('style')).toBeNull()
-    expect(scroller.scrollTop).toBe(640)
-  })
-
-  it('stops the scroll ancestors from clipping while rendering', async () => {
-    const scroller = document.createElement('div')
-    scroller.setAttribute('style', 'overflow:auto')
-    document.body.append(scroller)
-    scroller.scrollTop = 120
-
-    let clipping = ''
-    toBlobMock.mockImplementation(() => {
-      clipping = scroller.style.getPropertyValue('overflow')
-      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
-    })
-
-    await captureRegion(
-      { left: 0, top: 0, width: 100, height: 100 },
-      {
-        mode: 'chain',
-        pixelRatio: 1,
-        replay: {
-          ancestors: [{ element: scroller, scrollTop: 120, scrollLeft: 0 }],
-          sticky: [],
-          offset: { x: 0, y: 120 }
-        }
-      }
-    )
-
-    expect(clipping).toBe('visible')
-    expect(scroller.getAttribute('style')).toBe('overflow:auto')
-    expect(scroller.scrollTop).toBe(120)
-  })
-
   it('rejects an empty render', async () => {
     toBlobMock.mockResolvedValue(null)
     await expect(
-      captureRegion(
-        { left: 0, top: 0, width: 100, height: 100 },
-        { mode: 'chain', pixelRatio: 1, replay: EMPTY_SCROLL_REPLAY }
-      )
+      captureRegion({ left: 0, top: 0, width: 100, height: 100 }, { pixelRatio: 1 })
     ).rejects.toThrow('html-to-image returned an empty blob')
     expect(cropBlobMock).not.toHaveBeenCalled()
   })
@@ -849,23 +796,22 @@ describe('region capture with scroll slices', () => {
     expect(badge.getAttribute('style')).toBeNull()
   })
 
-  it('falls back to the chain replay when a slice render fails', async () => {
+  it('restores the panel and rejects when a slice render fails', async () => {
     const panel = makePanel(120)
+    const child = panel.firstElementChild as HTMLElement
     const real = native.getComputedStyle
     vi.spyOn(native, 'getComputedStyle').mockImplementation((element, pseudo) =>
       element === panel ? scrollPanel('none') : real(element, pseudo)
     )
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     toBlobMock.mockRejectedValueOnce(new Error('slice failed'))
 
-    const result = await captureRegion(
-      { left: 0, top: 0, width: 200, height: 100 },
-      { pixelRatio: 1, slices: [panel] }
-    )
+    await expect(
+      captureRegion({ left: 0, top: 0, width: 200, height: 100 }, { pixelRatio: 1, slices: [panel] })
+    ).rejects.toThrow('slice failed')
 
-    expect(warn).toHaveBeenCalled()
-    expect(toBlobMock).toHaveBeenCalledTimes(2)
+    expect(toBlobMock).toHaveBeenCalledTimes(1)
     expect(panel.getAttribute('style')).toBeNull()
-    expect(result.blob.type).toBe('image/png')
+    expect(child.style.visibility).toBe('')
+    expect(panel.scrollTop).toBe(120)
   })
 })

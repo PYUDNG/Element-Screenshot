@@ -7,7 +7,8 @@ import {
   isCaptureRegion,
   REGION_DRAG_THRESHOLD,
   REGION_MIN_SIZE,
-  regionFromPoints
+  regionFromPoints,
+  regionSamplePoints
 } from '../src/core/region'
 
 const viewport = { width: 1000, height: 800 }
@@ -64,5 +65,13 @@ describe('region geometry', () => {
       width: 70,
       height: 10
     })
+  })
+
+  it('samples the centre and the four inset corners', () => {
+    const points = regionSamplePoints({ left: 100, top: 50, width: 200, height: 100 })
+    expect(points).toHaveLength(5)
+    expect(points[0]).toEqual({ x: 200, y: 100 })
+    expect(points[1]).toEqual({ x: 108, y: 58 })
+    expect(points[4]).toEqual({ x: 292, y: 142 })
   })
 })

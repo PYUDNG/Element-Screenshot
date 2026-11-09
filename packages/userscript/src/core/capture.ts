@@ -4,8 +4,6 @@ import { native } from './native'
 import { clampRegion } from './region'
 import type { Point, ViewportSize } from './region'
 import { planCrop, cropBlob } from './crop'
-import { applyScrollReplay, collectScrollReplay } from './scroll-replay'
-import type { ScrollReplay } from './scroll-replay'
 import {
   blobToDataUrl,
   collectFixedDescendants,
@@ -62,23 +60,9 @@ export interface CaptureScalePlan {
 }
 
 export interface RegionCaptureOptions extends CaptureOptions {
-  /**
-   * Replay collected for this capture. Collected from `rect` when omitted; the
-   * collection has to happen right before the clone is built so the offsets
-   * still match what the user sees.
-   */
-  replay?: ScrollReplay
-  /**
-   * `slices` renders every scrolled panel separately and paints it back over
-   * the panel before the viewport render; `chain` is the older single-pass
-   * replay of one scroll chain, kept as a fallback.
-   */
-  mode?: RegionCaptureMode
   /** Precomputed slice targets, mainly useful for tests. */
   slices?: Element[]
 }
-
-export type RegionCaptureMode = 'slices' | 'chain'
 
 const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
@@ -628,10 +612,8 @@ interface ViewportRender {
   region: TargetBox
   plan: CaptureScalePlan
   options: CaptureOptions
-  /** Window scroll plus any scroll the caller replayed on the document root. */
+  /** Window scroll: the clone does not carry it. */
   shift: Point
-  /** Runs right before the root is expanded; returns its own restore function. */
-  prepare?: () => () => void
 }
 
 /**
@@ -640,15 +622,14 @@ interface ViewportRender {
  * Rendering the viewport rather than the whole document keeps `fixed` elements
  * anchored to the crop coordinate system and avoids downscaling a huge page just
  * to keep a small region sharp. A clone never carries `scrollTop`, so the root
- * is shifted by the window scroll; everything inside a scrolled panel is
- * handled by the caller.
+ * is shifted by the window scroll; everything inside a scrolled panel has
+ * already been painted back by `replaceScrollContainer()`.
  */
 async function renderViewport({
   region,
   plan,
   options,
-  shift,
-  prepare
+  shift
 }: ViewportRender): Promise<CaptureResult> {
   const doc = native.document
   const root = doc.documentElement
@@ -671,7 +652,6 @@ async function renderViewport({
   rootStyle.left = `${-shift.x}px`
 
   const surface = { left: 0, top: 0, width: plan.width, height: plan.height }
-  const restorePrepared = prepare?.() ?? (() => {})
   const restore = expandForCapture(root, surface, false)
   const restoreSvg = inlineSvgPaintVariables(root)
 
@@ -710,7 +690,6 @@ async function renderViewport({
   } finally {
     restoreSvg()
     restore()
-    restorePrepared()
   }
 }
 
@@ -817,13 +796,17 @@ async function replaceScrollContainer(
 }
 
 /**
- * Rebuild every scrolled panel that shows up in the region, then render the
- * viewport once. Panels are replaced deepest first so a parent clone already
- * contains the finished picture of its nested panels.
+ * Render the current viewport and crop one rectangle out of it.
+ *
+ * Each scrolled panel is rebuilt on its own as a "current scroll view" and
+ * painted back over the panel, so any number of independent or nested panes land
+ * at their real scroll offsets. The viewport is then rendered once with only the
+ * window scroll applied to the clone root, and the result is cropped to the
+ * dragged rectangle.
  */
-async function captureRegionWithSlices(
+export async function captureRegion(
   rect: TargetBox,
-  options: RegionCaptureOptions
+  options: RegionCaptureOptions = {}
 ): Promise<CaptureResult> {
   const { doc, root, region, plan } = planRegion(rect, options)
   const targets = options.slices ?? collectScrollSlices(region, doc)
@@ -844,52 +827,4 @@ async function captureRegionWithSlices(
       replacements[index]?.restore()
     }
   }
-}
-
-/**
- * Single-pass fallback: replay one chain of clipped, scrolled containers on the
- * document root. Panels outside that chain keep their stale scroll-0 content.
- */
-async function captureRegionWithChain(
-  rect: TargetBox,
-  options: RegionCaptureOptions
-): Promise<CaptureResult> {
-  const { root, region, plan } = planRegion(rect, options)
-  const replay = options.replay ?? collectScrollReplay(region)
-  const scroll = pageScroll(root)
-  const shift = { x: scroll.x + replay.offset.x, y: scroll.y + replay.offset.y }
-
-  return renderViewport({
-    region,
-    plan,
-    options,
-    shift,
-    prepare: () => applyScrollReplay(replay)
-  })
-}
-
-/**
- * Render the current viewport and crop one rectangle out of it.
- *
- * Each scrolled panel is rebuilt on its own and painted back over the panel, so
- * any number of independent panes land at their real scroll offsets. The
- * earlier single-chain replay is kept as `mode: 'chain'` and as a fallback when
- * a slice render fails.
- */
-export async function captureRegion(
-  rect: TargetBox,
-  options: RegionCaptureOptions = {}
-): Promise<CaptureResult> {
-  if (options.mode === 'chain') return captureRegionWithChain(rect, options)
-
-  try {
-    return await captureRegionWithSlices(rect, options)
-  } catch (error) {
-    console.warn(
-      '[element-screenshot] scroll slice capture failed, retrying with the scroll chain:',
-      describeCaptureError(error)
-    )
-  }
-
-  return captureRegionWithChain(rect, options)
 }

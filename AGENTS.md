@@ -10,12 +10,12 @@
 - 构建产物：`packages/userscript/dist/script.user.js`（`dist/` 被 git 忽略）
 - 包管理器：pnpm 10；Node.js >= 22.12。
 
-## 当前发布状态（2026-11-08）
+## 当前发布状态（2026-11-09）
 
 - 公开名称：**Element Screenshot**
 - 仓库：<https://github.com/PYUDNG/Element-Screenshot>
-- 当前版本：`0.3.3`
-- 当前 tag：`v0.3.3`（具体 commit 以 `git log --oneline --decorate -5` 为准）
+- 当前版本：`0.4.0`
+- 当前 tag：`v0.4.0`（具体 commit 以 `git log --oneline --decorate -5` 为准）
 - Release 资产：
   - `script.user.js`
   - `script.meta.js`
@@ -66,7 +66,7 @@ pnpm check            # lint + typecheck + coverage + build，提交前必须通
 packages/settings/                可复用设置库（schema、存储、快捷键、i18n、Vue 组件）
 packages/userscript/src/main.ts   用户脚本入口
 packages/userscript/src/core/     截图、选择器、背景、原生 API 快照、XML/SVG 清理
-                                  区域截图：region.ts / scroll-slice.ts / scroll-replay.ts / crop.ts / canvas.ts
+                                  区域截图：region.ts / scroll-slice.ts / crop.ts / canvas.ts
 packages/userscript/src/net/      GM_xmlhttpRequest 适配
 packages/userscript/src/plugin/   Vite 插件：注入 GM fetch/XHR 适配并 patch html-to-image
 packages/userscript/src/ui/       Shadow DOM UI、InPageApp/Fab/PickerOverlay
@@ -101,8 +101,7 @@ scripts/serve-playground.mjs      本地 playground 服务器
 → 复制或保存
 ```
 
-`mode: 'chain'` 保留旧的「单链重放」实现（`scroll-replay.ts`），既是回归对照，
-也是切片渲染抛错时的兜底。
+`captureRegion()` 只有这一条渲染路径：没有 `scrollTop` 重放的备选实现。
 
 ## 修改前约定
 
@@ -256,7 +255,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 ### 区域截图（拖拽）
 
 - 拖拽框选不是元素截图，模型是「渲染面 + 裁剪框」：`captureRegion(rect)` 渲染整个视口（`innerWidth × innerHeight`），再按 `rect` 裁剪；
-- 克隆不携带 `scrollTop`，所以滚动必须被「重放」。默认走 `mode: 'slices'`：
+- 克隆不携带 `scrollTop`，所以滚动必须被「重放」，做法是「每个滚动容器各自渲染一张切片」：
   - `collectScrollSlices()`（`core/scroll-slice.ts`）先找出所有与选区相交、且滚动量不为 0 的容器；容器内部还有滚动面板时也要收集（它同样会出现在父容器的切片里），并按文档顺序倒序处理，保证父容器渲染时子面板已经替换完成；
   - 每个容器**以自己为克隆根**渲染一张「当前滚动视图」：渲染面 = `clientWidth × clientHeight`（滚动口），根节点 `position: relative; top: -(scrollTop + borderTop); left: -(scrollLeft + borderLeft)`，这样内容坐标 `c` 正好落在 `padding + c - scroll`，裁剪面就是滚动口；不需要动任何后代，所以不会踩包含块、层叠顺序或裁剪的坑；
   - 切片里的边框要**去掉并把宽度并进 padding**（`border-width: 0` + `padding + border`），而不是只把颜色设成 transparent：透明边框仍然会画出下/右圆角的弧线（盒子比滚动口高，底边落在渲染面内，实测会留下青色弧线残影）。`border-radius` 也要清零，圆角交给页面渲染那一层；
@@ -269,7 +268,6 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 最后整页渲染一次，根节点只按**窗口滚动**做 `relative` 偏移（不再有 `Σ滚动容器`），再按 `rect` 裁剪；
 - 字体 CSS 用 `getFontEmbedCSS()` 只解析一次，通过 `fontEmbedCSS` 传给所有切片和整页渲染，否则每次渲染都会重新遍历样式表，多面板时通常能省下数秒；
 - 多面板的代价是「每个滚动容器一次渲染」：实测单面板约 5 秒，3 个面板 + 1 个嵌套面板约 10～15 秒（第一次渲染有数秒的一次性开销，之后每个容器约 1 秒；不同机器/页面波动不小）；测量耗时不要在页面里挂高频轮询 + 每次 `toBlob` 都做 `FileReader`，那会明显放大数字；
-- `mode: 'chain'` 是旧的单链重放（`core/scroll-replay.ts`）：只在 `captureRegion` 里当兜底，切片路径抛错时自动降级，它的已知问题是多个独立面板只还原主链、容器背景/边框按撑高后的盒子绘制；
 - 不要用 `transform` 做根偏移：它会让克隆根成为 `fixed` 后代的包含块，固定弹窗/浮层会跟着被移出画布；`relative` 不会；
 - 渲染面必须等于视口而不是拖拽矩形：`position: fixed` 元素以 `foreignObject` 为包含块，只有渲染面=视口时它的坐标才和屏幕上一致；
 - 裁剪用 `core/crop.ts` 的 `planCrop()` 把 CSS 像素映射到设备像素：只做一次 `round`，再夹到位图范围内；

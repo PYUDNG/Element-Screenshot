@@ -58,6 +58,22 @@ export function isCaptureRegion(rect: TargetBox, minSize = REGION_MIN_SIZE): boo
   return rect.width >= minSize && rect.height >= minSize
 }
 
+/**
+ * Sample the centre and the four inset corners of a rectangle. Used to find the
+ * elements a region touches and the sticky elements that stick to a panel.
+ */
+export function regionSamplePoints(rect: TargetBox): Point[] {
+  const insetX = Math.min(8, rect.width / 3)
+  const insetY = Math.min(8, rect.height / 3)
+  return [
+    { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+    { x: rect.left + insetX, y: rect.top + insetY },
+    { x: rect.left + rect.width - insetX, y: rect.top + insetY },
+    { x: rect.left + insetX, y: rect.top + rect.height - insetY },
+    { x: rect.left + rect.width - insetX, y: rect.top + rect.height - insetY }
+  ]
+}
+
 /** Keep a region inside the viewport so the crop never leaves the rendered surface. */
 export function clampRegion(rect: TargetBox, viewport: ViewportSize): TargetBox {
   const width = Math.max(1, Math.round(viewport.width))

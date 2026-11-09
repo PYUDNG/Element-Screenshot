@@ -1,5 +1,5 @@
 import { native } from './native'
-import { regionSamplePoints } from './scroll-replay'
+import { regionSamplePoints } from './region'
 import { getElementStack } from './target'
 import type { TargetBox } from './target'
 
