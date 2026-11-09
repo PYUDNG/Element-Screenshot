@@ -19,6 +19,14 @@ import { describeTarget, getTargetBox } from '../core/target'
 import type { TargetBox } from '../core/target'
 import InPageApp from './InPageApp.vue'
 import type { PickerHover, ShotAppApi, ShotState, ToastTone } from './api'
+import {
+  freeRatio,
+  placeStored,
+  readDock,
+  resolveDrop,
+  clampToViewport
+} from './fab-position'
+import type { FabViewport } from './fab-position'
 
 export interface ShotAppOptions {
   settings: SettingsController
@@ -44,8 +52,6 @@ type SavePickerWindow = Window & {
   showSaveFilePicker?: (options: SaveFilePickerOptions) => Promise<SaveFileHandle>
 }
 
-const FAB_MARGIN = 12
-const SNAP_DISTANCE = 48
 /** Marks the shadow host; also used to keep a second script copy from mounting. */
 export const UI_ROOT_ATTRIBUTE = 'data-element-screenshot-root'
 const UI_MARKERS = [
@@ -79,7 +85,7 @@ export class ShotApp implements ShotAppApi {
     error: null,
     captureSize: null,
     toasts: [],
-    fab: { left: 0, top: 0 },
+    fab: { left: 0, top: 0, dock: null },
     viewport: { width: 0, height: 0 }
   })
 
@@ -141,7 +147,8 @@ export class ShotApp implements ShotAppApi {
       () => [
         this.settings.get('trigger.fabSize'),
         this.settings.get('trigger.fabX'),
-        this.settings.get('trigger.fabY')
+        this.settings.get('trigger.fabY'),
+        this.settings.get('trigger.fabDock')
       ],
       () => this.repositionFab()
     )
@@ -248,42 +255,32 @@ export class ShotApp implements ShotAppApi {
 
   repositionFab(): void {
     const size = this.fabSize()
-    const width = window.innerWidth
-    const height = window.innerHeight
-    const x = clamp(this.readRatio('trigger.fabX', 1), 0, 1)
-    const y = clamp(this.readRatio('trigger.fabY', 1), 0, 1)
-    const maxLeft = Math.max(FAB_MARGIN, width - size - FAB_MARGIN)
-    const maxTop = Math.max(FAB_MARGIN, height - size - FAB_MARGIN)
-
-    this.state.fab = {
-      left: clamp(Math.round(x * (width - size)), FAB_MARGIN, maxLeft),
-      top: clamp(Math.round(y * (height - size)), FAB_MARGIN, maxTop)
-    }
+    const viewport = this.fabViewport()
+    this.state.fab = placeStored(
+      clamp(this.readRatio('trigger.fabX', 1), 0, 1),
+      clamp(this.readRatio('trigger.fabY', 1), 0, 1),
+      viewport,
+      size,
+      readDock(this.settings.get('trigger.fabDock'))
+    )
   }
 
   setFabPosition(left: number, top: number, commit: boolean): void {
     const size = this.fabSize()
-    const maxLeft = Math.max(FAB_MARGIN, window.innerWidth - size - FAB_MARGIN)
-    const maxTop = Math.max(FAB_MARGIN, window.innerHeight - size - FAB_MARGIN)
-    let nextLeft = clamp(Math.round(left), FAB_MARGIN, maxLeft)
-    let nextTop = clamp(Math.round(top), FAB_MARGIN, maxTop)
+    const viewport = this.fabViewport()
 
-    if (commit) {
-      const snapped = this.snapFab(nextLeft, nextTop, size)
-      nextLeft = snapped.left
-      nextTop = snapped.top
-
-      this.settings.set(
-        'trigger.fabX',
-        window.innerWidth > size ? nextLeft / (window.innerWidth - size) : 0
-      )
-      this.settings.set(
-        'trigger.fabY',
-        window.innerHeight > size ? nextTop / (window.innerHeight - size) : 0
-      )
+    if (!commit) {
+      // Dragging has to reach the very edges, otherwise docking is unreachable.
+      const point = clampToViewport(left, top, viewport, size)
+      this.state.fab = { ...point, dock: null }
+      return
     }
 
-    this.state.fab = { left: nextLeft, top: nextTop }
+    const placement = resolveDrop(left, top, viewport, size)
+    this.state.fab = placement
+    this.settings.set('trigger.fabDock', placement.dock ?? '')
+    this.settings.set('trigger.fabX', freeRatio(placement.left, viewport.width, size))
+    this.settings.set('trigger.fabY', freeRatio(placement.top, viewport.height, size))
   }
 
   toast(key: string, tone: ToastTone = 'info', params?: Record<string, string | number>): void {
@@ -303,40 +300,13 @@ export class ShotApp implements ShotAppApi {
     return typeof value === 'number' && Number.isFinite(value) ? value : 48
   }
 
+  private fabViewport(): FabViewport {
+    return { width: window.innerWidth, height: window.innerHeight }
+  }
+
   private readRatio(key: string, fallback: number): number {
     const value = this.settings.get(key)
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback
-  }
-
-  private snapFab(left: number, top: number, size: number): { left: number; top: number } {
-    const width = window.innerWidth
-    const height = window.innerHeight
-    const maxLeft = Math.max(FAB_MARGIN, width - size - FAB_MARGIN)
-    const maxTop = Math.max(FAB_MARGIN, height - size - FAB_MARGIN)
-    const distances = [
-      { edge: 'left', distance: left - FAB_MARGIN },
-      { edge: 'right', distance: maxLeft - left },
-      { edge: 'top', distance: top - FAB_MARGIN },
-      { edge: 'bottom', distance: maxTop - top }
-    ] as const
-    const nearest = distances.reduce((best, item) => (item.distance < best.distance ? item : best))
-
-    if (nearest.distance > SNAP_DISTANCE) {
-      return { left, top }
-    }
-
-    switch (nearest.edge) {
-      case 'left':
-        return { left: FAB_MARGIN, top }
-      case 'right':
-        return { left: maxLeft, top }
-      case 'top':
-        return { left, top: FAB_MARGIN }
-      case 'bottom':
-        return { left, top: maxTop }
-      default:
-        return { left, top }
-    }
   }
 
   private handleHover(element: Element | null, index: number, total: number): void {

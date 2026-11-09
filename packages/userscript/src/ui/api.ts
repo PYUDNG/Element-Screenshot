@@ -1,4 +1,5 @@
 import type { I18n, SettingsController } from '@element-screenshot/settings'
+import type { FabPlacement } from './fab-position'
 
 export type PickerMode = 'idle' | 'picking' | 'selected'
 export type ToastTone = 'info' | 'success' | 'error'
@@ -43,7 +44,8 @@ export interface ShotState {
   error: string | null
   captureSize: CaptureSize | null
   toasts: ToastItem[]
-  fab: { left: number; top: number }
+  /** Resting placement; a docked button is parked half outside the viewport. */
+  fab: FabPlacement
   viewport: { width: number; height: number }
 }
 

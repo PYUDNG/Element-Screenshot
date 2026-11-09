@@ -157,6 +157,15 @@ export function createSettingsTabs(): SettingsTab[] {
               label: 'app.field.fabPosition',
               default: 1,
               visible: () => false
+            },
+            {
+              // Edge the button is docked to, persisted so a reload keeps it
+              // parked half outside the viewport.
+              type: 'text',
+              key: 'trigger.fabDock',
+              label: 'app.field.fabPosition',
+              default: '',
+              visible: () => false
             }
           ]
         }

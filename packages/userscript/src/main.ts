@@ -66,6 +66,7 @@ settings.registerField('trigger', 'fab', {
   description: 'app.field.resetFabDesc',
   icon: 'reset',
   action: () => {
+    settings.set('trigger.fabDock', '')
     settings.set('trigger.fabX', 1)
     settings.set('trigger.fabY', 1)
     shot?.repositionFab()
