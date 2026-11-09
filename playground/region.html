@@ -23,30 +23,32 @@
         color: #111827;
       }
       header {
-        padding: 32px 32px 16px;
-        max-width: 1040px;
+        padding: 28px 32px 12px;
+        max-width: 1180px;
         margin: 0 auto;
       }
       h1 {
         margin: 0 0 8px;
-        font-size: 24px;
+        font-size: 22px;
       }
       header p {
         margin: 0;
         color: #4b5563;
         font-size: 13px;
-        line-height: 1.7;
+        line-height: 1.75;
       }
       main {
-        max-width: 1040px;
+        max-width: 1180px;
         margin: 0 auto;
-        padding: 16px 32px 80px;
+        padding: 12px 32px 80px;
+      }
+      .panels {
         display: flex;
-        gap: 24px;
+        gap: 20px;
         align-items: flex-start;
       }
       .panel {
-        flex: 0 0 420px;
+        flex: 0 0 300px;
         height: 300px;
         overflow: auto;
         background: #fff;
@@ -63,10 +65,43 @@
         border-bottom: 1px solid #c7d2fe;
         font-weight: 600;
       }
+      /* Independent panel with a gradient background and a wider radius. */
+      #panel-b {
+        flex-basis: 280px;
+        border: 2px solid #0ea5e9;
+        border-radius: 18px;
+        background: linear-gradient(180deg, #ecfeff 0%, #e0f2fe 45%, #ffffff 100%);
+      }
+      #panel-b .panel-head {
+        background: #cffafe;
+        border-bottom-color: #a5f3fc;
+        color: #0e7490;
+      }
+      /* Independent panel that contains a nested scroller. */
+      #panel-c {
+        flex-basis: 330px;
+        border-radius: 4px;
+      }
+      #panel-nested {
+        height: 132px;
+        margin: 10px 14px;
+        overflow: auto;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+      #panel-nested .panel-head {
+        padding: 8px 10px;
+        background: #dcfce7;
+        border-bottom-color: #bbf7d0;
+        color: #15803d;
+        font-size: 12px;
+      }
       .row {
         display: flex;
         justify-content: space-between;
-        padding: 10px 14px;
+        padding: 9px 12px;
         border-bottom: 1px solid #eef2ff;
       }
       .row:nth-child(3n) {
@@ -76,8 +111,20 @@
         color: #2563eb;
         font-weight: 600;
       }
+      /* DOM child of #panel-b, but anchored to the viewport. */
+      #panel-fixed {
+        position: fixed;
+        left: 812px;
+        top: 402px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: #db2777;
+        color: #fff;
+        font-size: 12px;
+        box-shadow: 0 6px 16px rgb(15 23 42 / 0.28);
+      }
       .filler {
-        flex: 1 1 auto;
+        margin-top: 24px;
         height: 1200px;
         border: 1px dashed #cbd5e1;
         border-radius: 10px;
@@ -107,36 +154,74 @@
     <header>
       <h1>Region capture playground</h1>
       <p>
-        先滚动
-        <code>#panel</code> 内部列表，再拖拽框选面板：截图应显示当前滚动位置的行、粘在面板顶部的
-        <code>.panel-head</code>、以及右下角
-        <code>#fixedbar</code>（若落在框选区域内）。页面本身也可以滚动， 用来验证窗口滚动偏移。
+        先分别滚动 <code>#panel</code>、<code>#panel-b</code>、<code>#panel-c</code>（里面还嵌着
+        <code>#panel-nested</code
+        >），再拖拽框选这三个面板：截图里每个面板都应停在自己当前的滚动位置，
+        各自保留粘顶表头、圆角、边框与渐变背景；DOM 上属于 <code>#panel-b</code> 但定位为
+        <code>fixed</code> 的
+        <code>#panel-fixed</code> 应出现在它屏幕上真正的位置。页面本身也可以滚动，
+        用来验证窗口滚动偏移。
       </p>
     </header>
     <main>
-      <div class="panel" id="panel">
-        <div class="panel-head">Sticky header</div>
+      <div class="panels">
+        <div class="panel" id="panel">
+          <div class="panel-head">Panel A · sticky header</div>
+        </div>
+        <div class="panel" id="panel-b">
+          <div class="panel-head">Panel B · gradient</div>
+          <div id="panel-fixed">fixed in panel B</div>
+        </div>
+        <div class="panel" id="panel-c">
+          <div class="panel-head">Panel C · nested</div>
+          <div id="panel-nested">
+            <div class="panel-head">Nested header</div>
+          </div>
+        </div>
       </div>
-      <div class="filler">page filler — scroll the window and drag a region over the panel</div>
+      <div class="filler">page filler — scroll the window and drag a region over the panels</div>
     </main>
     <div id="fixedbar">fixed toolbar</div>
 
     <script src="/gm-stub.js"></script>
     <script>
       ;(() => {
-        const panel = document.getElementById('panel')
-        for (let index = 1; index <= 40; index += 1) {
+        const createRow = (label, tag) => {
           const row = document.createElement('div')
           row.className = 'row'
-          row.innerHTML =
-            '<span>Row ' +
-            String(index).padStart(2, '0') +
-            '</span>' +
-            '<span class="tag">v' +
-            index +
-            '</span>'
-          panel.append(row)
+          row.innerHTML = '<span>' + label + '</span><span class="tag">' + tag + '</span>'
+          return row
         }
+
+        const panel = document.getElementById('panel')
+        for (let index = 1; index <= 40; index += 1) {
+          panel.append(createRow('Row ' + String(index).padStart(2, '0'), 'v' + index))
+        }
+
+        const panelB = document.getElementById('panel-b')
+        for (let index = 1; index <= 28; index += 1) {
+          panelB.append(createRow('B row ' + String(index).padStart(2, '0'), 'b' + index))
+        }
+
+        const panelC = document.getElementById('panel-c')
+        for (let index = 1; index <= 5; index += 1) {
+          panelC.append(createRow('C row ' + String(index).padStart(2, '0'), 'c' + index))
+        }
+        const nested = document.getElementById('panel-nested')
+        for (let index = 1; index <= 24; index += 1) {
+          nested.append(createRow('N row ' + String(index).padStart(2, '0'), 'n' + index))
+        }
+        for (let index = 6; index <= 12; index += 1) {
+          panelC.append(createRow('C row ' + String(index).padStart(2, '0'), 'c' + index))
+        }
+
+        // Deterministic starting point for manual and automated checks.
+        panel.scrollTop = 260
+        panelB.scrollTop = 120
+        panelC.scrollTop = 40
+        nested.scrollTop = 150
+
+        window.__playground = { panel, panelB, panelC, nested }
 
         const originalToBlob = HTMLCanvasElement.prototype.toBlob
         HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {

@@ -1,10 +1,28 @@
-import { toBlob } from 'html-to-image'
+import { getFontEmbedCSS, toBlob } from 'html-to-image'
 import { blobToDrawable, canvasToBlob } from './canvas'
 import { native } from './native'
 import { clampRegion } from './region'
+import type { Point, ViewportSize } from './region'
 import { planCrop, cropBlob } from './crop'
 import { applyScrollReplay, collectScrollReplay } from './scroll-replay'
 import type { ScrollReplay } from './scroll-replay'
+import {
+  blobToDataUrl,
+  collectFixedDescendants,
+  collectScrollSlices,
+  collectSliceSticky,
+  hideSliceContent,
+  isScrollContainer,
+  kebabCase,
+  pinSticky,
+  restoreStyle,
+  scrollportMetrics,
+  setImportant,
+  sliceBackgroundStyle,
+  sliceRootStyle,
+  snapshotStyle
+} from './scroll-slice'
+import type { ScrollportMetrics, SliceDocument } from './scroll-slice'
 import { getTargetBox } from './target'
 import type { TargetBox } from './target'
 
@@ -16,6 +34,12 @@ export interface CaptureOptions {
   maxDimension?: number
   maxArea?: number
   filter?: (node: HTMLElement) => boolean
+  /**
+   * Font CSS already inlined for this capture. html-to-image resolves the
+   * webfonts of the document on every call, which dominates a capture that
+   * renders several slices of the same page.
+   */
+  fontEmbedCSS?: string
 }
 
 export interface CaptureResult {
@@ -44,7 +68,17 @@ export interface RegionCaptureOptions extends CaptureOptions {
    * still match what the user sees.
    */
   replay?: ScrollReplay
+  /**
+   * `slices` renders every scrolled panel separately and paints it back over
+   * the panel before the viewport render; `chain` is the older single-pass
+   * replay of one scroll chain, kept as a fallback.
+   */
+  mode?: RegionCaptureMode
+  /** Precomputed slice targets, mainly useful for tests. */
+  slices?: Element[]
 }
+
+export type RegionCaptureMode = 'slices' | 'chain'
 
 const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
@@ -206,19 +240,6 @@ interface StyleSnapshot {
   scrollLeft: number
 }
 
-function isScrollContainer(element: Element): boolean {
-  const style = native.getComputedStyle(element)
-  const overflowY = style.overflowY
-  const overflowX = style.overflowX
-  const scrollY = overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay'
-  const scrollX = overflowX === 'auto' || overflowX === 'scroll' || overflowX === 'overlay'
-  if (!scrollY && !scrollX) return false
-  return (
-    (scrollY && element.scrollHeight > element.clientHeight + 1) ||
-    (scrollX && element.scrollWidth > element.clientWidth + 1)
-  )
-}
-
 /** Scrollable descendants that clip content, collected before any mutation. */
 export function collectScrollTargets(root: Element): Element[] {
   const doc = root.ownerDocument
@@ -327,12 +348,6 @@ export function rootPlacementStyle(
   }
 
   return style
-}
-
-type StylableElement = Element & { style: CSSStyleDeclaration }
-
-function setImportant(element: Element, property: string, value: string): void {
-  ;(element as StylableElement).style.setProperty(property, value, 'important')
 }
 
 function expandElement(element: Element, box: TargetBox, doc: Document): void {
@@ -463,6 +478,23 @@ async function compositeScene(
 }
 
 /**
+ * Resolve the page webfont CSS once so every render of one capture reuses it.
+ * html-to-image would otherwise walk all stylesheets and re-inline the same
+ * fonts for each slice.
+ */
+async function sharedFontEmbedCSS(
+  root: HTMLElement,
+  options: CaptureOptions
+): Promise<string | undefined> {
+  if (options.fontEmbedCSS) return options.fontEmbedCSS
+  try {
+    return await getFontEmbedCSS(root, { cacheBust: false })
+  } catch (error) {
+    console.warn('[element-screenshot] font embedding failed:', describeCaptureError(error))
+    return undefined
+  }
+}
+/**
  * Render an element (including its full scrollable content) to a PNG blob.
  * Page styles are restored synchronously afterwards, even on failure.
  */
@@ -552,28 +584,15 @@ export async function captureElement(
   }
 }
 
-/**
- * Render the current viewport and crop one rectangle out of it.
- *
- * A drag region is not an element, so it cannot be handed to html-to-image
- * directly. The page root is rendered on a viewport-sized surface instead, with
- * two corrections that make the clone match what the user sees:
- *
- * 1. the clone root is shifted by the window scroll *and* the summed scroll of
- *    the clipped containers around the region, because a clone never carries
- *    `scrollTop`;
- * 2. those containers stop clipping while the clone is built, and sticky
- *    elements are pinned, so their scrolled content is laid out where the crop
- *    expects it.
- *
- * Rendering the viewport rather than the whole document also keeps `fixed`
- * elements anchored to the crop coordinate system and avoids downscaling a
- * huge page just to keep a small region sharp.
- */
-export async function captureRegion(
-  rect: TargetBox,
-  options: RegionCaptureOptions = {}
-): Promise<CaptureResult> {
+interface RegionPlan {
+  doc: SliceDocument
+  root: HTMLElement
+  viewport: ViewportSize
+  region: TargetBox
+  plan: CaptureScalePlan
+}
+
+function planRegion(rect: TargetBox, options: RegionCaptureOptions): RegionPlan {
   const doc = native.document
   const root = doc.documentElement
   if (!root) throw new Error('The page has no document element')
@@ -583,21 +602,57 @@ export async function captureRegion(
     width: Math.max(1, Math.round(win.innerWidth)),
     height: Math.max(1, Math.round(win.innerHeight))
   }
-  const region = clampRegion(rect, viewport)
-  const replay = options.replay ?? collectScrollReplay(region)
-  const shift = {
-    x: Math.round((win.scrollX ?? 0) + replay.offset.x),
-    y: Math.round((win.scrollY ?? 0) + replay.offset.y)
-  }
-
   const requestedRatio = options.pixelRatio ?? Math.min(native.devicePixelRatio || 1, 2)
-  const plan = computeCaptureScale(
-    viewport.width,
-    viewport.height,
-    requestedRatio,
-    options.maxDimension,
-    options.maxArea
-  )
+
+  return {
+    doc,
+    root,
+    viewport,
+    region: clampRegion(rect, viewport),
+    plan: computeCaptureScale(
+      viewport.width,
+      viewport.height,
+      requestedRatio,
+      options.maxDimension,
+      options.maxArea
+    )
+  }
+}
+
+function pageScroll(root: HTMLElement): Point {
+  const win = root.ownerDocument.defaultView ?? window
+  return { x: Math.round(win.scrollX ?? 0), y: Math.round(win.scrollY ?? 0) }
+}
+
+interface ViewportRender {
+  region: TargetBox
+  plan: CaptureScalePlan
+  options: CaptureOptions
+  /** Window scroll plus any scroll the caller replayed on the document root. */
+  shift: Point
+  /** Runs right before the root is expanded; returns its own restore function. */
+  prepare?: () => () => void
+}
+
+/**
+ * Render the viewport on a viewport-sized surface and crop one rectangle.
+ *
+ * Rendering the viewport rather than the whole document keeps `fixed` elements
+ * anchored to the crop coordinate system and avoids downscaling a huge page just
+ * to keep a small region sharp. A clone never carries `scrollTop`, so the root
+ * is shifted by the window scroll; everything inside a scrolled panel is
+ * handled by the caller.
+ */
+async function renderViewport({
+  region,
+  plan,
+  options,
+  shift,
+  prepare
+}: ViewportRender): Promise<CaptureResult> {
+  const doc = native.document
+  const root = doc.documentElement
+  if (!root) throw new Error('The page has no document element')
 
   let computed: CSSStyleDeclaration | null = null
   try {
@@ -615,10 +670,8 @@ export async function captureRegion(
   rootStyle.top = `${-shift.y}px`
   rootStyle.left = `${-shift.x}px`
 
-  const surface = { left: 0, top: 0, width: viewport.width, height: viewport.height }
-  // Order matters: sticky positions are measured before the clip removal resets
-  // the scroll offsets, and both snapshots are restored in reverse.
-  const restoreReplay = applyScrollReplay(replay)
+  const surface = { left: 0, top: 0, width: plan.width, height: plan.height }
+  const restorePrepared = prepare?.() ?? (() => {})
   const restore = expandForCapture(root, surface, false)
   const restoreSvg = inlineSvgPaintVariables(root)
 
@@ -627,8 +680,8 @@ export async function captureRegion(
     await nextFrame()
 
     const rendered = await toBlob(root as HTMLElement, {
-      width: viewport.width,
-      height: viewport.height,
+      width: plan.width,
+      height: plan.height,
       pixelRatio: plan.ratio,
       backgroundColor: options.backgroundColor,
       skipAutoScale: true,
@@ -637,11 +690,12 @@ export async function captureRegion(
       imagePlaceholder: TRANSPARENT_PIXEL,
       onImageErrorHandler: handleImageError,
       style: rootStyle,
-      filter: options.filter
+      filter: options.filter,
+      fontEmbedCSS: options.fontEmbedCSS
     })
     if (!rendered) throw new Error('html-to-image returned an empty blob')
 
-    const crop = planCrop(region, plan.ratio, viewport.width, viewport.height)
+    const crop = planCrop(region, plan.ratio, plan.width, plan.height)
     const blob = await cropBlob(rendered, crop)
 
     return {
@@ -656,6 +710,186 @@ export async function captureRegion(
   } finally {
     restoreSvg()
     restore()
-    restoreReplay()
+    restorePrepared()
   }
+}
+
+interface SliceReplacement {
+  restore: () => void
+  /** Show viewport-anchored descendants again for the final page render. */
+  revealFixed: () => void
+}
+
+async function renderSlice(
+  target: Element,
+  metrics: ScrollportMetrics,
+  ratio: number,
+  options: CaptureOptions
+): Promise<Blob | null> {
+  return toBlob(target as HTMLElement, {
+    // The surface is the scrollport: a `fixed` descendant of the page would be
+    // placed relative to it, which is exactly what the viewport render wants.
+    width: metrics.clientWidth,
+    height: metrics.clientHeight,
+    pixelRatio: ratio,
+    skipAutoScale: true,
+    cacheBust: false,
+    type: 'image/png',
+    imagePlaceholder: TRANSPARENT_PIXEL,
+    onImageErrorHandler: handleImageError,
+    style: sliceRootStyle(metrics),
+    filter: options.filter,
+    fontEmbedCSS: options.fontEmbedCSS
+  })
+}
+
+/**
+ * Render the visible slice of one scrolled panel and paint it back over the
+ * panel as its first background layer.
+ *
+ * Rendering the panel itself as the clone root is what makes this exact: the
+ * clone has no `scrollTop`, but shifting the root by the scroll offset moves the
+ * content into the crop while the surface defines the scrollport. No descendant
+ * is repositioned, so containing blocks, stacking order and clipping stay put.
+ * The picture becomes a background layer, which means the browser keeps doing
+ * the clipping, the rounded corners and the transparency for us.
+ */
+async function replaceScrollContainer(
+  target: Element,
+  ratio: number,
+  options: CaptureOptions
+): Promise<SliceReplacement | null> {
+  const metrics = scrollportMetrics(target)
+  if (!metrics) return null
+  let computed: CSSStyleDeclaration
+  try {
+    computed = native.getComputedStyle(target)
+  } catch {
+    return null
+  }
+
+  const targetSnapshot = snapshotStyle(target)
+  const restores: Array<() => void> = []
+  const fixed: Element[] = []
+
+  try {
+    for (const element of collectFixedDescendants(target)) {
+      const snapshot = snapshotStyle(element)
+      fixed.push(element)
+      setImportant(element, 'visibility', 'hidden')
+      restores.push(() => restoreStyle(snapshot))
+    }
+
+    for (const element of collectSliceSticky(target)) {
+      restores.push(() => restoreStyle(pinSticky(element)))
+    }
+
+    await nextFrame()
+    const slice = await renderSlice(target, metrics, ratio, options)
+    if (!slice) throw new Error('html-to-image returned an empty blob')
+
+    const url = await blobToDataUrl(slice)
+    const layer = sliceBackgroundStyle(computed, {
+      url,
+      width: metrics.clientWidth,
+      height: metrics.clientHeight
+    })
+
+    restores.push(hideSliceContent(target))
+    for (const [property, value] of Object.entries(layer)) {
+      if (typeof value === 'string') setImportant(target, kebabCase(property), value)
+    }
+  } catch (error) {
+    for (let index = restores.length - 1; index >= 0; index -= 1) restores[index]?.()
+    restoreStyle(targetSnapshot)
+    throw error
+  }
+
+  return {
+    restore: () => {
+      for (let index = restores.length - 1; index >= 0; index -= 1) restores[index]?.()
+      restoreStyle(targetSnapshot)
+    },
+    revealFixed: () => {
+      for (const element of fixed) setImportant(element, 'visibility', 'visible')
+    }
+  }
+}
+
+/**
+ * Rebuild every scrolled panel that shows up in the region, then render the
+ * viewport once. Panels are replaced deepest first so a parent clone already
+ * contains the finished picture of its nested panels.
+ */
+async function captureRegionWithSlices(
+  rect: TargetBox,
+  options: RegionCaptureOptions
+): Promise<CaptureResult> {
+  const { doc, root, region, plan } = planRegion(rect, options)
+  const targets = options.slices ?? collectScrollSlices(region, doc)
+  const replacements: SliceReplacement[] = []
+  const shared = targets.length
+    ? { ...options, fontEmbedCSS: await sharedFontEmbedCSS(root, options) }
+    : options
+
+  try {
+    for (const target of targets) {
+      const replacement = await replaceScrollContainer(target, plan.ratio, shared)
+      if (replacement) replacements.push(replacement)
+    }
+    for (const replacement of replacements) replacement.revealFixed()
+    return await renderViewport({ region, plan, options: shared, shift: pageScroll(root) })
+  } finally {
+    for (let index = replacements.length - 1; index >= 0; index -= 1) {
+      replacements[index]?.restore()
+    }
+  }
+}
+
+/**
+ * Single-pass fallback: replay one chain of clipped, scrolled containers on the
+ * document root. Panels outside that chain keep their stale scroll-0 content.
+ */
+async function captureRegionWithChain(
+  rect: TargetBox,
+  options: RegionCaptureOptions
+): Promise<CaptureResult> {
+  const { root, region, plan } = planRegion(rect, options)
+  const replay = options.replay ?? collectScrollReplay(region)
+  const scroll = pageScroll(root)
+  const shift = { x: scroll.x + replay.offset.x, y: scroll.y + replay.offset.y }
+
+  return renderViewport({
+    region,
+    plan,
+    options,
+    shift,
+    prepare: () => applyScrollReplay(replay)
+  })
+}
+
+/**
+ * Render the current viewport and crop one rectangle out of it.
+ *
+ * Each scrolled panel is rebuilt on its own and painted back over the panel, so
+ * any number of independent panes land at their real scroll offsets. The
+ * earlier single-chain replay is kept as `mode: 'chain'` and as a fallback when
+ * a slice render fails.
+ */
+export async function captureRegion(
+  rect: TargetBox,
+  options: RegionCaptureOptions = {}
+): Promise<CaptureResult> {
+  if (options.mode === 'chain') return captureRegionWithChain(rect, options)
+
+  try {
+    return await captureRegionWithSlices(rect, options)
+  } catch (error) {
+    console.warn(
+      '[element-screenshot] scroll slice capture failed, retrying with the scroll chain:',
+      describeCaptureError(error)
+    )
+  }
+
+  return captureRegionWithChain(rect, options)
 }

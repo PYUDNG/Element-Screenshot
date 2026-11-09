@@ -13,7 +13,7 @@ Capture any element on a web page — including everything hidden inside its scr
 
 - **Complete long captures** — expand the target's internal scroll containers automatically, so content outside the viewport is included instead of stitching screenshots one screen at a time.
 - **Any element or the whole page** — hover to preview, use the wheel or `+` / `-` to walk the element stack, and press `Ctrl+A` to capture the full page.
-- **Drag a region** — press and drag a rectangle over the page; on release that exact region is captured, with nested scroll positions, sticky headers and fixed overlays replayed as you see them.
+- **Drag a region** — press and drag a rectangle over the page; on release that exact region is captured, with every scrolled pane restored at its own scroll offset, plus sticky headers and fixed overlays as you see them.
 - **What you select is what you get** — the selection frame covers the element's complete scroll range, and the output matches that box rather than only the visible viewport.
 - **High-resolution export** — export at 1× / 2× / 3×. Very large pages are downscaled automatically when they exceed the browser's canvas limits.
 - **Faithful backgrounds** — solid colors, gradients, background images and dark themes are preserved; transparent regions no longer default to white.
@@ -111,8 +111,8 @@ After selection:
 - Cross-origin iframes cannot be picked. Video, WebGL and canvas content depends on the current pixels and may be blank.
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
 - Region capture is limited to the current viewport; scroll to the target before dragging.
-- When a region spans several independently scrolled panes, only the primary pane's scroll position is replayed.
-- In region captures, a scrolled container's border, radius and shadow are drawn against its grown box and may not sit on the visible edge; its background is preserved.
+- Every scrolled container inside the region costs one more render, so captures slow down as panes pile up; a typical 1–2 pane region takes a few seconds.
+- Inside a scrolled pane, pseudo-element overlays, `mix-blend-mode`, and descendants positioned outside the pane's clip may differ slightly from the page.
 - `position: sticky/fixed` elements in full-page captures are handled against the renderer's viewport and may differ from a manually stitched capture.
 - Cross-origin fonts can only be inlined when the stylesheet is readable; otherwise they fall back to system fonts.
 - Interaction isolation suppresses hover by default; turn it off when a hover state is required.
@@ -142,6 +142,8 @@ playground/            local acceptance pages and a GM stub
 ```
 
 The capture pipeline is: pick element → measure its full box → expand internal scroll containers → resolve the backdrop → clone and inline resources with html-to-image → sanitize XML/SVG → export a PNG through canvas. The script snapshots native browser APIs at `document-start` so page hooks are less likely to interfere.
+
+Region capture takes a different route: every scrolled container that intersects the region is rendered once as its own "current scroll view", painted back as that container's background layer, and the page is rendered once more before cropping — no descendant ever gets repositioned.
 
 Common traps:
 

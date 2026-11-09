@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as CropModule from '../src/core/crop'
 
-const { toBlobMock, cropBlobMock } = vi.hoisted(() => ({
+const { toBlobMock, cropBlobMock, fontEmbedMock } = vi.hoisted(() => ({
   toBlobMock: vi.fn(),
-  cropBlobMock: vi.fn()
+  cropBlobMock: vi.fn(),
+  fontEmbedMock: vi.fn(async () => '/* page fonts */')
 }))
 
 vi.mock('html-to-image', () => ({
-  toBlob: toBlobMock
+  toBlob: toBlobMock,
+  getFontEmbedCSS: fontEmbedMock
 }))
 
 vi.mock('../src/core/crop', async (importOriginal) => {
@@ -544,6 +546,7 @@ describe('region capture', () => {
     const rect = { left: 100, top: 60, width: 200, height: 120 }
 
     const result = await captureRegion(rect, {
+      mode: 'chain',
       pixelRatio: 2,
       backgroundColor: '#ffffff',
       replay: { ancestors: [], sticky: [], offset: { x: 0, y: 300 } }
@@ -612,7 +615,7 @@ describe('region capture', () => {
 
     await captureRegion(
       { left: 0, top: 0, width: 200, height: 100 },
-      { pixelRatio: 1, backgroundColor: '#fff' }
+      { mode: 'chain', pixelRatio: 1, backgroundColor: '#fff' }
     )
 
     const options = toBlobMock.mock.calls[0]?.[1]
@@ -636,6 +639,7 @@ describe('region capture', () => {
     await captureRegion(
       { left: 0, top: 0, width: 100, height: 100 },
       {
+        mode: 'chain',
         pixelRatio: 1,
         replay: {
           ancestors: [{ element: scroller, scrollTop: 120, scrollLeft: 0 }],
@@ -655,9 +659,213 @@ describe('region capture', () => {
     await expect(
       captureRegion(
         { left: 0, top: 0, width: 100, height: 100 },
-        { pixelRatio: 1, replay: EMPTY_SCROLL_REPLAY }
+        { mode: 'chain', pixelRatio: 1, replay: EMPTY_SCROLL_REPLAY }
       )
     ).rejects.toThrow('html-to-image returned an empty blob')
     expect(cropBlobMock).not.toHaveBeenCalled()
+  })
+})
+
+interface ObservedCall {
+  target: Element
+  width?: number
+  height?: number
+  style?: Record<string, string>
+  fontEmbedCSS?: string
+  panelStyle: string | null
+  childVisibility: string
+}
+
+function fakeStyle(values: Record<string, string>): CSSStyleDeclaration {
+  const store = new Map<string, string>()
+  for (const [key, value] of Object.entries(values)) {
+    store.set(
+      key.includes('-') ? key : key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`),
+      value
+    )
+  }
+  return {
+    ...values,
+    getPropertyValue: (name: string) => store.get(name) ?? ''
+  } as unknown as CSSStyleDeclaration
+}
+
+function scrollPanel(style: string): CSSStyleDeclaration {
+  return fakeStyle({
+    overflowX: 'auto',
+    overflowY: 'auto',
+    position: 'static',
+    visibility: 'visible',
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    'border-top-color': 'rgb(17, 24, 39)',
+    'border-right-color': 'rgb(17, 24, 39)',
+    'border-bottom-color': 'rgb(17, 24, 39)',
+    'border-left-color': 'rgb(17, 24, 39)',
+    backgroundImage: style,
+    backgroundSize: 'auto',
+    backgroundPosition: '0% 0%',
+    backgroundRepeat: 'repeat',
+    backgroundOrigin: 'padding-box',
+    backgroundClip: 'border-box',
+    backgroundAttachment: 'scroll',
+    backgroundBlendMode: 'normal'
+  })
+}
+
+describe('region capture with scroll slices', () => {
+  function makePanel(scrollTop: number, clientWidth = 200, clientHeight = 100): HTMLDivElement {
+    const panel = document.createElement('div')
+    const row = document.createElement('span')
+    row.textContent = 'row'
+    panel.append(row)
+    document.body.append(panel)
+    setMetrics(panel, {
+      clientWidth,
+      clientHeight,
+      scrollWidth: clientWidth,
+      scrollHeight: clientHeight + 800
+    })
+    panel.scrollTop = scrollTop
+    return panel
+  }
+
+  it('renders each scrolled panel and paints it back over the panel', async () => {
+    const panel = makePanel(120)
+    const child = panel.firstElementChild as HTMLElement
+    const real = native.getComputedStyle
+    vi.spyOn(native, 'getComputedStyle').mockImplementation((element, pseudo) =>
+      element === panel ? scrollPanel('none') : real(element, pseudo)
+    )
+
+    const observed: ObservedCall[] = []
+    toBlobMock.mockImplementation((target: Element, options: Record<string, string>) => {
+      observed.push({
+        target,
+        width: options.width as unknown as number,
+        height: options.height as unknown as number,
+        style: options.style as unknown as Record<string, string>,
+        fontEmbedCSS: options.fontEmbedCSS as unknown as string | undefined,
+        panelStyle: panel.getAttribute('style'),
+        childVisibility: child.style.visibility
+      })
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+
+    const result = await captureRegion(
+      { left: 0, top: 0, width: 400, height: 400 },
+      { pixelRatio: 1, slices: [panel] }
+    )
+
+    expect(observed).toHaveLength(2)
+    // The slice renders the panel itself on a scrollport-sized surface.
+    expect(observed[0]?.target).toBe(panel)
+    expect(observed[0]?.width).toBe(200)
+    expect(observed[0]?.height).toBe(100)
+    expect(observed[0]?.style).toMatchObject({
+      boxSizing: 'border-box',
+      width: '202px',
+      height: '102px',
+      top: '-121px',
+      left: '-1px',
+      overflow: 'visible',
+      background: 'transparent'
+    })
+    expect(observed[0]?.panelStyle).toBeNull()
+    expect(observed[0]?.childVisibility).toBe('')
+
+    // The viewport render sees the picture as the panel background.
+    expect(observed[1]?.target).toBe(document.documentElement)
+    expect(observed[1]?.panelStyle).toContain('background-image: url("data:image/png;base64,')
+    expect(observed[1]?.panelStyle).toContain('background-size: 200px 100px')
+    expect(observed[1]?.childVisibility).toBe('hidden')
+    // The fonts are resolved once and reused by every render of the capture.
+    expect(fontEmbedMock).toHaveBeenCalledTimes(1)
+    expect(observed[0]?.fontEmbedCSS).toBe('/* page fonts */')
+    expect(observed[1]?.fontEmbedCSS).toBe('/* page fonts */')
+
+    // Everything is restored afterwards.
+    expect(panel.getAttribute('style')).toBeNull()
+    expect(child.style.visibility).toBe('')
+    expect(panel.scrollTop).toBe(120)
+    expect(result).toMatchObject({
+      width: 400,
+      height: 400,
+      scale: 1,
+      sourceWidth: 400,
+      sourceHeight: 400
+    })
+  })
+
+  it('gives every independent panel its own scroll offset', async () => {
+    const first = makePanel(120)
+    const second = makePanel(40)
+    const real = native.getComputedStyle
+    vi.spyOn(native, 'getComputedStyle').mockImplementation((element, pseudo) => {
+      if (element === first || element === second) return scrollPanel('none')
+      return real(element, pseudo)
+    })
+
+    const tops: string[] = []
+    toBlobMock.mockImplementation((target: Element, options: Record<string, unknown>) => {
+      const style = options.style as Record<string, string> | undefined
+      if (target !== document.documentElement && style?.top) tops.push(style.top)
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+
+    await captureRegion(
+      { left: 0, top: 0, width: 400, height: 400 },
+      { pixelRatio: 1, slices: [first, second] }
+    )
+
+    expect(tops).toEqual(['-121px', '-41px'])
+  })
+
+  it('keeps a fixed descendant out of the slice and shows it in the page render', async () => {
+    const panel = makePanel(60)
+    const badge = document.createElement('div')
+    panel.append(badge)
+    const real = native.getComputedStyle
+    vi.spyOn(native, 'getComputedStyle').mockImplementation((element, pseudo) => {
+      if (element === panel) return scrollPanel('none')
+      if (element === badge) return fakeStyle({ position: 'fixed', visibility: 'visible' })
+      return real(element, pseudo)
+    })
+
+    const badgeStates: string[] = []
+    toBlobMock.mockImplementation(() => {
+      badgeStates.push(badge.style.visibility)
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+
+    await captureRegion(
+      { left: 0, top: 0, width: 400, height: 400 },
+      { pixelRatio: 1, slices: [panel] }
+    )
+
+    expect(badgeStates).toEqual(['hidden', 'visible'])
+    expect(badge.getAttribute('style')).toBeNull()
+  })
+
+  it('falls back to the chain replay when a slice render fails', async () => {
+    const panel = makePanel(120)
+    const real = native.getComputedStyle
+    vi.spyOn(native, 'getComputedStyle').mockImplementation((element, pseudo) =>
+      element === panel ? scrollPanel('none') : real(element, pseudo)
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    toBlobMock.mockRejectedValueOnce(new Error('slice failed'))
+
+    const result = await captureRegion(
+      { left: 0, top: 0, width: 200, height: 100 },
+      { pixelRatio: 1, slices: [panel] }
+    )
+
+    expect(warn).toHaveBeenCalled()
+    expect(toBlobMock).toHaveBeenCalledTimes(2)
+    expect(panel.getAttribute('style')).toBeNull()
+    expect(result.blob.type).toBe('image/png')
   })
 })

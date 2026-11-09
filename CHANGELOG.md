@@ -13,6 +13,27 @@ All notable changes to this project are documented here. The format follows
   fixed overlays appear where they are on screen, and the result is cropped to
   the dragged box at the configured export scale.
 
+### Changed
+
+- Region capture now rebuilds each scrolled container separately instead of
+  replaying a single scroll chain on the page root. Every container that
+  intersects the region is rendered once as its own "current scroll view", then
+  painted back as that container's first background layer before the viewport is
+  rendered and cropped. Several independent panes, nested panes and panes with
+  borders, rounded corners or gradient backgrounds therefore all keep their own
+  scroll offset, and no descendant element is repositioned while the clone is
+  built. The previous single-chain replay is still available as `mode: 'chain'`
+  and is used as a fallback when a slice render fails.
+- The webfont CSS is resolved once per capture and shared by every render, which
+  keeps a multi-pane region from re-inlining the same fonts over and over.
+
+### Fixed
+
+- Region captures no longer show a stale scrollbar at scroll offset zero on
+  every scrolled container.
+- Region captures no longer leak a container's border arc into the rebuilt
+  picture when the container is scrolled.
+
 ## [0.3.3] - 2026-11-08
 
 ### Fixed
