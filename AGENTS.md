@@ -30,7 +30,7 @@
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_en.md`
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-CN.md`
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-TW.md`
-- Greasyfork 脚本页尚未写入 GitHub README 的安装表格；发布后把「即将上线」替换成实际脚本链接。
+- Greasyfork 脚本页：<https://greasyfork.org/scripts/604334>（GitHub README 的安装表格已指向它）
 
 ## 文档同步规则
 

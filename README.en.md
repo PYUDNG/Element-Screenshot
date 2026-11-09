@@ -56,12 +56,10 @@ Capture any element on a web page — including everything hidden inside its scr
 
 ## Install
 
-<!-- TODO: replace “Coming soon” with the Greasyfork script link after publishing. -->
-
-| Source          | Install                                              |
-| --------------- | ---------------------------------------------------- |
-| GitHub Releases | [Download the latest release](../../releases/latest) |
-| Greasyfork      | Coming soon                                          |
+| Source          | Install                                                                |
+| --------------- | ---------------------------------------------------------------------- |
+| GitHub Releases | [Download the latest release](../../releases/latest)                   |
+| Greasyfork      | [greasyfork.org/scripts/604334](https://greasyfork.org/scripts/604334) |
 
 After installing, refresh the target page. A camera floating button appears near the bottom-right corner. You can also press `Alt+Shift+S` or use the userscript menu → “Capture element”.
 

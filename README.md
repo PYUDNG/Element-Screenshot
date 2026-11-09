@@ -56,12 +56,10 @@
 
 ## 安装
 
-<!-- TODO: Greasyfork 发布后将“即将上线”替换为脚本安装链接。 -->
-
-| 安装源          | 安装方式                                  |
-| --------------- | ----------------------------------------- |
-| GitHub Releases | [下载最新 Release](../../releases/latest) |
-| Greasyfork      | 即将上线                                  |
+| 安装源          | 安装方式                                                               |
+| --------------- | ---------------------------------------------------------------------- |
+| GitHub Releases | [下载最新 Release](../../releases/latest)                              |
+| Greasyfork      | [greasyfork.org/scripts/604334](https://greasyfork.org/scripts/604334) |
 
 安装后刷新目标页面，右下角会出现相机悬浮按钮。也可以按默认快捷键 `Alt+Shift+S`，或从脚本菜单选择「截图元素」。
 
