@@ -109,6 +109,14 @@ export interface NativeSnapshot {
   readonly cancelAnimationFrame: (handle: number) => void
   readonly setTimeout: (handler: TimerHandler, timeout?: number) => number
   readonly clearTimeout: (handle: number) => void
+  /** Monotonic clock that page scripts cannot replace. */
+  readonly now: () => number
+  /**
+   * Return to the event loop so the page can handle input and paint. Prefers
+   * `scheduler.yield()`, falls back to a `MessageChannel` task (no timer clamp)
+   * and finally to `setTimeout`.
+   */
+  readonly yieldToMain: () => Promise<void>
   readonly Image: typeof Image
   readonly XMLSerializer: typeof XMLSerializer
   readonly Blob: typeof Blob
@@ -201,6 +209,58 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
   const contextDrawImage = contextProto?.drawImage
   const contextGetImageData = contextProto?.getImageData
   const serializeToString = serializerProto?.serializeToString
+
+  const performanceRef = win.performance
+  const now =
+    performanceRef && typeof performanceRef.now === 'function'
+      ? performanceRef.now.bind(performanceRef)
+      : () => Date.now()
+  const schedulerRef = (win as unknown as {
+    scheduler?: { yield?: () => Promise<unknown> }
+  }).scheduler
+  const schedulerYield =
+    schedulerRef && typeof schedulerRef.yield === 'function' ? schedulerRef.yield : null
+  const MessageChannelCtor = win.MessageChannel
+
+  /**
+   * A capture blocks on its own long DOM work, so the only way to keep the page
+   * responsive is to hand the event loop back between chunks. `scheduler.yield`
+   * is the cheapest way to do that; a `MessageChannel` task is not clamped like
+   * nested timers, and a timer covers the remaining engines.
+   */
+  const yieldToMain = (): Promise<void> => {
+    if (schedulerYield) {
+      try {
+        return Promise.resolve(
+          Reflect.apply(schedulerYield, schedulerRef, []) as Promise<unknown>
+        ).then(
+          () => undefined,
+          () => undefined
+        )
+      } catch {
+        // Fall through to the channel below.
+      }
+    }
+    if (typeof MessageChannelCtor === 'function') {
+      return new Promise<void>((resolve) => {
+        let channel: MessageChannel
+        try {
+          channel = new MessageChannelCtor()
+        } catch {
+          resolve()
+          return
+        }
+        channel.port1.onmessage = () => {
+          channel.port1.close()
+          resolve()
+        }
+        channel.port2.postMessage(0)
+      })
+    }
+    return new Promise<void>((resolve) => {
+      win.setTimeout(resolve, 0)
+    })
+  }
 
   const implementation = doc.implementation
   const createHTMLDocument = win.DOMImplementation.prototype.createHTMLDocument
@@ -432,6 +492,8 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
     cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
     setTimeout: win.setTimeout.bind(win),
     clearTimeout: win.clearTimeout.bind(win),
+    now,
+    yieldToMain,
     Image: ImageCtor,
     XMLSerializer: XMLSerializerCtor,
     Blob: BlobCtor,

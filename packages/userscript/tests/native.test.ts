@@ -3,6 +3,7 @@ import { createNativeSnapshot } from '../src/core/native'
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('native API snapshot', () => {
@@ -96,5 +97,62 @@ describe('native API snapshot', () => {
 
     expect(native.sanitizeSvgNamespaces(svg)).toBe(0)
     expect(svg.getAttribute('xmlns:wiz')).toBe('https://example.com/wiz')
+  })
+})
+
+describe('cooperative yielding', () => {
+  it('exposes a clock that keeps counting', async () => {
+    const native = createNativeSnapshot(window)
+    const first = native.now()
+    expect(typeof first).toBe('number')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(native.now()).toBeGreaterThanOrEqual(first)
+  })
+
+  it('prefers scheduler.yield', async () => {
+    const yieldMock = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('scheduler', { yield: yieldMock })
+    await createNativeSnapshot(window).yieldToMain()
+    expect(yieldMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('continues after a scheduler.yield rejection', async () => {
+    const yieldMock = vi.fn(() => Promise.reject(new Error('nope')))
+    vi.stubGlobal('scheduler', { yield: yieldMock })
+    await expect(createNativeSnapshot(window).yieldToMain()).resolves.toBeUndefined()
+    expect(yieldMock).toHaveBeenCalled()
+  })
+
+  it('falls back to a message channel task when scheduler.yield throws', async () => {
+    vi.stubGlobal('scheduler', {
+      yield: () => {
+        throw new Error('not allowed')
+      }
+    })
+    await expect(createNativeSnapshot(window).yieldToMain()).resolves.toBeUndefined()
+  })
+
+  it('uses a message channel task without scheduler.yield', async () => {
+    vi.stubGlobal('scheduler', undefined)
+    await expect(createNativeSnapshot(window).yieldToMain()).resolves.toBeUndefined()
+  })
+
+  it('falls back to a timer without MessageChannel or scheduler', async () => {
+    vi.stubGlobal('scheduler', undefined)
+    vi.stubGlobal('MessageChannel', undefined)
+    await expect(createNativeSnapshot(window).yieldToMain()).resolves.toBeUndefined()
+  })
+
+  it('resolves when the message channel cannot be created', async () => {
+    vi.stubGlobal('scheduler', undefined)
+    vi.stubGlobal(
+      'MessageChannel',
+      class {
+        constructor() {
+          throw new Error('blocked by policy')
+        }
+      }
+    )
+    await expect(createNativeSnapshot(window).yieldToMain()).resolves.toBeUndefined()
   })
 })

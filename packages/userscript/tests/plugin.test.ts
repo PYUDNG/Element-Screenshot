@@ -3,6 +3,7 @@ import {
   gmFetchPlugin,
   patchCloneCanvas,
   patchCloneVideo,
+  patchCloneYield,
   patchCreateImage,
   patchFontEmbedding,
   patchImageEmbedding,
@@ -143,6 +144,53 @@ export async function cloneNode(node, options, isRoot) {
     expect(result.code).toContain('__elementScreenshotNative.canvas.drawImage(context, ')
     expect(result.code).toContain('__elementScreenshotNative.cloneNode(node, isSVGElement(node))')
     expect(result.code).toContain('canvas fill handles the backdrop')
+  })
+
+  it('yields to the event loop between chunks of DOM cloning', () => {
+    const source = `
+export async function cloneNode(node, options, isRoot) {
+    if (!isRoot && options.filter && !options.filter(node)) {
+        return null;
+    }
+    return Promise.resolve(node)
+        .then((clonedNode) => cloneSingleNode(clonedNode, options))
+        .then((clonedNode) => decorate(node, clonedNode, options));
+}
+`
+    const result = patchCloneYield(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('async function __elementScreenshotYield()')
+    expect(result.code).toContain('await __elementScreenshotNative.yieldToMain()')
+    expect(result.code).toContain('__elementScreenshotNative.now()')
+    // The yield has to sit inside the clone, after the filter decided to keep
+    // the node, and before any work is done for it.
+    expect(result.code).toMatch(
+      /return null;\s*\}\s*await __elementScreenshotYield\(\);\s*return Promise\.resolve\(node\)/
+    )
+    // The helper is declared before the function that calls it.
+    expect(result.code.indexOf('async function __elementScreenshotYield()')).toBeLessThan(
+      result.code.indexOf('export async function cloneNode(')
+    )
+  })
+
+  it('leaves source without cloneNode alone', () => {
+    const source = 'export const value = 1'
+    expect(patchCloneYield(source)).toEqual({ code: source, changed: false })
+  })
+
+  it('applies the clone yield in the Vite transform', () => {
+    const plugin = gmFetchPlugin({ nativeAdapter: 'virtual:test-native' })
+    const transform = plugin.transform as unknown as (
+      code: string,
+      id: string
+    ) => { code: string } | null
+    const source = `
+export async function cloneNode(node, options, isRoot) {
+    return Promise.resolve(node);
+}
+`
+    const transformed = transform(source, '/repo/node_modules/html-to-image/es/clone-node.js')
+    expect(transformed?.code).toContain('__elementScreenshotYield')
   })
 
   it('sanitizes the serialized SVG before creating its data URL', () => {

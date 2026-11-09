@@ -20,6 +20,13 @@ const DEFAULT_ADAPTER = 'virtual:gm-fetch'
 const NATIVE_VIRTUAL = 'virtual:element-screenshot-native'
 const NATIVE_ADAPTER = 'virtual:element-screenshot-native-adapter'
 
+/**
+ * DOM work a single task may do while cloning before handing the event loop
+ * back. Well under the 50 ms the browser calls a long task, and large enough
+ * that the yields themselves stay cheap.
+ */
+const CLONE_CHUNK_MS = 8
+
 const NATIVE_PRELUDE = `import { native as __elementScreenshotNative } from '${NATIVE_VIRTUAL}';
 const window = __elementScreenshotNative.window;
 const document = __elementScreenshotNative.document;
@@ -502,6 +509,38 @@ export function patchSvgSymbols(code: string): { code: string; changed: boolean 
 }
 
 /**
+ * html-to-image clones the subtree and inlines the computed style of every node
+ * in one uninterrupted microtask chain, so a big page freezes the tab for as
+ * long as the clone takes. Insert a cooperative yield between chunks of DOM
+ * work: the total work is unchanged, but the page keeps handling input and
+ * painting instead of going unresponsive.
+ *
+ * The budget is per task, not per node, because a single node can be arbitrarily
+ * expensive (a large inline `style` attribute, a huge shadow subtree).
+ */
+export function patchCloneYield(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('export async function cloneNode(')
+  if (start < 0) return { code, changed: false }
+  const insertAt = code.indexOf('    return Promise.resolve(node)', start)
+  if (insertAt < 0) return { code, changed: false }
+
+  const helper = `let __elementScreenshotChunkStart = 0;
+async function __elementScreenshotYield() {
+    const now = __elementScreenshotNative.now();
+    if (now - __elementScreenshotChunkStart < ${CLONE_CHUNK_MS}) return;
+    await __elementScreenshotNative.yieldToMain();
+    __elementScreenshotChunkStart = __elementScreenshotNative.now();
+}
+`
+  const insert = `    await __elementScreenshotYield();
+`
+  return {
+    code: `${code.slice(0, start)}${helper}${code.slice(start, insertAt)}${insert}${code.slice(insertAt)}`,
+    changed: true
+  }
+}
+
+/**
  * `XMLSerializer` copies HTML-only attribute names (such as `$bgcolor`) and
  * control characters into the SVG wrapper verbatim, but both are illegal in
  * XML. Serialize through the native snapshot, strip invalid attribute names and
@@ -642,6 +681,8 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
       const patches = [
         patchFontEmbedding,
         patchSvgSymbols,
+        // Like the SVG serialization patch below, this needs the native prelude.
+        ...(nativeAdapter ? [patchCloneYield] : []),
         patchImageEmbedding,
         patchCloneCanvas,
         patchCloneVideo,
