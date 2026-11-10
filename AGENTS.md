@@ -266,7 +266,9 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - `settle()` 等三件事：`<link rel=stylesheet>` 的 `link.sheet` 就绪（失败的 link 有 1.5s 上限，否则坏链接会吃掉整个预算）、`doc.images` 的 load/error、`doc.fonts.ready`；总预算 8s。**不要在 jsdom 用真实快照做管线测试**（没有 CSS 加载，会等满预算）：`capture.test.ts` 用 `vi.mock('../src/core/snapshot')` 把副本换成活文档。
 - **字体必须先强制一次布局再等**：刚建好的 iframe 还没跑过 layout，`@font-face` 甚至还没发起请求，此时 `document.fonts.ready` 会立刻 resolve → 用回退字体度量去量元素（实测某站点文章高度差 14px、`scrollWidth` 差 10px）。现在 `settle()` 先读 `documentElement.clientHeight` 强制布局，再 `await fonts.ready`，然后循环到 `fonts.status === 'loaded'`（最多 4 次、总预算 3s）。
 - **选框以活页面为准**：`captureElement` 的 `options.box` 由 `shot-app` 在点击时用活元素量好传入，`renderElement` 优先用它（副本自己再量一次只作为兜底，并且在两者不一致时 `console.info` 打出来）。否则「选择框显示的尺寸」和「截图尺寸」会对不上。
-- **必须重放 CSSOM，不能只复制 `<style>` 文本**：页面用 `CSSStyleSheet.insertRule()` 加的规则只存在于 CSSOM，`<style>` 的文本里没有，`cloneNode` 会静默丢掉。实测 x.com：活页面 3724 条规则，朴素克隆只剩 2634 条，丢掉的正好包括 `.r-1c7gwzm { padding-left:16px }` 这类原子类 → 副本里 article 的 padding 变 0、内容贴边（尺寸还会因 `max(rect, scrollWidth)` 差 10px）。`copyStyleSheets()` 把每个 `<style>` 的 `sheet.cssRules` 序列化回副本，x.com 上副本与页面完全一致（`598×602`、`padding: 0 16px`、头像 `(16,12)`）。注意这套只覆盖 `<style>`；shadow root 里的 `<style>` 若也被 `insertRule` 改过仍未覆盖。
+- **必须重放 CSSOM，不能只复制 `<style>` 文本**：页面用 `CSSStyleSheet.insertRule()` 加的规则只存在于 CSSOM，`<style>` 的文本里没有，`cloneNode` 会静默丢掉。实测 x.com：活页面 3724 条规则，朴素克隆只剩 2634 条，丢掉的正好包括 `.r-1c7gwzm { padding-left:16px }` 这类原子类 → 副本里 article 的 padding 变 0、内容贴边（尺寸还会因 `max(rect, scrollWidth)` 差 10px）。`copyStyleSheets()` 把每个 `<style>` 的 `sheet.cssRules` 序列化回副本，x.com 上副本与页面完全一致（`598×602`、`padding: 0 16px`、头像 `(16,12)`）。
+- **shadow root 里的 `<style>` 走另一条路**：`Document.querySelectorAll('style')` 不穿透 shadow root，所以 `copyStyleSheets()` 管不到它。`collectShadow()` 在克隆子节点时用 `replayShadowStyle()` 把该 `<style>` 的 `sheet.cssRules` 写进副本（`<style>` 还没插入文档时写 `textContent` 是安全的，attach 后再解析），嵌套 shadow root 因为本来就是递归克隆所以自动覆盖。`sheetText()` 现在返回 `string | null`：`null` = 读不到（跨域），`''` = 读得到但确实没有规则——后者要写回去，否则页面用 `deleteRule()` 删掉的规则会留在副本里。
+- **为什么 shadow 的 CSSOM 会影响到最终 PNG**：html-to-image 1.11.13 的 `cloneNode` 会把 open shadow root 的子节点**拍平成克隆的普通子节点**（`nativeNode.shadowRoot?.childNodes ?? childNodes`），所以 shadow 内容能出图；但它读的 computed style 来自**快照副本**，副本里 shadow `<style>` 的 CSSOM 错了，拍平后的内联样式就是错的。实测（`playground/` 的 `<shadow-card>` / `<nested-shadow-card>`，运行时 `insertRule` 注入 `padding: 16px 20px; background: #fef9c3`）：修复前同一张 1040×1800 截图里运行时背景 0 像素，修复后 385,960 像素（嵌套那层的绿色 `#dcfce7` 从 0 → 178,557）。
 - 顺手加了 `reportCascadeMismatch()`：抓图后对比活元素与副本的 `box-sizing`/padding/border/字体度量，不一致就 `console.warn`（**只报告、不修补**，修补是治标）。
 - iframe 挂在 `document.documentElement` 而不是 `body`：很多站点（X、各种浮层库）用 MutationObserver 盯着 body，插入子节点会触发整页重渲染。
 - 取消：`native.capture.aborted` 由 `cancelCapture()` 置位，`patchCloneYield` 生成的 helper 在每个 chunk 检查并抛 `Capture cancelled`，异常一路冒到 `captureElement/captureRegion` 的 `finally` 里 `snapshot.dispose()`。所以取消只对「克隆循环进行中」有效，序列化/编码阶段只能丢弃结果（shot-app 用 token 兜底）。
@@ -351,26 +353,35 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 验证页：`playground/region.html`（三个独立面板 + 嵌套面板 + 渐变/圆角 + 面板内 fixed 元素 + 吸顶表头 + 页面滚动），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；页面把初始滚动位置写死，方便反复对比；
 - 调试顺序：内容错位先核对「滚动口尺寸 + border 并入 padding + 根偏移 = 滚动量 + 边框」；边框/圆角残影先看是不是只清了颜色没清 `border-width`/`border-radius`；出现假滚动条先看 `scrollbar-width: none` 是否生效；样式没恢复先看 `replaceScrollContainer()` 的 `restore` 是否按逆序执行。
 
-## 待办（用户指定：下轮和 iframe 支持一起做）
+## 待办：iframe 支持（用户已定方向）
 
-> 2026-11-10 用户明确「先把这两个记下来，压缩上下文后一起做」。开工前先和用户对齐 iframe 的范围，不要直接改。
+> 2026-11-10 用户拍板：**跨域要做**，走「帧内 helper 渲染回传像素」，接受为此去掉 `@noframes`；帧内滚动策略尚未定（见下）。
+> 同期已完成：shadow root 内 `<style>` 的 CSSOM 重放（0.7.1，见「已验证过的关键坑 → 离屏快照」）。
 
-### 1. shadow root 内 `<style>` 的 CSSOM 重放
+### 已确认的现状（别再猜）
 
-- 问题：`copyStyleSheets()` 只扫 light DOM（`Document.querySelectorAll('style')` **不穿透 shadow root**），而 `collectShadow()` 里 shadow 的 `<style>` 是按标记克隆的 → 运行时 `insertRule()` / `deleteRule()` 的改动全部丢失。light DOM 的 `<style>` 已覆盖，shadow 的 `adoptedStyleSheets` 已导出，`<link rel=stylesheet>` 会在副本里重新加载，所以缺口**只**在「shadow root 里那个被运行时改过的 `<style>`」。
-- 症状：页面上正常，截图里该组件像没上样式（按需注入规则时）；反过来删规则时副本会比页面多出样式。`reportCascadeMismatch()` 只在目标元素落在受影响子树里时才可能提示。
-- 修法：`collectShadow()` 克隆子节点时，遇到 `STYLE` 且 `child.sheet` 可读，就直接 `cloned.textContent = sheetText(child.sheet)`（`<style>` 尚未插入文档时写文本是安全的，attach 后再解析）。注意嵌套 shadow root 也要覆盖（`cloneNodeAny` 的递归已经在跑）；`sheetText()` 对跨域/不可读 sheet 已有兜底。
-- 验证：`playground/` 加一个「运行时往 shadow 里 `insertRule`」的 Web Component（含嵌套 shadow 用例），对比 `style.sheet.cssRules.length` 与文本规则数，并用副本里该组件的 computed style / 截图尺寸断言。jsdom 对 shadow 里 `<style>.sheet` 支持不全，**实机验证放真实浏览器**。
+- `collectFrame()` 只处理**同源** iframe：清掉 `src` / `srcdoc` 后把 `contentDocument.body` 的子节点克隆进副本。**但这段克隆对最终 PNG 没有用**：html-to-image 的 `cloneNode` 对 `<iframe>` 只会克隆元素本身（子文档不在 DOM 树里），帧内容进不了 `<foreignObject>`。所以同源帧今天在截图里也是一个空盒子。
+- 结论：iframe 支持不能用「把帧 DOM 塞进副本里的 iframe」这条路，必须**渲染成图再合成**：以 `<img>`（或包一层抄了 computed 边框/圆角/阴影的 wrapper）替换 iframe 元素。同源与跨域只在「谁来渲染」上不同——同源父实例自己渲染，跨域靠帧内 helper 回传 PNG。
+- `@noframes: true` 现在写在 `packages/userscript/vite.config.ts` 的 monkey 配置里。要去掉它，并让帧内实例在入口最早期判定 `window.top !== window.self` → 只做 helper（不挂 FAB、不建 InlineApp、不装交互守卫），否则每个 iframe 都会冒出一个 FAB。
+- 字体：html-to-image 的 `getWebFontCSS(node)` 用 `node.ownerDocument.styleSheets`，而我们的构建把它 patch 成了顶层 document（`gm-fetch-plugin.ts` 里 `toArray(node.ownerDocument.styleSheets)` → `toArray(__elementScreenshotNative.document.styleSheets)`）。所以「跨域 helper 渲染」是字体表现**最好**的路径（helper 的 `native.document` 就是那个帧的文档）；只有「把帧 DOM 拍平进父级」才有字体缺失问题——而那条路本来就不走。
 
-### 2. iframe 支持
+### 要做的（按顺序）
 
-- 现状：`collectFrame()` 只处理**同源** iframe——清掉 `src` / `srcdoc` 后把 `contentDocument.body` 的内容克隆进副本；跨域读不到 `contentDocument`，副本里就是个空盒子（好处是不重复发请求）。此外 iframe 内部的 `<head>` 样式、iframe 自身的滚动位置都没处理，选择器也不进入 iframe。
-- 待和用户对齐的开放问题：
-  - 范围：只把**同源** iframe 做完整（`head` 样式、嵌套 iframe、滚动位置、`srcdoc`），还是也要**跨域**？
-  - 跨域若要做：只能 `GM_xmlhttpRequest` 抓 iframe URL 的 HTML，再用 `<base href>` + 该文档自己的 CSS 在副本里重建；拿不到登录态渲染结果，也拿不到 iframe 内脚本渲染出来的 DOM（SPA 基本无解）。必须明确「静态 HTML 级还原」这个边界，并写进 README 的已知限制。
-  - 元素截图的目标在 iframe 内时怎么办：选择器目前不进入 iframe（`elementsFromPoint` 只作用于顶层文档），要不要支持点选 iframe 内部元素、还是只保证「截包含 iframe 的外层元素时内部有内容」。
-  - 尺寸与裁剪：iframe 内部滚动、iframe 自身被父级裁剪的部分如何呈现。
-- 验证：`playground/` 增加同源 iframe 页 + 一个跨域（不同端口）iframe，逐个对比截图与页面。
+1. **协议**：父实例克隆到 `<iframe>` 时替换成占位（记录 border box 尺寸），克隆结束后 `postMessage` 带 nonce 的请求给 `frame.contentWindow`（`targetOrigin: '*'`，因为不知道对方源），校验 `event.source === frame.contentWindow` + nonce；helper 回传 PNG blob（跨域 `postMessage` 可传 Blob，不必 base64）。
+2. **helper 模式**：帧内实例不挂 UI，收到请求后用自己那份管线渲染「当前视口」（`innerWidth × innerHeight`，不改页面）并回传。忙 / 版本不匹配 / 超时都要回一个明确的失败，父实例降级成空盒子 + `console.info`，**绝不能让一个挂住的帧卡死整次截图**（单帧上限建议 4s，并计入总预算）。
+3. **合成**：把占位换成 `<img>`，`width/height` = 帧的 border box，必要时 wrapper 抄 `border` / `border-radius` / `box-shadow` / `background`，`overflow: hidden` 裁剪。
+4. **同源帧**：父实例自己渲染，避免多一次 IPC 与递归；两条路径共用同一个「占位 → 图片」结构。
+5. **登录态/SPA**：helper 在自己文档里渲染，天然拿到登录态与脚本渲出的 DOM——这是选这条路的主要理由。
+6. 递归深度上限（建议 2 层），防止跨域帧套跨域帧把时间乘爆。
+
+### 尚未定的策略
+
+- **帧内滚动**：只拍帧的可见视口（WYSIWYG，实现简单），还是让 helper 展开帧内滚动容器渲染到 `scrollHeight`（等于把区域截图那套切片机制搬进帧里，父实例还得把 iframe 布局盒撑高）？0.8.0 建议先只做可见视口，长截图记待办。
+- 选择器是否进入同源 iframe 内部（跨域永远不可能，因为拿不到 DOM）。
+
+### 验证
+
+`playground/` 需要有：同源 iframe 页（含内部滚动与嵌套）、跨域 iframe（换一个端口起第二个 server）、以及一个「帧内再嵌跨域帧」的用例。逐个对比截图与页面。
 
 ## 验证建议
 

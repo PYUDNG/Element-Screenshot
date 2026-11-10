@@ -108,7 +108,7 @@ After selection:
 
 ## Known limitations
 
-- Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, and its contents are rebuilt in the snapshot (including `<style>` and adoptedStyleSheets).
+- Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, and its contents are rebuilt in the snapshot (including `<style>`, adoptedStyleSheets, and the rules a script adds to a shadow `<style>` at runtime with `insertRule()`).
 - Cross-origin iframes cannot be picked; same-origin frame content is included. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
 - A snapshot is a full copy of the page: memory and the first layout roughly double, and a very large page pauses for a few hundred milliseconds before rendering starts.
 - Stay on the page while it renders: navigating or reloading discards the snapshot, and with it the capture (cancel and start again).

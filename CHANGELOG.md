@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] - 2026-11-10
+
+### Fixed
+
+- Rules that a component adds to a `<style>` inside its own shadow root at
+  runtime (through `CSSStyleSheet.insertRule()`, or removes with `deleteRule()`)
+  are now replayed in the snapshot. Only the CSSOM holds them, so the cloned
+  `<style>` text was stale: the copy laid the component out with the rules it had
+  at parse time, and a capture of that component lost its padding and background.
+  Nested shadow roots are covered too. Measured on the new playground fixture: the
+  same capture had 0 pixels of the runtime-injected background before and 385,960
+  after.
+- An emptied light-DOM stylesheet now clears its cloned text as well, instead of
+  leaving the rules that `deleteRule()` had removed.
+
 ## [0.7.0] - 2026-11-10
 
 ### Added

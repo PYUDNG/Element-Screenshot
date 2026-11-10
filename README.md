@@ -108,7 +108,7 @@
 
 ## 已知限制
 
-- Closed Shadow DOM 内部无法点选；Open Shadow DOM 可以选中，内部内容会在快照里重建（含 `<style>` 与 adoptedStyleSheets）。
+- Closed Shadow DOM 内部无法点选；Open Shadow DOM 可以选中，内部内容会在快照里重建（含 `<style>`、adoptedStyleSheets，以及脚本用 `insertRule()` 在运行时加进 shadow `<style>` 的规则）。
 - 跨域 iframe 内部不可选；同源 iframe 的内容会进入快照。视频、WebGL/Canvas 内容在快照里冻结为当前像素，截图期间不会再变化。
 - 快照是页面的完整副本：内存与首次布局大约翻倍，超大页面开始渲染前会有一次几百毫秒的停顿。
 - 渲染期间请留在当前页面：跳转或刷新会连同快照一起丢弃，这次截图就丢了（取消即可重来）。
