@@ -31,7 +31,7 @@
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-CN.md`
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-TW.md`
 - Greasyfork 脚本页：<https://greasyfork.org/scripts/604334>（GitHub README 的安装表格已指向它）
-  - 2026-11-10 已同步到 `Version 0.7.0`、494.1 KB；说明文字会比 release 晚一拍（平台侧缓存），要立刻刷新就在脚本页手动 Sync / Update description。
+  - 2026-11-10 已同步到 `Version 0.7.0`、494.1 KB；平台侧会缓存页面内容，说明文字没跟上时在脚本页手动 Sync / Update description。
 
 ## 文档同步规则
 
