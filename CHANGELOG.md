@@ -29,6 +29,17 @@ All notable changes to this project are documented here. The format follows
   not leak into the image.
 - A second capture no longer has to wait for a previous render to restore page
   styles.
+- The capture now renders the frame the picker showed. The snapshot is a copy, so
+  re-measuring it could differ from the page by a pixel or two (a webfont that
+  landed late, a different scrollbar); the box measured on the live element wins,
+  and a mismatch is logged.
+- The snapshot forces a layout before waiting for `document.fonts.ready`, and
+  keeps re-checking until the font set reports `loaded`. A fresh iframe has not
+  requested its `@font-face` files yet, so `fonts.ready` could resolve
+  immediately and freeze the render on fallback metrics — which shifts text by a
+  line and changes the element's measured height.
+- The snapshot iframe is attached to `<html>` instead of `<body>`, so pages that
+  watch the body for overlays do not re-render when a capture starts.
 
 ## [0.5.0] - 2026-11-09
 

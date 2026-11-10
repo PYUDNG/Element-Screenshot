@@ -19,13 +19,7 @@ import { describeTarget, getTargetBox } from '../core/target'
 import type { TargetBox } from '../core/target'
 import InPageApp from './InPageApp.vue'
 import type { PickerHover, ShotAppApi, ShotState, ToastTone } from './api'
-import {
-  freeRatio,
-  placeStored,
-  readDock,
-  resolveDrop,
-  clampToViewport
-} from './fab-position'
+import { freeRatio, placeStored, readDock, resolveDrop, clampToViewport } from './fab-position'
 import type { FabViewport } from './fab-position'
 
 export interface ShotAppOptions {
@@ -336,10 +330,13 @@ export class ShotApp implements ShotAppApi {
   }
 
   private handleSelect(element: Element): void {
+    // Measured on the live element: this is the frame the picker drew and the
+    // frame the capture has to reproduce.
+    const box = getTargetBox(element)
     this.state.mode = 'selected'
     this.state.hover = null
     this.state.marquee = null
-    this.state.box = getTargetBox(element)
+    this.state.box = box
     this.state.capturing = true
     this.state.ready = false
     this.state.error = null
@@ -350,7 +347,7 @@ export class ShotApp implements ShotAppApi {
 
     this.beginRender()
     const token = (this.captureToken += 1)
-    this.pending = this.renderCapture(element, token)
+    this.pending = this.renderCapture(element, box, token)
   }
 
   private handleRegionStart(): void {
@@ -417,11 +414,12 @@ export class ShotApp implements ShotAppApi {
     }
   }
 
-  private async renderCapture(element: Element, token: number): Promise<void> {
+  private async renderCapture(element: Element, box: TargetBox, token: number): Promise<void> {
     try {
       const result = await captureElement(element, {
         expandNested: Boolean(this.settings.get('capture.expandNested')),
         background: this.captureBackground(),
+        box,
         pixelRatio: this.pixelRatio(),
         filter: (node) => shouldCaptureNode(node) && !isMarkedUiNode(node)
       })

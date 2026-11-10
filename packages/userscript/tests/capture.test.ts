@@ -555,6 +555,43 @@ describe('scroll expansion planning', () => {
   })
 })
 
+describe('capture box', () => {
+  it('uses the box measured on the page instead of re-measuring the copy', async () => {
+    const element = document.createElement('div')
+    document.body.append(element)
+    vi.spyOn(console, 'info').mockImplementation(() => undefined)
+
+    const result = await captureElement(element, {
+      box: { left: 40, top: 24, width: 300, height: 200 },
+      pixelRatio: 1
+    })
+
+    expect(result.width).toBe(300)
+    expect(result.height).toBe(200)
+    expect(result.sourceWidth).toBe(300)
+    expect(toBlobMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ width: 300, height: 200 })
+    )
+  })
+
+  it('logs when the copy measures a different box', async () => {
+    const element = document.createElement('div')
+    document.body.append(element)
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+
+    await captureElement(element, {
+      box: { left: 0, top: 0, width: 300, height: 200 },
+      pixelRatio: 1
+    })
+
+    expect(info).toHaveBeenCalledWith(
+      '[element-screenshot] snapshot box differs from the page',
+      expect.objectContaining({ page: { width: 300, height: 200 } })
+    )
+  })
+})
+
 describe('capture cancellation', () => {
   it('stops a render that was cancelled while it was starting', async () => {
     const element = document.createElement('div')

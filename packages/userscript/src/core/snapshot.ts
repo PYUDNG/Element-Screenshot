@@ -326,6 +326,13 @@ async function settle(doc: Document, timeout: number): Promise<void> {
   const deadline = Date.now() + timeout
   /** A broken stylesheet link must not eat the whole budget. */
   const linkBudget = Math.min(1500, timeout)
+  const forceLayout = (): void => {
+    // Reading a layout property runs style + layout, which is what actually
+    // requests `@font-face` downloads and applies the copied stylesheets.
+    void doc.documentElement?.clientHeight
+  }
+
+  forceLayout()
 
   // A copied `<link rel=stylesheet>` keeps laying out until its sheet is parsed;
   // measuring before that reads unstyled boxes.
@@ -355,11 +362,29 @@ async function settle(doc: Document, timeout: number): Promise<void> {
       })
   )
 
-  const fonts = doc.fonts?.ready
-  await Promise.race([
-    Promise.all(fonts ? [...waits, fonts.then(() => undefined)] : waits),
-    sleep(Math.max(0, deadline - Date.now()))
-  ])
+  /**
+   * Fonts are the difference between "looks right" and "measures 14px off": a
+   * freshly built iframe has not laid anything out yet, so `fonts.ready` can
+   * resolve before the first `@font-face` request even starts and the snapshot
+   * would keep fallback metrics. Force a layout, wait, force another one, and
+   * only stop once the font set reports itself loaded.
+   */
+  const fontDeadline = Math.min(deadline, Date.now() + 3000)
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    forceLayout()
+    const fonts = doc.fonts
+    if (!fonts) break
+    try {
+      await Promise.race([fonts.ready, sleep(500)])
+    } catch (_error) {
+      // A rejected font set must not block the capture.
+    }
+    forceLayout()
+    if (fonts.status === 'loaded' || Date.now() >= fontDeadline) break
+    await sleep(50)
+  }
+
+  await Promise.race([Promise.all(waits), sleep(Math.max(0, deadline - Date.now()))])
   if (win) await nextFrame(win)
 }
 
@@ -403,8 +428,10 @@ export async function createSnapshot(options: SnapshotOptions = {}): Promise<Sna
   const timeout = options.timeout ?? DEFAULT_TIMEOUT
 
   const frame = createFrame(liveDoc, width, height)
-  const parent = liveDoc.body ?? liveDoc.documentElement
-  if (!parent) throw new Error('The page has no document body to snapshot')
+  // Attach to `<html>` rather than `<body>`: pages watch the body for overlays
+  // and re-render on any child change, and a snapshot must not look like one.
+  const parent = liveDoc.documentElement ?? liveDoc.body
+  if (!parent) throw new Error('The page has no document to snapshot')
   parent.append(frame)
 
   const dispose = (): void => {

@@ -80,9 +80,9 @@ scripts/serve-playground.mjs      本地 playground 服务器
 
 ```text
 选择元素
+→ getTargetBox(活元素)  —— 选框尺寸，之后作为 options.box 传进渲染
 → createSnapshot() 把整页复制进离屏 iframe，并把目标元素映射到副本里
-→ getTargetBox(副本元素)
-→ expandForCapture() 在副本里展开滚动容器
+→ expandForCapture() 在副本里展开滚动容器（根节点尺寸用 options.box 冻结）
 → 解析背景（纯色 / 复杂背景，也在副本里渲染）
 → html-to-image 克隆副本子树并嵌入资源
 → SVG / XML 清理
@@ -264,6 +264,9 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
   - 建 `<base href=页面 baseURI>`，让相对 URL、`@font-face` 和图片解析和页面一致；`document.adoptedStyleSheets` 也要导出成 `<style>`。
 - 复制在**活文档**里建树，最后 `snapshotDoc.replaceChild(html, snapshotDoc.documentElement)`；现代 DOM 会把整棵子树 adopt 进目标文档且**保持节点 identity**，所以构建时记下的 `live → clone` 映射（`Map`）在插入后依然有效，目标元素、滚动偏移都靠它。
 - `settle()` 等三件事：`<link rel=stylesheet>` 的 `link.sheet` 就绪（失败的 link 有 1.5s 上限，否则坏链接会吃掉整个预算）、`doc.images` 的 load/error、`doc.fonts.ready`；总预算 8s。**不要在 jsdom 用真实快照做管线测试**（没有 CSS 加载，会等满预算）：`capture.test.ts` 用 `vi.mock('../src/core/snapshot')` 把副本换成活文档。
+- **字体必须先强制一次布局再等**：刚建好的 iframe 还没跑过 layout，`@font-face` 甚至还没发起请求，此时 `document.fonts.ready` 会立刻 resolve → 用回退字体度量去量元素（实测某站点文章高度差 14px、`scrollWidth` 差 10px）。现在 `settle()` 先读 `documentElement.clientHeight` 强制布局，再 `await fonts.ready`，然后循环到 `fonts.status === 'loaded'`（最多 4 次、总预算 3s）。
+- **选框以活页面为准**：`captureElement` 的 `options.box` 由 `shot-app` 在点击时用活元素量好传入，`renderElement` 优先用它（副本自己再量一次只作为兜底，并且在两者不一致时 `console.info` 打出来）。否则「选择框显示的尺寸」和「截图尺寸」会对不上。
+- iframe 挂在 `document.documentElement` 而不是 `body`：很多站点（X、各种浮层库）用 MutationObserver 盯着 body，插入子节点会触发整页重渲染。
 - 取消：`native.capture.aborted` 由 `cancelCapture()` 置位，`patchCloneYield` 生成的 helper 在每个 chunk 检查并抛 `Capture cancelled`，异常一路冒到 `captureElement/captureRegion` 的 `finally` 里 `snapshot.dispose()`。所以取消只对「克隆循环进行中」有效，序列化/编码阶段只能丢弃结果（shot-app 用 token 兜底）。
 - UI：渲染期间只渲染 `RenderingChip`（顶部小胶囊 + 取消），`PickerOverlay` 推迟到 `capturing === false` 才渲染；交互守卫推迟到渲染结束（`finishRender()`）才安装，渲染期间只挂一个不吞事件的 Esc 监听。
 - 实测（`playground/region.html`，3 面板 + 嵌套）：区域截图输出与「直接渲染活页面」的 0.5.0 **PNG 字节完全一致**（`sha256 cc3e7324…`，多次复现）；渲染中点击页面按钮新增 3 行，截图里没有这 3 行；渲染中面板的 `style`/`background-image`/子元素 `visibility` 全程未被改动。

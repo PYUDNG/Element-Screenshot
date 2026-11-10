@@ -40,6 +40,13 @@ export interface CaptureOptions {
   /** Element capture backdrop. Region capture uses `backgroundColor` instead. */
   background?: CaptureBackground
   backgroundColor?: string
+  /**
+   * Element box measured on the live element, i.e. the frame the picker drew.
+   * The snapshot is a copy, so its layout can differ by a pixel or two (font
+   * metrics, scrollbars); the capture has to use the frame the user approved
+   * instead of re-measuring the copy.
+   */
+  box?: TargetBox
   pixelRatio?: number
   maxDimension?: number
   maxArea?: number
@@ -557,7 +564,20 @@ export async function captureElement(
 
 async function renderElement(element: Element, options: CaptureOptions): Promise<CaptureResult> {
   assertNotCancelled()
-  const box = getTargetBox(element)
+  const measured = getTargetBox(element)
+  // Prefer the box the picker showed. A copy can lay out a hair differently
+  // (late webfont, different scrollbar), and the output has to match the frame
+  // the user approved rather than the copy's own measurement.
+  const box = options.box ? { ...options.box } : measured
+  if (
+    options.box &&
+    (options.box.width !== measured.width || options.box.height !== measured.height)
+  ) {
+    console.info('[element-screenshot] snapshot box differs from the page', {
+      page: { width: options.box.width, height: options.box.height },
+      snapshot: { width: measured.width, height: measured.height }
+    })
+  }
   let computed: CSSStyleDeclaration | null = null
   try {
     computed = native.getComputedStyle(element)
