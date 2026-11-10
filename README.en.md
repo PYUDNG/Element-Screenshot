@@ -94,6 +94,8 @@ After selection:
 | Double-click the page | Save the PNG                     |
 | `Esc`                 | Close the result UI              |
 
+> Rendering does **not** lock the page: the capture is rendered from an off-screen copy, so you can keep clicking, scrolling and typing while it runs, and the result is unaffected. While it renders you only see a small “Rendering…” chip (with a cancel button, `Esc` also cancels); the result bar opens when the image is ready.
+>
 > “Isolate page interaction” is on by default. While picking, the page receives no hover, click or mousemove events, so temporary hover styles do not appear in the image. Turn it off in Settings → Capture → Picker interaction to capture a hover state.
 >
 > Clipboard access needs browser permission. The file picker is Chromium-only; other browsers fall back to a normal download.
@@ -107,8 +109,10 @@ After selection:
 
 ## Known limitations
 
-- Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, but its contents may not be fully included in the render.
-- Cross-origin iframes cannot be picked. Video, WebGL and canvas content depends on the current pixels and may be blank.
+- Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, and its contents are rebuilt in the snapshot (including `<style>` and adoptedStyleSheets).
+- Cross-origin iframes cannot be picked; same-origin frame content is included. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
+- A snapshot is a full copy of the page: memory and the first layout roughly double, and a very large page pauses for a few hundred milliseconds before rendering starts.
+- Stay on the page while it renders: navigating or reloading discards the snapshot, and with it the capture (cancel and start again).
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
 - Region capture is limited to the current viewport; scroll to the target before dragging.
 - Every scrolled container inside the region costs one more render: a few seconds for a single pane, and 10–15 seconds for four in our measurements.

@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-11-10
+
+### Changed
+
+- Captures render from an isolated copy of the page instead of mutating the live
+  one. `core/snapshot.ts` clones the document into an off-screen same-origin
+  iframe — stripping scripts, rebuilding open shadow roots, freezing
+  `<canvas>`/`<video>` pixels into images, replaying scroll offsets and form
+  state — and the existing pipeline then expands scroll containers, rebuilds
+  scrolled panes and renders against that copy. The page is only read, so it
+  stays usable, visually intact and interactive for the whole render, and there
+  is nothing to restore afterwards.
+- While a capture renders the UI is a single "rendering" chip with a cancel
+  button instead of the full picker overlay; the page underneath keeps taking
+  clicks, typing and scrolling. The result panel appears when the image is ready.
+- Cancelling is now real: the clone loop checks a cancel flag between chunks and
+  unwinds the render, which is only safe because the live page was never touched.
+
+### Fixed
+
+- Interacting with the page during a capture can no longer corrupt the result:
+  the render works on a frozen copy, so late clicks, hovers and DOM updates do
+  not leak into the image.
+- A second capture no longer has to wait for a previous render to restore page
+  styles.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added

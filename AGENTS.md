@@ -14,8 +14,8 @@
 
 - 公开名称：**Element Screenshot**
 - 仓库：<https://github.com/PYUDNG/Element-Screenshot>
-- 当前版本：`0.5.0`（悬浮按钮贴边半隐藏、渲染分片让出事件循环）
-- 当前 tag：`v0.5.0`（commit `542dc42`，发布 2026-11-10；release 资产与本地 `pnpm build` 产物字节一致）
+- 当前版本：`0.6.0`（渲染改为离屏快照，页面在渲染期间保持可用）
+- 当前 tag：`v0.5.0`；`v0.6.0` 尚未发布（等真实页面验证通过后再打 tag）
 - Release 资产：
   - `script.user.js`
   - `script.meta.js`
@@ -80,12 +80,14 @@ scripts/serve-playground.mjs      本地 playground 服务器
 
 ```text
 选择元素
-→ getTargetBox()
-→ expandForCapture() 展开滚动容器
-→ 解析背景（纯色 / 复杂背景）
-→ html-to-image 克隆并嵌入资源
+→ createSnapshot() 把整页复制进离屏 iframe，并把目标元素映射到副本里
+→ getTargetBox(副本元素)
+→ expandForCapture() 在副本里展开滚动容器
+→ 解析背景（纯色 / 复杂背景，也在副本里渲染）
+→ html-to-image 克隆副本子树并嵌入资源
 → SVG / XML 清理
 → canvas 转 PNG
+→ 丢弃快照
 → 复制或保存
 ```
 
@@ -93,16 +95,17 @@ scripts/serve-playground.mjs      本地 playground 服务器
 
 ```text
 拖拽出矩形
-→ collectScrollSlices() 找出与选区相交的滚动容器（含容器内部的嵌套面板，深的在前）
+→ createSnapshot() 把整页复制进离屏 iframe
+→ collectScrollSlices() 在副本里找出与选区相交的滚动容器（含容器内部的嵌套面板，深的在前）
 → 对每个容器：采集 sticky / 隐藏 fixed 后代 → 以其为根渲染「当前滚动视图」切片
               → blob 转 data URL → 作为该容器第一个 background 图层写回 + 隐藏子内容
 → 整页渲染一次（根节点只按窗口滚动做 relative 偏移）
 → planCrop() + cropBlob() 按矩形裁剪
-→ 恢复所有内联样式
+→ 丢弃快照
 → 复制或保存
 ```
 
-`captureRegion()` 只有这一条渲染路径：没有 `scrollTop` 重放的备选实现。
+两条路径都只有这一条渲染路径：没有「在活页面上改样式再恢复」的备选实现。活页面全程只被读取，所以渲染期间用户可以继续操作，取消也能真正中断（副本直接丢掉即可）。
 
 ## 修改前约定
 
@@ -247,6 +250,24 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 实测（`playground/region.html`，3 面板 + 嵌套，1400×900）：最长阻塞任务 638ms → 223ms，长任务总时长 1257ms → 482ms，总耗时 1393ms → 1338ms（噪声内），裁剪出的 PNG 字节完全一致。
 - 剩余的一次 200ms 级长任务来自「把数 MB 的 SVG data URL 交给浏览器解析」和「把切片 data URL 写进 `background-image` 内联样式」，都是单次调用，无法切片；要再降只能改成 blob URL 流，属于另一个量级的工作且有 CSP 风险。
 - 分片让出意味着页面自己的任务有机会在截图过程中运行：截图期间页面样式是被临时改写过的（切片隐藏子内容等），这也是为什么不要顺手把让出点加得过于频繁。
+
+### 离屏快照（`core/snapshot.ts`）
+
+- 目的：html-to-image 从「要渲染的文档」读 computed style，而两条截图链路都必须临时改写页面（展开滚动容器、隐藏已画好的面板）。改活页面就等于把用户锁在外面，所以改成：把页面复制进一个**离屏 same-origin iframe**，之后所有改写都发生在副本上。活页面零改动 → 渲染期间可交互、取消可以真中断、没有「恢复样式」的失败模式。
+- iframe 必须参与布局：`display:block; position:fixed; left:-(width+400)px; width:innerWidth; height:innerHeight`，用 `!important` 写，防止被页面 CSS（`iframe{display:none}`）破坏。`display:none` 会让所有测量为 0。
+- 复制方式是**自己递归 clone**（不是 `cloneNode(true)`，也不是 `srcdoc`），这样才能：
+  - 剥掉 `SCRIPT`/`NOSCRIPT`（`importNode` 过来的 `<script>` 一旦插入文档仍会执行，页面 JS 会跑第二遍）；
+  - 把 `<canvas>` / `<video>` 换成同尺寸 `<img src=toDataURL()>`（DOM 克隆不携带位图，实测像素 `239,68,68,255` → `0,0,0,0`）；污染画布退回原元素（空盒子，尺寸仍对）；
+  - 对 open shadow root 用 `attachShadow` + 克隆子节点重建（**不要**指望 declarative shadow DOM：`<template shadowrootmode>` 只在 HTML 解析器里生效，`appendChild` 不认）；
+  - 同源 iframe 清掉 `src` 后把它的 `body` 内容克隆进去（跨域读不到就留空盒子，也不会再发一次请求）；
+  - 回填 `scrollTop/scrollLeft`、`input/textarea/select` 的 value/checked/selected、以及窗口滚动；
+  - 建 `<base href=页面 baseURI>`，让相对 URL、`@font-face` 和图片解析和页面一致；`document.adoptedStyleSheets` 也要导出成 `<style>`。
+- 复制在**活文档**里建树，最后 `snapshotDoc.replaceChild(html, snapshotDoc.documentElement)`；现代 DOM 会把整棵子树 adopt 进目标文档且**保持节点 identity**，所以构建时记下的 `live → clone` 映射（`Map`）在插入后依然有效，目标元素、滚动偏移都靠它。
+- `settle()` 等三件事：`<link rel=stylesheet>` 的 `link.sheet` 就绪（失败的 link 有 1.5s 上限，否则坏链接会吃掉整个预算）、`doc.images` 的 load/error、`doc.fonts.ready`；总预算 8s。**不要在 jsdom 用真实快照做管线测试**（没有 CSS 加载，会等满预算）：`capture.test.ts` 用 `vi.mock('../src/core/snapshot')` 把副本换成活文档。
+- 取消：`native.capture.aborted` 由 `cancelCapture()` 置位，`patchCloneYield` 生成的 helper 在每个 chunk 检查并抛 `Capture cancelled`，异常一路冒到 `captureElement/captureRegion` 的 `finally` 里 `snapshot.dispose()`。所以取消只对「克隆循环进行中」有效，序列化/编码阶段只能丢弃结果（shot-app 用 token 兜底）。
+- UI：渲染期间只渲染 `RenderingChip`（顶部小胶囊 + 取消），`PickerOverlay` 推迟到 `capturing === false` 才渲染；交互守卫推迟到渲染结束（`finishRender()`）才安装，渲染期间只挂一个不吞事件的 Esc 监听。
+- 实测（`playground/region.html`，3 面板 + 嵌套）：区域截图输出与「直接渲染活页面」的 0.5.0 **PNG 字节完全一致**（`sha256 cc3e7324…`，多次复现）；渲染中点击页面按钮新增 3 行，截图里没有这 3 行；渲染中面板的 `style`/`background-image`/子元素 `visibility` 全程未被改动。
+- 代价：快照是整页副本（内存、首次布局约翻倍），大头是那一次性的构建 + 布局（小页面 ~80ms，大页面几百 ms，无法切片）；总耗时比 0.5.0 大约 +10%～70%（波动大，别用单次测量下结论）。
 
 ### 悬浮按钮（FAB）
 

@@ -100,11 +100,11 @@ After selection:
 
 ## Known limitations
 
-- Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, but its contents may not be fully included in the render.
-- Cross-origin iframes cannot be picked. Video, WebGL and canvas content depends on the current pixels and may be blank.
+- Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, and its contents are rebuilt in the snapshot.
+- Cross-origin iframes cannot be picked. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
 - Region capture is limited to the current viewport; scroll to the target before dragging.
-- Every scrolled container inside the region costs one more render: a few seconds for a single pane, and 10–15 seconds for four in our measurements.
+- Every scrolled container inside the region costs one more render: a few seconds for a single pane, and 10–15 seconds for four in our measurements. The page stays usable while it renders and the result is unaffected; only a small “Rendering…” chip is shown.
 - Inside a scrolled pane, pseudo-element overlays, `mix-blend-mode`, and descendants positioned outside the pane's clip may differ slightly from the page.
 - `position: sticky/fixed` elements in full-page captures are handled against the renderer's viewport and may differ from a manually stitched capture.
 - Cross-origin fonts can only be inlined when the stylesheet is readable; otherwise they fall back to system fonts.
