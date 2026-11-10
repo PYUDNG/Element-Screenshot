@@ -306,9 +306,24 @@ onMounted(() => {
       <footer
         class="flex shrink-0 items-center gap-3 border-t border-zinc-200 px-4 py-2.5 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400"
       >
-        <span v-if="controller.version">{{
-          t('settings.version', { version: controller.version })
-        }}</span>
+        <div class="flex min-w-0 items-center gap-1.5">
+          <span v-if="controller.version" class="truncate tabular-nums">{{
+            t('settings.version', { version: controller.version })
+          }}</span>
+          <a
+            v-for="link in controller.links"
+            :key="link.id"
+            :href="link.href"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            :title="link.label"
+            :aria-label="link.label"
+          >
+            <component :is="getIcon(link.icon)" v-if="link.icon" :size="14" />
+            <span v-else class="text-[11px] font-medium">{{ link.label }}</span>
+          </a>
+        </div>
         <span class="ml-auto hidden sm:inline">{{ t('settings.footerHint') }}</span>
         <button
           type="button"

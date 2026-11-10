@@ -255,6 +255,32 @@ describe('settings components', () => {
     controller.dispose()
   })
 
+  it('shows project links next to the version', () => {
+    const controller = createSettings({
+      tabs,
+      i18n,
+      builtins: false,
+      version: '1.2.3',
+      links: [
+        { id: 'github', label: 'GitHub', href: 'https://github.com/x/y', icon: 'github' },
+        { id: 'plain', label: 'Site', href: 'https://example.com' }
+      ]
+    })
+    const wrapper = mount(SettingsRoot, { props: { controller }, attachTo: document.body })
+
+    const links = wrapper.findAll('footer a')
+    expect(links).toHaveLength(2)
+    expect(links[0]?.attributes('href')).toBe('https://github.com/x/y')
+    expect(links[0]?.attributes('target')).toBe('_blank')
+    expect(links[0]?.attributes('rel')).toBe('noopener noreferrer')
+    expect(links[0]?.attributes('aria-label')).toBe('GitHub')
+    expect(links[0]?.attributes('title')).toBe('GitHub')
+    expect(links[0]?.find('svg').exists()).toBe(true)
+    expect(links[1]?.text()).toBe('Site')
+    expect(wrapper.get('footer').text()).toContain('1.2.3')
+    controller.dispose()
+  })
+
   it('injects styles into a shadow root', () => {
     const host = document.createElement('div')
     const shadow = host.attachShadow({ mode: 'open' })

@@ -13,6 +13,7 @@ import type {
   SettingsField,
   SettingsFieldPatch,
   SettingsGroup,
+  SettingsLink,
   SettingsTab,
   SettingsValues,
   ThemeSetting
@@ -28,6 +29,8 @@ export interface SettingsControllerOptions {
   /** Adds the built-in General tab (language, theme, reset). Default: true. */
   builtins?: boolean
   version?: string
+  /** Icon links rendered next to the version in the footer. */
+  links?: SettingsLink[]
   onOpen?: () => void
   onClose?: () => void
   onError?: (error: unknown) => void
@@ -42,6 +45,7 @@ export interface SettingsController {
   readonly resolvedTheme: ComputedRef<ResolvedTheme>
   readonly isOpen: ComputedRef<boolean>
   readonly version?: string
+  readonly links: readonly SettingsLink[]
   get<T extends SettingValue = SettingValue>(key: string): T
   set(key: string, value: SettingValue): void
   reset(key?: string): void
@@ -447,6 +451,7 @@ export function createSettings(options: SettingsControllerOptions = {}): Setting
     resolvedTheme,
     isOpen: isOpenComputed,
     version: options.version,
+    links: options.links ?? [],
     get<T extends SettingValue = SettingValue>(key: string): T {
       return values[key] as T
     },

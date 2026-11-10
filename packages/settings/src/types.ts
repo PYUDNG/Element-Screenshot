@@ -144,6 +144,15 @@ export interface SettingsTab {
   groups: SettingsGroup[]
 }
 
+/** A small link (project page, store listing) shown next to the version. */
+export interface SettingsLink {
+  id: string
+  /** Accessible name and tooltip. Brand names are usually not translated. */
+  label: string
+  href: string
+  icon?: IconName
+}
+
 export interface SettingsFieldPatch {
   label?: string
   description?: string

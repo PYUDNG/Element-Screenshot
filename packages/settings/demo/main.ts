@@ -113,6 +113,20 @@ const i18n = createI18n({
 const settings = createSettings({
   i18n,
   version: '0.1.0',
+  links: [
+    {
+      id: 'github',
+      label: 'GitHub',
+      href: 'https://github.com/PYUDNG/Element-Screenshot',
+      icon: 'github'
+    },
+    {
+      id: 'greasyfork',
+      label: 'Greasyfork',
+      href: 'https://greasyfork.org/scripts/604334',
+      icon: 'greasyfork'
+    }
+  ],
   storage: createLocalStorageStorage('userscript-settings-demo:'),
   storageKey: 'values',
   tabs: [

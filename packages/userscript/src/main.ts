@@ -24,6 +24,7 @@ import {
 import type { SettingsController } from '@element-screenshot/settings'
 import cssText from './styles.css?inline'
 import { appMessages } from './messages'
+import { projectLinks } from './config/links'
 import { createSettingsTabs } from './config/schema'
 import { installHotkey } from './core/hotkey'
 import { enableSiteForUrl, isSiteEnabled } from './core/site-policy'
@@ -51,6 +52,7 @@ const settings: SettingsController = createSettings({
   storageKey: 'settings',
   styles: cssText,
   version: GM_info?.script?.version ?? '0.1.0',
+  links: projectLinks,
   tabs: createSettingsTabs()
 })
 
