@@ -320,6 +320,62 @@ function linkReady(link: HTMLLinkElement): Promise<void> {
   })
 }
 
+/** Properties that decide where the content starts and how text measures. */
+const CASCADE_PROBES = [
+  'box-sizing',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'border-top-width',
+  'border-left-width',
+  'font-family',
+  'font-size',
+  'line-height',
+  'letter-spacing',
+  'word-spacing'
+] as const
+
+/**
+ * The copy can miss a rule the page applies (a stylesheet that has not landed
+ * yet, a cascade order that differs, a class applied by page script). When that
+ * happens the content sits in the wrong place inside the crop even though the
+ * crop itself is right, so compare the important properties of the requested
+ * element and copy the page's values over when they disagree.
+ */
+function repairCascade(live: Element, clone: Element): void {
+  let liveStyle: CSSStyleDeclaration
+  let cloneStyle: CSSStyleDeclaration
+  try {
+    liveStyle = native.getComputedStyle(live)
+    cloneStyle = native.getComputedStyle(clone)
+  } catch (_error) {
+    return
+  }
+
+  const mismatched: string[] = []
+  const repairs: Record<string, string> = {}
+  const detail: Record<string, string> = {}
+  for (const property of CASCADE_PROBES) {
+    const expected = liveStyle.getPropertyValue(property)
+    const actual = cloneStyle.getPropertyValue(property)
+    if (!expected || expected === actual) continue
+    mismatched.push(property)
+    repairs[property] = expected
+    detail[property] = `${actual || '(empty)'} -> ${expected}`
+  }
+  if (mismatched.length === 0) return
+
+  console.warn('[element-screenshot] snapshot cascade differs from the page', {
+    element: live.tagName.toLowerCase(),
+    properties: detail
+  })
+  for (const property of mismatched) {
+    const stylable = clone as Element & { style?: CSSStyleDeclaration }
+    stylable.style?.setProperty(property, repairs[property] ?? '', 'important')
+  }
+}
+
 /** Resolve once stylesheets and images are applied, fonts are ready, or the budget runs out. */
 async function settle(doc: Document, timeout: number): Promise<void> {
   const win = doc.defaultView
@@ -486,6 +542,8 @@ export async function createSnapshot(options: SnapshotOptions = {}): Promise<Sna
     restoreScroll(ctx, liveWin, doc.defaultView ?? liveWin)
     await nextFrame(liveWin)
     restoreScroll(ctx, liveWin, doc.defaultView ?? liveWin)
+
+    if (ctx.target && ctx.targetClone) repairCascade(ctx.target, ctx.targetClone)
 
     const snapshotWin = doc.defaultView ?? liveWin
     return { doc, win: snapshotWin, target: ctx.targetClone, dispose }

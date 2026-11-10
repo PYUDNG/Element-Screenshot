@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { native } from '../src/core/native'
 import { createSnapshot } from '../src/core/snapshot'
 
 const FAST = { timeout: 20 }
@@ -8,6 +9,7 @@ function snapshotFrames(): HTMLIFrameElement[] {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   document.body.innerHTML = ''
   document.head.innerHTML = ''
 })
@@ -70,6 +72,48 @@ describe('page snapshot', () => {
     document.body.innerHTML = '<div id="anything">full page</div>'
     const snapshot = await createSnapshot({ ...FAST, target: document.documentElement })
     expect(snapshot.target).toBe(snapshot.doc.documentElement)
+    snapshot.dispose()
+  })
+
+  it('copies the page cascade onto the target when the copy disagrees', async () => {
+    document.body.innerHTML = '<div id="target">text</div>'
+    const target = document.getElementById('target')
+    const pageStyle = {
+      getPropertyValue: (property: string) => (property === 'padding-left' ? '16px' : '0px')
+    } as CSSStyleDeclaration
+    const copyStyle = {
+      getPropertyValue: (property: string) => (property === 'padding-left' ? '0px' : '0px')
+    } as CSSStyleDeclaration
+    vi.spyOn(native, 'getComputedStyle').mockImplementation((element: Element) =>
+      element.ownerDocument === document ? pageStyle : copyStyle
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const snapshot = await createSnapshot({ ...FAST, target: target ?? undefined })
+    const copy = snapshot.doc.getElementById('target') as HTMLElement
+
+    expect(copy.style.getPropertyValue('padding-left')).toBe('16px')
+    expect(warn).toHaveBeenCalledWith(
+      '[element-screenshot] snapshot cascade differs from the page',
+      expect.objectContaining({ element: 'div' })
+    )
+    snapshot.dispose()
+  })
+
+  it('leaves the copy alone when the cascade matches', async () => {
+    document.body.innerHTML = '<div id="target" style="padding-left: 8px">text</div>'
+    const target = document.getElementById('target')
+    const same = {
+      getPropertyValue: (property: string) => (property === 'padding-left' ? '8px' : '0px')
+    } as CSSStyleDeclaration
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue(same)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const snapshot = await createSnapshot({ ...FAST, target: target ?? undefined })
+    const copy = snapshot.doc.getElementById('target') as HTMLElement
+
+    expect(copy.style.getPropertyValue('padding-left')).toBe('8px')
+    expect(warn).not.toHaveBeenCalled()
     snapshot.dispose()
   })
 
