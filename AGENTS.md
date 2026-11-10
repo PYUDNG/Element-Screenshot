@@ -351,6 +351,27 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 验证页：`playground/region.html`（三个独立面板 + 嵌套面板 + 渐变/圆角 + 面板内 fixed 元素 + 吸顶表头 + 页面滚动），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；页面把初始滚动位置写死，方便反复对比；
 - 调试顺序：内容错位先核对「滚动口尺寸 + border 并入 padding + 根偏移 = 滚动量 + 边框」；边框/圆角残影先看是不是只清了颜色没清 `border-width`/`border-radius`；出现假滚动条先看 `scrollbar-width: none` 是否生效；样式没恢复先看 `replaceScrollContainer()` 的 `restore` 是否按逆序执行。
 
+## 待办（用户指定：下轮和 iframe 支持一起做）
+
+> 2026-11-10 用户明确「先把这两个记下来，压缩上下文后一起做」。开工前先和用户对齐 iframe 的范围，不要直接改。
+
+### 1. shadow root 内 `<style>` 的 CSSOM 重放
+
+- 问题：`copyStyleSheets()` 只扫 light DOM（`Document.querySelectorAll('style')` **不穿透 shadow root**），而 `collectShadow()` 里 shadow 的 `<style>` 是按标记克隆的 → 运行时 `insertRule()` / `deleteRule()` 的改动全部丢失。light DOM 的 `<style>` 已覆盖，shadow 的 `adoptedStyleSheets` 已导出，`<link rel=stylesheet>` 会在副本里重新加载，所以缺口**只**在「shadow root 里那个被运行时改过的 `<style>`」。
+- 症状：页面上正常，截图里该组件像没上样式（按需注入规则时）；反过来删规则时副本会比页面多出样式。`reportCascadeMismatch()` 只在目标元素落在受影响子树里时才可能提示。
+- 修法：`collectShadow()` 克隆子节点时，遇到 `STYLE` 且 `child.sheet` 可读，就直接 `cloned.textContent = sheetText(child.sheet)`（`<style>` 尚未插入文档时写文本是安全的，attach 后再解析）。注意嵌套 shadow root 也要覆盖（`cloneNodeAny` 的递归已经在跑）；`sheetText()` 对跨域/不可读 sheet 已有兜底。
+- 验证：`playground/` 加一个「运行时往 shadow 里 `insertRule`」的 Web Component（含嵌套 shadow 用例），对比 `style.sheet.cssRules.length` 与文本规则数，并用副本里该组件的 computed style / 截图尺寸断言。jsdom 对 shadow 里 `<style>.sheet` 支持不全，**实机验证放真实浏览器**。
+
+### 2. iframe 支持
+
+- 现状：`collectFrame()` 只处理**同源** iframe——清掉 `src` / `srcdoc` 后把 `contentDocument.body` 的内容克隆进副本；跨域读不到 `contentDocument`，副本里就是个空盒子（好处是不重复发请求）。此外 iframe 内部的 `<head>` 样式、iframe 自身的滚动位置都没处理，选择器也不进入 iframe。
+- 待和用户对齐的开放问题：
+  - 范围：只把**同源** iframe 做完整（`head` 样式、嵌套 iframe、滚动位置、`srcdoc`），还是也要**跨域**？
+  - 跨域若要做：只能 `GM_xmlhttpRequest` 抓 iframe URL 的 HTML，再用 `<base href>` + 该文档自己的 CSS 在副本里重建；拿不到登录态渲染结果，也拿不到 iframe 内脚本渲染出来的 DOM（SPA 基本无解）。必须明确「静态 HTML 级还原」这个边界，并写进 README 的已知限制。
+  - 元素截图的目标在 iframe 内时怎么办：选择器目前不进入 iframe（`elementsFromPoint` 只作用于顶层文档），要不要支持点选 iframe 内部元素、还是只保证「截包含 iframe 的外层元素时内部有内容」。
+  - 尺寸与裁剪：iframe 内部滚动、iframe 自身被父级裁剪的部分如何呈现。
+- 验证：`playground/` 增加同源 iframe 页 + 一个跨域（不同端口）iframe，逐个对比截图与页面。
+
 ## 验证建议
 
 - 小改动至少跑 targeted Vitest + lint；提交前跑 `pnpm check`。
