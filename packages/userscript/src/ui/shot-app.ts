@@ -67,6 +67,23 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
+/**
+ * Used when the page's `img-src` policy rejects a `blob:` URL: data URLs are
+ * allowed on far more pages, and the preview is the only consumer.
+ */
+function readAsDataUrl(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const reader = new native.FileReader()
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
 export class ShotApp implements ShotAppApi {
   readonly state: ShotState = reactive({
     mode: 'idle',
@@ -78,6 +95,7 @@ export class ShotApp implements ShotAppApi {
     ready: false,
     error: null,
     captureSize: null,
+    previewUrl: null,
     toasts: [],
     fab: { left: 0, top: 0, dock: null },
     viewport: { width: 0, height: 0 }
@@ -90,6 +108,7 @@ export class ShotApp implements ShotAppApi {
   private pending: Promise<void> | null = null
   private captureToken = 0
   private toastId = 0
+  private previewFallback = false
   private guardsInstalled = false
   private cancelKeyInstalled = false
   private stopSettingsWatch: (() => void) | null = null
@@ -197,6 +216,7 @@ export class ShotApp implements ShotAppApi {
     this.state.ready = false
     this.state.error = null
     this.state.captureSize = null
+    this.setPreviewUrl(null)
   }
 
   cycle(delta: number): void {
@@ -401,6 +421,7 @@ export class ShotApp implements ShotAppApi {
 
       this.blob = result.blob
       this.state.captureSize = { width: result.width, height: result.height }
+      this.setPreview(result.blob)
       this.state.ready = true
       if (result.limited) this.toast('app.toast.downscaled', 'info')
     } catch (error) {
@@ -428,6 +449,7 @@ export class ShotApp implements ShotAppApi {
 
       this.blob = result.blob
       this.state.captureSize = { width: result.width, height: result.height }
+      this.setPreview(result.blob)
       this.state.ready = true
       if (result.limited) this.toast('app.toast.downscaled', 'info')
     } catch (error) {
@@ -469,6 +491,30 @@ export class ShotApp implements ShotAppApi {
     this.installGuards()
   }
 
+  usePreviewFallback(): void {
+    const blob = this.blob
+    if (!blob || this.previewFallback) return
+    this.previewFallback = true
+    void readAsDataUrl(blob).then((url) => {
+      // A later capture or a reset may have replaced the blob in the meantime.
+      if (url && this.blob === blob) this.setPreviewUrl(url)
+    })
+  }
+
+  private setPreview(blob: Blob | null): void {
+    this.previewFallback = false
+    const url = blob && native.createObjectURL ? native.createObjectURL(blob) : null
+    this.setPreviewUrl(url)
+  }
+
+  private setPreviewUrl(url: string | null): void {
+    const previous = this.state.previewUrl
+    this.state.previewUrl = url
+    if (previous && previous !== url && previous.startsWith('blob:')) {
+      native.revokeObjectURL?.(previous)
+    }
+  }
+
   private async ensureBlob(): Promise<Blob | null> {
     if (this.pending) {
       try {
@@ -506,6 +552,7 @@ export class ShotApp implements ShotAppApi {
 
   private clearSelection(): void {
     this.blob = null
+    this.setPreviewUrl(null)
     this.pending = null
     this.state.hover = null
     this.state.box = null

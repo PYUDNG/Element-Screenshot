@@ -3,11 +3,7 @@ import { computed } from 'vue'
 import type { CSSProperties } from 'vue'
 import {
   CameraIcon,
-  CheckIcon,
   CloseIcon,
-  CopyIcon,
-  DownloadIcon,
-  ImageIcon,
   MaximizeIcon,
   MinusIcon,
   PlusIcon
@@ -108,10 +104,6 @@ const dimensions = computed(() => {
 
 const canGoShallower = computed(() => (state.hover?.depth ?? 1) > 1)
 const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.total ?? 1))
-const selectedDimensions = computed(() => {
-  const size = state.captureSize
-  return size ? `${size.width} × ${size.height}` : ''
-})
 </script>
 
 <template>
@@ -228,70 +220,6 @@ const selectedDimensions = computed(() => {
           <CloseIcon :size="12" />
           {{ t('app.action.close') }}
         </button>
-      </template>
-
-      <template v-else>
-        <span class="flex items-center gap-1.5 font-medium">
-          <ImageIcon :size="14" class="text-blue-600 dark:text-blue-400" />
-          <span v-if="state.capturing">{{ t('app.hint.rendering') }}</span>
-          <span
-            v-else-if="state.error"
-            :title="state.error"
-            :aria-label="`${t('app.hint.failed')}: ${state.error}`"
-          >
-            {{ t('app.hint.failed') }}
-          </span>
-          <span v-else>{{ selectedDimensions }}</span>
-        </span>
-
-        <span class="mx-1 hidden h-4 w-px bg-zinc-200 dark:bg-zinc-700 sm:block" />
-
-        <span
-          v-if="state.capturing"
-          class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"
-          aria-hidden="true"
-        />
-
-        <span
-          v-else-if="state.ready"
-          class="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400"
-        >
-          <CheckIcon :size="12" />
-          {{ t('app.hint.ready') }}
-        </span>
-
-        <span class="hidden text-[11px] text-zinc-500 dark:text-zinc-400 md:inline">
-          {{ t('app.hint.selected') }}
-        </span>
-
-        <div class="ml-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            :disabled="state.capturing"
-            @click="app.copy()"
-          >
-            <CopyIcon :size="12" />
-            {{ t('app.action.copy') }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            :disabled="state.capturing"
-            @click="app.save()"
-          >
-            <DownloadIcon :size="12" />
-            {{ t('app.action.save') }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            @click="app.cancel()"
-          >
-            <CloseIcon :size="12" />
-            {{ t('app.action.close') }}
-          </button>
-        </div>
       </template>
 
       <span class="hidden items-center gap-1 text-[10px] text-zinc-400 lg:flex">
