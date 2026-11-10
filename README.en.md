@@ -17,7 +17,7 @@ Capture any element on a web page — including everything hidden inside its scr
 - **What you select is what you get** — the selection frame covers the element's complete scroll range, and the output matches that box rather than only the visible viewport.
 - **High-resolution export** — export at 1× / 2× / 3×. Very large pages are downscaled automatically when they exceed the browser's canvas limits.
 - **Faithful backgrounds** — solid colors, gradients, background images and dark themes are preserved; transparent regions no longer default to white.
-- **Leaves the page alone** — an interaction shield prevents hover/click effects from leaking into the capture; the UI lives in Shadow DOM; page styles and scroll positions are restored afterwards.
+- **Leaves the page alone** — an interaction shield prevents hover/click effects from leaking into the capture; the UI lives in Shadow DOM; rendering happens in an off-screen snapshot, so page styles and scroll positions are never touched.
 - **Configurable** — shortcut, border color/width, floating button, site rules, page/custom/transparent background, three UI languages and light/dark themes.
 - **Local processing** — screenshots are not uploaded. Cross-origin images and fonts are requested through the userscript manager only when they need to be inlined.
 
@@ -94,7 +94,7 @@ After selection:
 | Double-click the page | Save the PNG                     |
 | `Esc`                 | Close the result UI              |
 
-> Rendering does **not** lock the page: the capture is rendered from an off-screen copy, so you can keep clicking, scrolling and typing while it runs, and the result is unaffected. While it renders you only see a small “Rendering…” chip (with a cancel button, `Esc` also cancels); the result bar opens when the image is ready.
+> Rendering does **not** lock the page: the capture is rendered from an off-screen copy, so you can keep clicking, scrolling and typing while it runs, and the result is unaffected. While it renders you only see a small “Rendering…” chip (with a cancel button, `Esc` also cancels); when the image is ready the result opens as a centred preview — a lightbox with copy / save / close underneath. The page may have scrolled or changed while it rendered, so the result is no longer pinned to the original selection frame.
 >
 > “Isolate page interaction” is on by default. While picking, the page receives no hover, click or mousemove events, so temporary hover styles do not appear in the image. Turn it off in Settings → Capture → Picker interaction to capture a hover state.
 >

@@ -19,7 +19,7 @@ Capture any element on a web page — including everything hidden inside its scr
 - **Drag a region** — press and drag a rectangle; on release that exact region is captured, with every scrolled pane restored at its own scroll offset, plus sticky headers and fixed overlays as you see them.
 - **High-resolution export** — 1× / 2× / 3×. Very large pages are downscaled automatically when they exceed browser canvas limits.
 - **Faithful backgrounds** — solid colors, gradients, background images and dark themes are preserved; transparent regions no longer default to white.
-- **Leaves the page alone** — interaction isolation prevents hover/click effects from leaking into the capture; the UI lives in Shadow DOM; page styles and scroll positions are restored afterwards.
+- **Leaves the page alone** — interaction isolation prevents hover/click effects from leaking into the capture; the UI lives in Shadow DOM; rendering happens in an off-screen snapshot, so page styles and scroll positions are never touched.
 - **Configurable** — shortcut, border color/width, floating button, site rules, background mode, three UI languages and light/dark themes.
 - **Local processing** — screenshots are not uploaded. Cross-origin images and fonts are requested through the userscript manager only when they need to be inlined.
 

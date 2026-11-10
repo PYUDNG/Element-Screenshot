@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- The settings footer now carries the project links: the version sits next to
+  GitHub and Greasyfork icons that open the project page and the Greasyfork
+  listing in a new tab. The settings library takes them as an option
+  (`links: [{ id, label, href, icon }]`), so the panel stays reusable.
+- Finished captures open in a centred result viewer instead of over the element
+  selection frame. The image is fitted to the viewport on a dimmed backdrop, the
+  bar underneath keeps the size, copy / save / close buttons and the keyboard
+  hints, and a transparent capture gets a checkerboard behind it. A failed render
+  shows the reason in the same viewer.
+
+### Changed
+
+- The selection frame is now drawn only while picking. Since the page can be
+  scrolled and edited while a capture renders, the frame measured at pick time is
+  usually stale by the time the image is ready — the result is shown on its own
+  instead. The result stays modal: clicks, wheels and shortcuts on the page are
+  blocked until it is closed, exactly like the old result bar.
+
+### Fixed
+
+- The result preview falls back to a data URL when the page's `img-src` policy
+  rejects `blob:` URLs, which would otherwise leave the viewer blank on strict
+  sites. The fallback only runs after the blob URL actually fails to load.
+
 ## [0.6.0] - 2026-11-10
 
 ### Changed

@@ -70,7 +70,7 @@ packages/userscript/src/core/     截图、选择器、背景、原生 API 快�
                                   区域截图：region.ts / scroll-slice.ts / crop.ts / canvas.ts
 packages/userscript/src/net/      GM_xmlhttpRequest 适配
 packages/userscript/src/plugin/   Vite 插件：注入 GM fetch/XHR 适配并 patch html-to-image
-packages/userscript/src/ui/       Shadow DOM UI、InPageApp/Fab/PickerOverlay
+packages/userscript/src/ui/       Shadow DOM UI、InPageApp/Fab/PickerOverlay/ResultViewer
 packages/userscript/tests/        Vitest + jsdom 测试
 playground/                       本地测试页与 GM stub（index.html 元素、region.html 区域截图）
 scripts/serve-playground.mjs      本地 playground 服务器
@@ -270,7 +270,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 顺手加了 `reportCascadeMismatch()`：抓图后对比活元素与副本的 `box-sizing`/padding/border/字体度量，不一致就 `console.warn`（**只报告、不修补**，修补是治标）。
 - iframe 挂在 `document.documentElement` 而不是 `body`：很多站点（X、各种浮层库）用 MutationObserver 盯着 body，插入子节点会触发整页重渲染。
 - 取消：`native.capture.aborted` 由 `cancelCapture()` 置位，`patchCloneYield` 生成的 helper 在每个 chunk 检查并抛 `Capture cancelled`，异常一路冒到 `captureElement/captureRegion` 的 `finally` 里 `snapshot.dispose()`。所以取消只对「克隆循环进行中」有效，序列化/编码阶段只能丢弃结果（shot-app 用 token 兜底）。
-- UI：渲染期间只渲染 `RenderingChip`（顶部小胶囊 + 取消），`PickerOverlay` 推迟到 `capturing === false` 才渲染；交互守卫推迟到渲染结束（`finishRender()`）才安装，渲染期间只挂一个不吞事件的 Esc 监听。
+- UI：渲染期间只渲染 `RenderingChip`（顶部小胶囊 + 取消）；结果由 `ResultViewer`（居中预览 + 底部操作栏）呈现，`PickerOverlay` 只在 `mode === 'picking'` 时渲染。交互守卫推迟到渲染结束（`finishRender()`）才安装，渲染期间只挂一个不吞事件的 Esc 监听。
 - 实测（`playground/region.html`，3 面板 + 嵌套）：区域截图输出与「直接渲染活页面」的 0.5.0 **PNG 字节完全一致**（`sha256 cc3e7324…`，多次复现）；渲染中点击页面按钮新增 3 行，截图里没有这 3 行；渲染中面板的 `style`/`background-image`/子元素 `visibility` 全程未被改动。
 - 代价：快照是整页副本（内存、首次布局约翻倍），大头是那一次性的构建 + 布局（小页面 ~80ms，大页面几百 ms，无法切片）；总耗时比 0.5.0 大约 +10%～70%（波动大，别用单次测量下结论）。
 
@@ -283,6 +283,20 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - **hover 不能用 `pointerenter/pointerleave` 判断**：拖动时 `setPointerCapture` 会抑制 enter/leave，松手后按钮可能贴着光标却仍半隐藏，且光标不离开再回来就不会恢复。现在改成在 `window` 上监听 `pointermove`，用**静止（露出）矩形**做命中测试，并在 `pointerup` 里按松手位置刷新一次；`pointerout` 的 `relatedTarget === null` 用于光标离开窗口时复位。命中测试用露出矩形而不是当前视觉位置，才不会在滑动过程中来回抖动。
 - `(hover: hover)` 为假的设备（触屏）直接不隐藏，否则只剩半个圆可点。
 - 验证：`fabQuery` 读 `button.style.left/top` + computed `transform`/`opacity`，期望 `< 0px / -24 / 0.55`、`0px / none / 1` 两组；注意贴边后的 `getBoundingClientRect().x` 已经是 `-24`（含 transform），CDP 里要用可见半边的坐标去点。
+
+### 结果预览（`ResultViewer.vue`）
+
+- 渲染结束后页面大概率已经被用户滚走或改过，**不要再把结果叠在原选框上**：`mode === 'selected'` 时只渲染 `ResultViewer`，`PickerOverlay` 仅在 `mode === 'picking'` 时存在。
+- 预览用 `URL.createObjectURL(blob)`（存在 `state.previewUrl`），在 `reset()` / `clearSelection()` 里必须 `revokeObjectURL`，否则每次截图漏一个几十 MB 的 blob。
+- 有站点的 CSP `img-src` 不含 `blob:`，预览会空。`<img @error>` 触发 `usePreviewFallback()`：用 `FileReader` 转 data URL 再塞回 `state.previewUrl`，并用 `previewFallback` 标志防死循环。实测 GitHub 允许 blob:，所以这条通常不触发。
+- 预览层自己就能挡住鼠标（`pointer-events-auto` + 全屏 backdrop），但拦截滚动/快捷键仍靠 `finishRender()` 安装的交互守卫；backdrop 的 `@click.self` 关闭、`Esc` 走守卫的 keydown。
+- 图片只按 `max-h-full max-w-full` 缩到窗口内，小图保持原始像素不放大（避免糊）。透明截图垫棋盘格，否则透明区域在黑底上看不出边界。
+
+### 设置面板的项目链接
+
+- `createSettings({ links })` 接收 `{ id, label, href, icon }`，渲染在 footer 版本号后面，`target=_blank` + `rel="noopener noreferrer"`，`label` 同时用作 `title` 和 `aria-label`。
+- 品牌图标在 `packages/settings/src/icons.ts`：GitHub 是 `createSolidIcon`（填充路径，stroke 关掉），Greasyfork 是描边的叉子+油滴。14px 下再细就糊，别再减小 `size`。
+- URL 常量在 `packages/userscript/src/config/links.ts`；仓库或 Greasyfork ID 变化时只改这里。
 
 ### html-to-image / 浏览器 API
 
