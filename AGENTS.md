@@ -289,8 +289,11 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 渲染结束后页面大概率已经被用户滚走或改过，**不要再把结果叠在原选框上**：`mode === 'selected'` 时只渲染 `ResultViewer`，`PickerOverlay` 仅在 `mode === 'picking'` 时存在。
 - 预览用 `URL.createObjectURL(blob)`（存在 `state.previewUrl`），在 `reset()` / `clearSelection()` 里必须 `revokeObjectURL`，否则每次截图漏一个几十 MB 的 blob。
 - 有站点的 CSP `img-src` 不含 `blob:`，预览会空。`<img @error>` 触发 `usePreviewFallback()`：用 `FileReader` 转 data URL 再塞回 `state.previewUrl`，并用 `previewFallback` 标志防死循环。实测 GitHub 允许 blob:，所以这条通常不触发。
-- 预览层自己就能挡住鼠标（`pointer-events-auto` + 全屏 backdrop），但拦截滚动/快捷键仍靠 `finishRender()` 安装的交互守卫；backdrop 的 `@click.self` 关闭、`Esc` 走守卫的 keydown。
-- 图片只按 `max-h-full max-w-full` 缩到窗口内，小图保持原始像素不放大（避免糊）。透明截图垫棋盘格，否则透明区域在黑底上看不出边界。
+- 预览层自己就能挡住鼠标（`pointer-events-auto` + 全屏 backdrop），但拦截滚动/快捷键仍靠 `finishRender()` 安装的交互守卫。**点遮罩不关闭**（渲染很贵，误触不该丢结果）：关闭只有右上角 44px 的 `×`、底栏「关闭」和守卫的 `Esc`。因此原先的「双击页面保存」已删除（模态层收不到页面的 dblclick），Ctrl+S / 保存按钮覆盖同一需求。
+- 尺寸不再交给 CSS `max-h-full`：组件量取 stage 的 `clientWidth/Height`（`ResizeObserver` + `resize`）算出 `fitScale = min(1, stageW/natW, stageH/natH)`，再乘以 `zoom` 写成显式 `width/height`，所以 fit 状态下小图保持原始像素、不放大也不糊。图片必须 `shrink-0`，否则作为 flex 子项会被压缩回 stage 宽度、破坏缩放比例。
+- 缩放：`zoom` 是相对 fit 的倍数（1 = 适应窗口，10 上限）。点击是在 1 和 `CLICK_ZOOM = 3` 之间切换（只有两个状态，所以步长要大）；滚轮用 `exp(-delta * 0.0012)` 连续步进并把单次因子夹在 `[0.8, 1.25]`，滚轮缩放以指针位置为锚点（把指针下的图内坐标换算成平移量），最小钳到 1（即适应窗口），回到 1 时平移归零。
+- 平移：图片上的 pointer 拖动直接改 `translate3d`，并按 stage 尺寸把位移钳在 `±(显示尺寸 - stage)/2`，所以图不会整个拖出可视区；拖动超过 3px 视为平移、抬手不再触发缩放切换（点击和拖动共用左键）。
+- `<img>` 的鼠标滚轮和根节点的 `@wheel.prevent` 都要 `preventDefault`：交互守卫会放过 UI 事件，不拦的话滚轮会滚到底下的页面。透明截图垫棋盘格，否则透明区域在黑底上看不出边界。
 
 ### 设置面板的项目链接
 

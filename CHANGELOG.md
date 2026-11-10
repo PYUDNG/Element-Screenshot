@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format follows
   bar underneath keeps the size, copy / save / close buttons and the keyboard
   hints, and a transparent capture gets a checkerboard behind it. A failed render
   shows the reason in the same viewer.
+- The result preview zooms. Clicking the image toggles between the fitted view and
+  3× (the cursor is `zoom-in` / `zoom-out`, so the click target is obvious), the
+  wheel steps the zoom continuously while keeping the point under the pointer in
+  place, and the fit size is a hard floor. A zoomed capture can be dragged to pan,
+  clamped so it never leaves its viewport, and the bar shows the current image
+  scale as a percentage.
 
 ### Changed
 
@@ -25,6 +31,11 @@ All notable changes to this project are documented here. The format follows
   usually stale by the time the image is ready — the result is shown on its own
   instead. The result stays modal: clicks, wheels and shortcuts on the page are
   blocked until it is closed, exactly like the old result bar.
+- The preview is closed from a large (×) button in the top-right corner, the Close
+  button in the bar, or `Esc`. Clicking the backdrop no longer closes it: a render
+  can take a while, and a stray click should not throw the result away.
+- Double-click-to-save is gone. The result is now a full-screen modal, so the page
+  never sees the double click; `Ctrl+S` and the Save button cover the same case.
 
 ### Fixed
 

@@ -84,7 +84,6 @@ After selection:
 | --------------------- | -------------------------------- |
 | `Ctrl+C` / `Cmd+C`    | Copy the PNG to the clipboard    |
 | `Ctrl+S` / `Cmd+S`    | Save the PNG (file picker first) |
-| Double-click the page | Save the PNG                     |
 | `Esc`                 | Close the result UI              |
 
 > “Isolate page interaction” is on by default. While picking, the page receives no hover, click or mousemove events, so temporary hover styles do not appear in the image. Turn it off in Settings → Capture → Picker interaction to capture a hover state.

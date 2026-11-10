@@ -91,10 +91,9 @@ After selection:
 | --------------------- | -------------------------------- |
 | `Ctrl+C` / `Cmd+C`    | Copy the PNG to the clipboard    |
 | `Ctrl+S` / `Cmd+S`    | Save the PNG (file picker first) |
-| Double-click the page | Save the PNG                     |
 | `Esc`                 | Close the result UI              |
 
-> Rendering does **not** lock the page: the capture is rendered from an off-screen copy, so you can keep clicking, scrolling and typing while it runs, and the result is unaffected. While it renders you only see a small “Rendering…” chip (with a cancel button, `Esc` also cancels); when the image is ready the result opens as a centred preview — a lightbox with copy / save / close underneath. The page may have scrolled or changed while it rendered, so the result is no longer pinned to the original selection frame.
+> Rendering does **not** lock the page: the capture is rendered from an off-screen copy, so you can keep clicking, scrolling and typing while it runs, and the result is unaffected. While it renders you only see a small “Rendering…” chip (with a cancel button, `Esc` also cancels); when the image is ready the result opens as a centred preview — a lightbox with copy / save / close underneath. The page may have scrolled or changed while it rendered, so the result is no longer pinned to the original selection frame. Click the image to toggle between fit and 3×, use the wheel to step the zoom (never below fit), and drag to pan while zoomed. The close button sits in the top-right corner and clicking the backdrop deliberately does **not** close the preview, so a long render cannot be lost to a stray click.
 >
 > “Isolate page interaction” is on by default. While picking, the page receives no hover, click or mousemove events, so temporary hover styles do not appear in the image. Turn it off in Settings → Capture → Picker interaction to capture a hover state.
 >
