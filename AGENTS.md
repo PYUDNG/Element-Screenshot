@@ -10,12 +10,12 @@
 - 构建产物：`packages/userscript/dist/script.user.js`（`dist/` 被 git 忽略）
 - 包管理器：pnpm 10；Node.js >= 22.12。
 
-## 当前发布状态（2026-11-09）
+## 当前发布状态（2026-11-10）
 
 - 公开名称：**Element Screenshot**
 - 仓库：<https://github.com/PYUDNG/Element-Screenshot>
 - 当前版本：`0.5.0`（悬浮按钮贴边半隐藏、渲染分片让出事件循环）
-- 当前 tag：`v0.4.0`；`v0.5.0` 尚未发布（发布前确认 `CHANGELOG.md` 的 0.5.0 段落已写好）
+- 当前 tag：`v0.5.0`（commit `542dc42`，发布 2026-11-10；release 资产与本地 `pnpm build` 产物字节一致）
 - Release 资产：
   - `script.user.js`
   - `script.meta.js`
@@ -31,6 +31,7 @@
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-CN.md`
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-TW.md`
 - Greasyfork 脚本页：<https://greasyfork.org/scripts/604334>（GitHub README 的安装表格已指向它）
+  - 2026-11-10 已同步到 `Version 0.5.0`、459 KB；说明文字会比 release 晚一拍（平台侧缓存），要立刻刷新就在脚本页手动 Sync / Update description。
 
 ## 文档同步规则
 
