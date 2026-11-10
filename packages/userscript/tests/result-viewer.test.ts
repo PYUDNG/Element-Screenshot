@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { reactive } from 'vue'
+import { nextTick, reactive } from 'vue'
 import type { I18n, SettingsController } from '@element-screenshot/settings'
 import ResultViewer from '../src/ui/ResultViewer.vue'
 import type { ShotAppApi, ShotState } from '../src/ui/api'
@@ -42,6 +42,21 @@ function createApi(overrides: Partial<ShotState> = {}, values: Record<string, un
   return { state, api: api as unknown as ShotAppApi }
 }
 
+function pointer(image: Element, type: string, x: number, y: number): void {
+  image.dispatchEvent(
+    new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y })
+  )
+}
+
+function wheel(image: Element, deltaY: number): void {
+  image.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY }))
+}
+
+function width(wrapper: ReturnType<typeof mount>): number {
+  const style = (wrapper.get('img').element as HTMLElement).style
+  return Number.parseFloat(style.width)
+}
+
 describe('result viewer', () => {
   it('centres the capture and offers the actions', async () => {
     const { api } = createApi()
@@ -52,7 +67,7 @@ describe('result viewer', () => {
     expect(image.attributes('alt')).toBe('app.hint.preview')
     expect(wrapper.text()).toContain('598 × 602')
 
-    const buttons = wrapper.findAll('button')
+    const buttons = wrapper.findAll('button').filter((button) => button.text())
     expect(buttons.map((button) => button.text())).toEqual([
       'app.action.copy',
       'app.action.save',
@@ -79,12 +94,94 @@ describe('result viewer', () => {
     wrapper.unmount()
   })
 
-  it('closes when the backdrop is clicked', async () => {
+  it('does not close when the backdrop is clicked', async () => {
     const { api } = createApi()
     const wrapper = mount(ResultViewer, { props: { app: api } })
 
     await wrapper.get('[role="dialog"]').trigger('click')
+    await wrapper.get('.flex-1').trigger('click')
+    expect(api.cancel).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('closes from the corner button', async () => {
+    const { api } = createApi()
+    const wrapper = mount(ResultViewer, { props: { app: api } })
+
+    const close = wrapper.get('button[aria-label="app.action.close"]')
+    expect(close.attributes('title')).toBe('app.action.close')
+    await close.trigger('click')
     expect(api.cancel).toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('toggles between fit and a large zoom on click', async () => {
+    const { api } = createApi()
+    const wrapper = mount(ResultViewer, { props: { app: api } })
+    const image = wrapper.get('img').element
+
+    expect(width(wrapper)).toBe(598)
+    expect((image as HTMLElement).style.cursor).toBe('zoom-in')
+
+    pointer(image, 'pointerdown', 40, 40)
+    pointer(image, 'pointerup', 40, 40)
+    await nextTick()
+
+    expect(width(wrapper)).toBe(1794)
+    expect((image as HTMLElement).style.cursor).toBe('zoom-out')
+    expect(wrapper.text()).toContain('300%')
+
+    pointer(image, 'pointerdown', 40, 40)
+    pointer(image, 'pointerup', 40, 40)
+    await nextTick()
+
+    expect(width(wrapper)).toBe(598)
+    expect(wrapper.text()).not.toContain('300%')
+
+    wrapper.unmount()
+  })
+
+  it('steps the zoom with the wheel and never goes below fit', async () => {
+    const { api } = createApi()
+    const wrapper = mount(ResultViewer, { props: { app: api } })
+    const image = wrapper.get('img').element
+
+    wheel(image, -100)
+    await nextTick()
+    const zoomedIn = width(wrapper)
+    expect(zoomedIn).toBeGreaterThan(598)
+    expect(zoomedIn).toBeLessThan(1794)
+
+    wheel(image, 100)
+    await nextTick()
+    expect(width(wrapper)).toBeCloseTo(598, 3)
+
+    wheel(image, 100)
+    await nextTick()
+    expect(width(wrapper)).toBe(598)
+
+    wrapper.unmount()
+  })
+
+  it('pans by dragging while zoomed without toggling again', async () => {
+    const { api } = createApi()
+    const wrapper = mount(ResultViewer, { props: { app: api } })
+    const image = wrapper.get('img').element
+
+    pointer(image, 'pointerdown', 40, 40)
+    pointer(image, 'pointerup', 40, 40)
+    await nextTick()
+
+    pointer(image, 'pointerdown', 100, 100)
+    pointer(image, 'pointermove', 160, 140)
+    pointer(image, 'pointerup', 160, 140)
+    await nextTick()
+
+    const style = (image as HTMLElement).style
+    expect(style.transform).toBe('translate3d(60px, 40px, 0)')
+    expect(width(wrapper)).toBe(1794)
 
     wrapper.unmount()
   })
@@ -96,7 +193,6 @@ describe('result viewer', () => {
     expect(wrapper.find('img').exists()).toBe(false)
     expect(wrapper.text()).toContain('app.hint.failed')
     expect(wrapper.text()).toContain('capture cancelled')
-    expect(wrapper.get('button[type="button"]').attributes('disabled')).toBeUndefined()
 
     wrapper.unmount()
   })

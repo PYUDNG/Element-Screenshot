@@ -568,7 +568,6 @@ export class ShotApp implements ShotAppApi {
     this.guardsInstalled = true
     native.addEventListener(window, 'pointerdown', this.handleGuardPointer, true)
     native.addEventListener(window, 'click', this.handleGuardPointer, true)
-    native.addEventListener(window, 'dblclick', this.handleGuardDoubleClick, true)
     native.addEventListener(window, 'wheel', this.handleGuardWheel, {
       capture: true,
       passive: false
@@ -582,7 +581,6 @@ export class ShotApp implements ShotAppApi {
     this.guardsInstalled = false
     native.removeEventListener(window, 'pointerdown', this.handleGuardPointer, true)
     native.removeEventListener(window, 'click', this.handleGuardPointer, true)
-    native.removeEventListener(window, 'dblclick', this.handleGuardDoubleClick, true)
     native.removeEventListener(window, 'wheel', this.handleGuardWheel, true)
     native.removeEventListener(window, 'contextmenu', this.handleGuardPointer, true)
     native.removeEventListener(window, 'keydown', this.handleGuardKeyDown, true)
@@ -619,13 +617,6 @@ export class ShotApp implements ShotAppApi {
     if (this.isUiEvent(event)) return
     event.preventDefault()
     event.stopImmediatePropagation()
-  }
-
-  private readonly handleGuardDoubleClick = (event: MouseEvent): void => {
-    if (this.isUiEvent(event)) return
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    void this.save()
   }
 
   private readonly handleGuardKeyDown = (event: KeyboardEvent): void => {
