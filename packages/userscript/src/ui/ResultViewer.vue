@@ -212,6 +212,30 @@ function measure(): void {
   clampPan()
 }
 
+/** A key press is a deliberate step, so it is coarser than a wheel notch. */
+const KEY_ZOOM = 1.25
+
+/**
+ * `+` / `-` / `0` are handled globally because the preview has no focusable
+ * element of its own; modifiers are left alone so browser zoom still works.
+ */
+function onKeyDown(event: KeyboardEvent): void {
+  if (!state.previewUrl || event.ctrlKey || event.metaKey || event.altKey) return
+  if (event.isComposing) return
+
+  const key = event.key
+  let next: number | null = null
+  if (key === '+' || key === '=') next = zoom.value * KEY_ZOOM
+  else if (key === '-' || key === '_') next = zoom.value / KEY_ZOOM
+  else if (key === '0') next = MIN_ZOOM
+
+  if (next === null) return
+  event.preventDefault()
+  // Keep page shortcuts for the same keys out of the loop.
+  event.stopImmediatePropagation()
+  setZoom(next)
+}
+
 let observer: ResizeObserver | null = null
 
 onMounted(() => {
@@ -221,12 +245,14 @@ onMounted(() => {
     observer.observe(stageRef.value)
   }
   window.addEventListener('resize', measure)
+  window.addEventListener('keydown', onKeyDown, true)
 })
 
 onBeforeUnmount(() => {
   observer?.disconnect()
   observer = null
   window.removeEventListener('resize', measure)
+  window.removeEventListener('keydown', onKeyDown, true)
 })
 </script>
 
@@ -331,38 +357,40 @@ onBeforeUnmount(() => {
           {{ t('app.hint.selected') }}
         </span>
 
-        <div class="ml-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            :disabled="!state.ready"
-            @click="app.copy()"
-          >
-            <CopyIcon :size="12" />
-            {{ t('app.action.copy') }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            :disabled="!state.ready"
-            @click="app.save()"
-          >
-            <DownloadIcon :size="12" />
-            {{ t('app.action.save') }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            @click="app.cancel()"
-          >
-            <CloseIcon :size="12" />
-            {{ t('app.action.close') }}
-          </button>
-        </div>
+        <div class="ml-auto flex items-center gap-2">
+          <span class="hidden whitespace-nowrap text-[10px] text-zinc-400 lg:flex">
+            {{ t('app.hint.zoom') }} · {{ t('app.hint.esc') }}
+          </span>
 
-        <span class="hidden text-[10px] text-zinc-400 lg:flex">
-          {{ t('app.hint.zoom') }} · {{ t('app.hint.esc') }}
-        </span>
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              :disabled="!state.ready"
+              @click="app.copy()"
+            >
+              <CopyIcon :size="12" />
+              {{ t('app.action.copy') }}
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              :disabled="!state.ready"
+              @click="app.save()"
+            >
+              <DownloadIcon :size="12" />
+              {{ t('app.action.save') }}
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              @click="app.cancel()"
+            >
+              <CloseIcon :size="12" />
+              {{ t('app.action.close') }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

@@ -165,6 +165,38 @@ describe('result viewer', () => {
     wrapper.unmount()
   })
 
+  it('zooms with the keyboard', async () => {
+    const { api } = createApi()
+    const wrapper = mount(ResultViewer, { props: { app: api } })
+    const press = (key: string, init: KeyboardEventInit = {}): void => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
+    }
+
+    press('+')
+    await nextTick()
+    expect(width(wrapper)).toBeCloseTo(598 * 1.25, 2)
+
+    press('-')
+    await nextTick()
+    expect(width(wrapper)).toBeCloseTo(598, 2)
+
+    press('+')
+    press('+')
+    await nextTick()
+    expect(width(wrapper)).toBeGreaterThan(598)
+
+    press('0')
+    await nextTick()
+    expect(width(wrapper)).toBe(598)
+
+    // Ctrl is the browser's zoom, so it must be left alone.
+    press('+', { ctrlKey: true })
+    await nextTick()
+    expect(width(wrapper)).toBe(598)
+
+    wrapper.unmount()
+  })
+
   it('pans by dragging while zoomed without toggling again', async () => {
     const { api } = createApi()
     const wrapper = mount(ResultViewer, { props: { app: api } })
