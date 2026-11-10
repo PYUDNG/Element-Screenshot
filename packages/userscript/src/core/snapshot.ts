@@ -104,15 +104,21 @@ function tagOf(element: Element): string {
   return element.tagName.toUpperCase()
 }
 
-/** Flatten a stylesheet into text so it can ride along inside the snapshot. */
-function sheetText(sheet: CSSStyleSheet): string {
+/**
+ * Flatten a stylesheet into text so it can ride along inside the snapshot.
+ *
+ * `null` means "unreadable" (a cross-origin sheet), which is different from an
+ * empty string: an empty string is a real answer, and writing it into a copy
+ * clears rules the page deleted with `deleteRule()`.
+ */
+function sheetText(sheet: CSSStyleSheet): string | null {
   try {
     return Array.from(sheet.cssRules)
       .map((rule) => rule.cssText)
       .join('\n')
   } catch (_error) {
     // A cross-origin sheet cannot be read; the snapshot does without it.
-    return ''
+    return null
   }
 }
 
@@ -180,6 +186,21 @@ function applyFormState(live: LiveElement, clone: Element): void {
   }
 }
 
+/**
+ * A `<style>` inside a shadow root can gain or lose rules at runtime through
+ * `CSSStyleSheet.insertRule()`. Those rules live only in the CSSOM, so cloned
+ * markup would be stale — copy the sheet itself, the way `copyStyleSheets()`
+ * does for the light DOM (which `querySelectorAll('style')` cannot reach).
+ */
+function replayShadowStyle(live: Node, clone: Node): void {
+  if (live.nodeType !== 1 || tagOf(live as Element) !== 'STYLE') return
+  const sheet = (live as HTMLStyleElement).sheet
+  if (!sheet) return
+  const text = sheetText(sheet)
+  if (text === null) return
+  ;(clone as Element).textContent = text
+}
+
 function collectShadow(live: LiveElement, clone: Element, ctx: CloneContext): void {
   const shadow = live.shadowRoot
   if (!shadow || shadow.mode !== 'open') return
@@ -187,12 +208,14 @@ function collectShadow(live: LiveElement, clone: Element, ctx: CloneContext): vo
   const content = ctx.doc.createDocumentFragment()
   for (const sheet of Array.from(shadow.adoptedStyleSheets ?? [])) {
     const style = ctx.doc.createElement('style')
-    style.textContent = sheetText(sheet)
+    style.textContent = sheetText(sheet) ?? ''
     content.append(style)
   }
   for (const child of shadow.childNodes) {
     const cloned = cloneNodeAny(child, ctx)
-    if (cloned) content.append(cloned)
+    if (!cloned) continue
+    replayShadowStyle(child, cloned)
+    content.append(cloned)
   }
   ctx.shadows.push({ live, clone, content })
 }
@@ -386,7 +409,8 @@ function copyStyleSheets(live: Document, cloneRoot: ParentNode): void {
     const sheet = style.sheet
     if (!sheet) continue
     const text = sheetText(sheet)
-    if (text) clone.textContent = text
+    // `''` is a legitimate answer: every rule was deleted, so clear the markup.
+    if (text !== null) clone.textContent = text
   }
 }
 

@@ -147,6 +147,12 @@
         color: #a1a1aa;
         font-size: 12px;
       }
+      .shadow-demo {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      }
       code {
         background: #f4f4f5;
         padding: 1px 5px;
@@ -224,12 +230,61 @@
         </div>
       </section>
 
+      <section class="card">
+        <h2>Shadow-root styles</h2>
+        <p class="muted">
+          这两个组件的 <code>&lt;style&gt;</code> 在 shadow root 里，规则由
+          <code>insertRule()</code> 在运行时加进去，<code>&lt;style&gt;</code> 文本里看不到。
+          截图里应保留 16px/20px 内边距与浅黄背景。
+        </p>
+        <div class="shadow-demo">
+          <shadow-card></shadow-card>
+          <nested-shadow-card></nested-shadow-card>
+        </div>
+      </section>
+
       <div class="stack">
         <div class="tall">tall filler for full-page capture</div>
       </div>
     </main>
 
     <script src="/gm-stub.js"></script>
+    <script>
+      /**
+       * Rules that a component adds to its own shadow-root `<style>` at runtime
+       * live only in the CSSOM, so a cloned `<style>` text alone loses them.
+       */
+      class ShadowCard extends HTMLElement {
+        constructor() {
+          super()
+          const root = this.attachShadow({ mode: 'open' })
+          root.innerHTML = `
+            <style>:host { display: block; } .box { border: 1px solid #d4d4d8; border-radius: 8px; }</style>
+            <div class="box"><strong>Shadow card</strong><p>padding 与背景由 insertRule 注入</p></div>
+          `
+          const sheet = root.querySelector('style').sheet
+          sheet.insertRule('.box { padding: 16px 20px; background: #fef9c3 }', sheet.cssRules.length)
+        }
+      }
+
+      /** Same story one level deeper: the style lives in the inner shadow root. */
+      class NestedShadowCard extends HTMLElement {
+        constructor() {
+          super()
+          const root = this.attachShadow({ mode: 'open' })
+          root.innerHTML = '<style>:host { display: block; }</style><inner-card></inner-card>'
+          const inner = root.querySelector('inner-card').attachShadow({ mode: 'open' })
+          inner.innerHTML =
+            '<style>.box { border: 1px dashed #a1a1aa; border-radius: 8px; }</style>' +
+            '<div class="box"><strong>Nested shadow</strong><p>外层与内层各有一个 shadow style</p></div>'
+          const sheet = inner.querySelector('style').sheet
+          sheet.insertRule('.box { padding: 12px 18px; background: #dcfce7 }', sheet.cssRules.length)
+        }
+      }
+
+      customElements.define('shadow-card', ShadowCard)
+      customElements.define('nested-shadow-card', NestedShadowCard)
+    </script>
     <script>
       const originalToBlob = HTMLCanvasElement.prototype.toBlob
       HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {

@@ -197,6 +197,56 @@ describe('page snapshot', () => {
     snapshot.dispose()
   })
 
+  it('replays rules that a shadow-root style gained with insertRule', async () => {
+    document.body.innerHTML = '<div id="host"></div>'
+    const shadow = document.getElementById('host')?.attachShadow({ mode: 'open' })
+    if (!shadow) throw new Error('shadow root missing')
+    shadow.innerHTML = '<style>.card { color: red }</style><p class="card">shadowed</p>'
+    const style = shadow.querySelector('style') as HTMLStyleElement
+    style.sheet?.insertRule('.card { padding-left: 16px }', style.sheet.cssRules.length)
+    // Mirrors the x.com case: the rule exists only in the CSSOM.
+    expect(style.textContent).not.toContain('padding-left')
+
+    const snapshot = await createSnapshot(FAST)
+    const copyStyle = snapshot.doc.getElementById('host')?.shadowRoot?.querySelector('style')
+    expect(copyStyle?.textContent).toContain('color: red')
+    expect(copyStyle?.textContent).toContain('padding-left: 16px')
+    snapshot.dispose()
+  })
+
+  it('replays nested shadow roots and the styles they rewrite', async () => {
+    document.body.innerHTML = '<div id="outer"></div>'
+    const outer = document.getElementById('outer')?.attachShadow({ mode: 'open' })
+    if (!outer) throw new Error('shadow root missing')
+    outer.innerHTML = '<style>.outer { color: red }</style><div id="inner"></div>'
+    const inner = outer.querySelector('#inner')?.attachShadow({ mode: 'open' })
+    if (!inner) throw new Error('nested shadow root missing')
+    inner.innerHTML = '<style>.inner { color: blue }</style><b class="inner">deep</b>'
+    const style = inner.querySelector('style') as HTMLStyleElement
+    style.sheet?.insertRule('.inner { margin-left: 4px }', style.sheet.cssRules.length)
+
+    const snapshot = await createSnapshot(FAST)
+    const copyOuter = snapshot.doc.getElementById('outer')?.shadowRoot
+    const copyInner = copyOuter?.querySelector('#inner')?.shadowRoot
+    expect(copyInner?.querySelector('b')?.textContent).toBe('deep')
+    expect(copyInner?.querySelector('style')?.textContent).toContain('margin-left: 4px')
+    snapshot.dispose()
+  })
+
+  it('clears shadow-root rules the page deleted', async () => {
+    document.body.innerHTML = '<div id="host"></div>'
+    const shadow = document.getElementById('host')?.attachShadow({ mode: 'open' })
+    if (!shadow) throw new Error('shadow root missing')
+    shadow.innerHTML = '<style>.gone { color: red }</style><p class="gone">text</p>'
+    const style = shadow.querySelector('style') as HTMLStyleElement
+    style.sheet?.deleteRule(0)
+
+    const snapshot = await createSnapshot(FAST)
+    const copyStyle = snapshot.doc.getElementById('host')?.shadowRoot?.querySelector('style')
+    expect(copyStyle?.textContent).toBe('')
+    snapshot.dispose()
+  })
+
   it('leaves a canvas without readable pixels as an element with its box', async () => {
     document.body.innerHTML = '<canvas id="chart" width="60" height="40"></canvas>'
     const canvas = document.getElementById('chart') as HTMLCanvasElement
