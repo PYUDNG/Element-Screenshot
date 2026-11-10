@@ -14,8 +14,8 @@
 
 - 公开名称：**Element Screenshot**
 - 仓库：<https://github.com/PYUDNG/Element-Screenshot>
-- 当前版本：`0.6.0`（渲染改为离屏快照，页面在渲染期间保持可用）
-- 当前 tag：`v0.6.0`（commit `c9dd639`，发布 2026-11-10；release 资产与本地 `pnpm build` 产物字节一致，`sha256 484A5506…`）
+- 当前版本：`0.7.0`（结果改为居中预览 + 缩放平移，设置页脚加了项目链接）
+- 当前 tag：`v0.7.0`（commit `187f108`，发布 2026-11-10；release 资产与本地 `pnpm build` 产物字节一致，`sha256 D1051573…`）
 - Release 资产：
   - `script.user.js`
   - `script.meta.js`
@@ -31,7 +31,7 @@
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-CN.md`
   - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-TW.md`
 - Greasyfork 脚本页：<https://greasyfork.org/scripts/604334>（GitHub README 的安装表格已指向它）
-  - 2026-11-10 已同步到 `Version 0.6.0`、475 KB；说明文字会比 release 晚一拍（平台侧缓存），要立刻刷新就在脚本页手动 Sync / Update description。
+  - 2026-11-10 已同步到 `Version 0.7.0`、494.1 KB；说明文字会比 release 晚一拍（平台侧缓存），要立刻刷新就在脚本页手动 Sync / Update description。
 
 ## 文档同步规则
 
