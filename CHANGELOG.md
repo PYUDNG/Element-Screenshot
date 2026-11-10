@@ -20,9 +20,11 @@ All notable changes to this project are documented here. The format follows
 - The result preview zooms. Clicking the image toggles between the fitted view and
   3× (the cursor is `zoom-in` / `zoom-out`, so the click target is obvious), the
   wheel steps the zoom continuously while keeping the point under the pointer in
-  place, and the fit size is a hard floor. A zoomed capture can be dragged to pan,
-  clamped so it never leaves its viewport, and the bar shows the current image
-  scale as a percentage.
+  place, `+` / `-` take coarser keyboard steps and `0` goes back to fit. The fit
+  size is a hard floor. A zoomed capture can be dragged to pan, clamped so it never
+  leaves its viewport, and the bar shows the current image scale as a percentage.
+  The bar keeps the action buttons on the far right and the keyboard / pointer
+  hints to their left.
 
 ### Changed
 

@@ -292,6 +292,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 预览层自己就能挡住鼠标（`pointer-events-auto` + 全屏 backdrop），但拦截滚动/快捷键仍靠 `finishRender()` 安装的交互守卫。**点遮罩不关闭**（渲染很贵，误触不该丢结果）：关闭只有右上角 44px 的 `×`、底栏「关闭」和守卫的 `Esc`。因此原先的「双击页面保存」已删除（模态层收不到页面的 dblclick），Ctrl+S / 保存按钮覆盖同一需求。
 - 尺寸不再交给 CSS `max-h-full`：组件量取 stage 的 `clientWidth/Height`（`ResizeObserver` + `resize`）算出 `fitScale = min(1, stageW/natW, stageH/natH)`，再乘以 `zoom` 写成显式 `width/height`，所以 fit 状态下小图保持原始像素、不放大也不糊。图片必须 `shrink-0`，否则作为 flex 子项会被压缩回 stage 宽度、破坏缩放比例。
 - 缩放：`zoom` 是相对 fit 的倍数（1 = 适应窗口，10 上限）。点击是在 1 和 `CLICK_ZOOM = 3` 之间切换（只有两个状态，所以步长要大）；滚轮用 `exp(-delta * 0.0012)` 连续步进并把单次因子夹在 `[0.8, 1.25]`，滚轮缩放以指针位置为锚点（把指针下的图内坐标换算成平移量），最小钳到 1（即适应窗口），回到 1 时平移归零。
+- 键盘缩放：`+` / `=`、`-` / `_` 各按 `KEY_ZOOM = 1.25` 步进，`0` 回到 fit。监听挂在 `window` 的 capture 阶段（预览没有自带焦点元素），带 Ctrl / Meta / Alt 的组合一律放过（那是浏览器缩放），命中时 `preventDefault` + `stopImmediatePropagation`，否则按键会漏给页面。组件卸载时必须摘掉这个监听。
+- 底栏顺序：左半边是尺寸 / 倍率徽标 / 就绪状态 / 快捷键提示，右半边是一个 `ml-auto` 的组，里面「提示文字 → 复制 / 保存 / 关闭」，所以按钮永远贴最右，提示在它左边；提示用 `whitespace-nowrap` 且 `lg` 以下隐藏，避免把按钮挤到第二行。
 - 平移：图片上的 pointer 拖动直接改 `translate3d`，并按 stage 尺寸把位移钳在 `±(显示尺寸 - stage)/2`，所以图不会整个拖出可视区；拖动超过 3px 视为平移、抬手不再触发缩放切换（点击和拖动共用左键）。
 - `<img>` 的鼠标滚轮和根节点的 `@wheel.prevent` 都要 `preventDefault`：交互守卫会放过 UI 事件，不拦的话滚轮会滚到底下的页面。透明截图垫棋盘格，否则透明区域在黑底上看不出边界。
 
