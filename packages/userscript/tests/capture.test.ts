@@ -17,7 +17,21 @@ vi.mock('../src/core/crop', async (importOriginal) => {
   return { ...actual, cropBlob: cropBlobMock }
 })
 
+/**
+ * The pipeline itself is what these tests cover, so the snapshot is stubbed with
+ * the live document; `snapshot.test.ts` covers the real copy.
+ */
+vi.mock('../src/core/snapshot', () => ({
+  createSnapshot: vi.fn(async (options: { target?: Element | null } = {}) => ({
+    doc: document,
+    win: window,
+    target: options.target ?? null,
+    dispose: () => undefined
+  }))
+}))
+
 import {
+  cancelCapture,
   captureElement,
   captureRegion,
   collectScrollTargets,
@@ -30,6 +44,7 @@ import {
   shouldCaptureNode
 } from '../src/core/capture'
 import { native } from '../src/core/native'
+import { createSnapshot } from '../src/core/snapshot'
 import { getTargetBox } from '../src/core/target'
 
 function setMetrics(
@@ -386,7 +401,7 @@ describe('scroll expansion planning', () => {
 
     const result = await captureElement(element, {
       expandNested: true,
-      backgroundColor: '#ffffff',
+      background: { mode: 'color', color: '#ffffff' },
       pixelRatio: 1
     })
 
@@ -536,6 +551,33 @@ describe('scroll expansion planning', () => {
     vi.spyOn(native, 'clearTimeout').mockImplementation(() => {})
 
     await captureElement(element, { expandNested: false, pixelRatio: 1 })
+    expect(toBlobMock).toHaveBeenCalled()
+  })
+})
+
+describe('capture cancellation', () => {
+  it('stops a render that was cancelled while it was starting', async () => {
+    const element = document.createElement('div')
+    document.body.append(element)
+
+    // The user hits cancel while the snapshot is still being built.
+    vi.mocked(createSnapshot).mockImplementationOnce(async (options = {}) => {
+      cancelCapture()
+      return { doc: document, win: window, target: options.target ?? null, dispose: () => undefined }
+    })
+
+    await expect(captureElement(element, { pixelRatio: 1 })).rejects.toThrow(/cancelled/)
+    expect(toBlobMock).not.toHaveBeenCalled()
+  })
+
+  it('clears the flag when the next capture starts', async () => {
+    const element = document.createElement('div')
+    document.body.append(element)
+
+    cancelCapture()
+    // `captureElement` resets the flag, so a second capture renders normally.
+    const result = await captureElement(element, { pixelRatio: 1 })
+    expect(result.blob).toBeInstanceOf(Blob)
     expect(toBlobMock).toHaveBeenCalled()
   })
 })

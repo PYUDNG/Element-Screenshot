@@ -65,6 +65,7 @@ const zhCN: LocaleDefinition = {
         region: '松开鼠标截取所选区域',
         selected: 'Ctrl+C 复制 · Ctrl+S 或双击保存 · Esc 关闭',
         rendering: '正在渲染…',
+        renderingNote: '可以继续使用页面，完成后会弹出结果',
         ready: '已就绪',
         failed: '渲染失败',
         fullPage: '整页',
@@ -76,7 +77,8 @@ const zhCN: LocaleDefinition = {
       action: {
         copy: '复制',
         save: '保存',
-        close: '关闭'
+        close: '关闭',
+        cancel: '取消'
       },
       toast: {
         copied: '截图已复制到剪贴板',
@@ -164,6 +166,7 @@ const zhTW: LocaleDefinition = {
         region: '放開滑鼠截取所選區域',
         selected: 'Ctrl+C 複製 · Ctrl+S 或雙擊儲存 · Esc 關閉',
         rendering: '正在轉譯…',
+        renderingNote: '可以繼續使用頁面，完成後會彈出結果',
         ready: '已就緒',
         failed: '轉譯失敗',
         fullPage: '整頁',
@@ -175,7 +178,8 @@ const zhTW: LocaleDefinition = {
       action: {
         copy: '複製',
         save: '儲存',
-        close: '關閉'
+        close: '關閉',
+        cancel: '取消'
       },
       toast: {
         copied: '截圖已複製到剪貼簿',
@@ -266,6 +270,7 @@ const en: LocaleDefinition = {
         region: 'Release to capture the selected region',
         selected: 'Ctrl+C to copy · Ctrl+S or double-click to save · Esc to close',
         rendering: 'Rendering…',
+        renderingNote: 'Keep using the page — the result opens when it is done',
         ready: 'Ready',
         failed: 'Render failed',
         fullPage: 'Full page',
@@ -277,7 +282,8 @@ const en: LocaleDefinition = {
       action: {
         copy: 'Copy',
         save: 'Save',
-        close: 'Close'
+        close: 'Close',
+        cancel: 'Cancel'
       },
       toast: {
         copied: 'Screenshot copied to clipboard',

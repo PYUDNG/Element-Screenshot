@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { ShotAppApi } from './api'
 import Fab from './Fab.vue'
 import PickerOverlay from './PickerOverlay.vue'
+import RenderingChip from './RenderingChip.vue'
 import ToastHost from './ToastHost.vue'
 
 const props = defineProps<{
@@ -22,7 +23,9 @@ const fabVisible = computed(
 <template>
   <div class="es-ui-root font-sans" :class="isDark ? 'dark' : ''">
     <Fab v-if="fabVisible" :app="app" />
-    <PickerOverlay v-if="state.mode !== 'idle'" :app="app" />
+    <!-- While rendering, the page stays interactive: no overlay, just a chip. -->
+    <RenderingChip v-if="state.mode !== 'idle' && state.capturing" :app="app" />
+    <PickerOverlay v-else-if="state.mode !== 'idle'" :app="app" />
     <ToastHost :toasts="state.toasts" />
   </div>
 </template>

@@ -112,6 +112,12 @@ export interface NativeSnapshot {
   /** Monotonic clock that page scripts cannot replace. */
   readonly now: () => number
   /**
+   * Cooperative capture cancellation. The clone loop checks it between chunks,
+   * which is what makes a long render abortable now that the live page is never
+   * mutated (nothing has to be restored).
+   */
+  readonly capture: { aborted: boolean }
+  /**
    * Return to the event loop so the page can handle input and paint. Prefers
    * `scheduler.yield()`, falls back to a `MessageChannel` task (no timer clamp)
    * and finally to `setTimeout`.
@@ -221,6 +227,7 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
   const schedulerYield =
     schedulerRef && typeof schedulerRef.yield === 'function' ? schedulerRef.yield : null
   const MessageChannelCtor = win.MessageChannel
+  const capture = { aborted: false }
 
   /**
    * A capture blocks on its own long DOM work, so the only way to keep the page
@@ -494,6 +501,7 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
     clearTimeout: win.clearTimeout.bind(win),
     now,
     yieldToMain,
+    capture,
     Image: ImageCtor,
     XMLSerializer: XMLSerializerCtor,
     Blob: BlobCtor,

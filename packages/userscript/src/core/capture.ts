@@ -1,9 +1,12 @@
 import { getFontEmbedCSS, toBlob } from 'html-to-image'
+import { captureBackdropScene, hasComplexBackground } from './backdrop-scene'
+import { resolveBackdropColor } from './background'
 import { blobToDrawable, canvasToBlob } from './canvas'
 import { native } from './native'
 import { clampRegion } from './region'
 import type { Point, ViewportSize } from './region'
 import { planCrop, cropBlob } from './crop'
+import { createSnapshot } from './snapshot'
 import {
   blobToDataUrl,
   collectFixedDescendants,
@@ -24,10 +27,19 @@ import type { ScrollportMetrics, SliceDocument } from './scroll-slice'
 import { getTargetBox } from './target'
 import type { TargetBox } from './target'
 
+/** How the backdrop behind a captured element is painted. */
+export interface CaptureBackground {
+  /** Follow the page backdrop, use one color, or leave the pixels transparent. */
+  mode: 'page' | 'color' | 'transparent'
+  /** Color used when `mode` is `color`. */
+  color?: string
+}
+
 export interface CaptureOptions {
   expandNested?: boolean
+  /** Element capture backdrop. Region capture uses `backgroundColor` instead. */
+  background?: CaptureBackground
   backgroundColor?: string
-  backgroundScene?: Blob
   pixelRatio?: number
   maxDimension?: number
   maxArea?: number
@@ -67,6 +79,8 @@ export interface RegionCaptureOptions extends CaptureOptions {
 const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
 const ERROR_SOURCE_LIMIT = 512
+/** Shared by the clone loop in the build patch and by `assertNotCancelled()`. */
+const CANCEL_MESSAGE = 'Capture cancelled'
 const NON_RENDERING_TAGS = new Set(['SCRIPT', 'NOSCRIPT'])
 const SVG_PAINT_ATTRIBUTES = [
   'fill',
@@ -131,6 +145,19 @@ export function handleImageError(event: Event | string): void {
     '[element-screenshot] image skipped:',
     source ? truncate(source, ERROR_SOURCE_LIMIT) : '(no source)'
   )
+}
+
+/**
+ * Ask the running capture to stop. The clone loop checks the flag between
+ * chunks and throws, which unwinds the render and disposes the snapshot; there is
+ * nothing to restore on the live page.
+ */
+export function cancelCapture(): void {
+  native.capture.aborted = true
+}
+
+function assertNotCancelled(): void {
+  if (native.capture.aborted) throw new Error(CANCEL_MESSAGE)
 }
 
 /** Turn html-to-image's bare image events into an actionable message. */
@@ -479,13 +506,57 @@ async function sharedFontEmbedCSS(
   }
 }
 /**
+ * Decide how the backdrop behind an element is painted.
+ *
+ * A solid page color can be handed to the canvas fill. A gradient or image
+ * backdrop cannot, so it is rendered as its own layer (inside the snapshot) and
+ * composited behind the element afterwards.
+ */
+async function resolveBackground(
+  element: Element,
+  box: TargetBox,
+  plan: CaptureScalePlan,
+  options: CaptureOptions
+): Promise<{ color?: string; scene?: Blob }> {
+  const background = options.background
+  if (!background || background.mode === 'transparent') return {}
+  if (background.mode === 'color') return { color: background.color ?? '#ffffff' }
+
+  const baseColor = resolveBackdropColor(element)
+  if (!hasComplexBackground(element)) return { color: baseColor }
+  const scene = await captureBackdropScene(element, box, plan.ratio, baseColor)
+  return scene ? { scene } : { color: baseColor }
+}
+
+/**
  * Render an element (including its full scrollable content) to a PNG blob.
- * Page styles are restored synchronously afterwards, even on failure.
+ * The element is first copied into an off-screen snapshot, and every mutation
+ * this pipeline needs (expanded scroll containers, inlined SVG paint variables)
+ * is applied to that copy. The live page is only read, so the user keeps working
+ * while the render runs and nothing has to be restored afterwards.
  */
 export async function captureElement(
   element: Element,
   options: CaptureOptions = {}
 ): Promise<CaptureResult> {
+  native.capture.aborted = false
+  const snapshot = await createSnapshot({
+    target: element,
+    skip: options.filter ? (node) => !options.filter?.(node as HTMLElement) : undefined
+  })
+  try {
+    const target = snapshot.target
+    // The element may have been removed from the page between the click and the
+    // snapshot; html-to-image would render an empty picture.
+    if (!target) throw new Error('The selected element is no longer on the page')
+    return await renderElement(target, options)
+  } finally {
+    snapshot.dispose()
+  }
+}
+
+async function renderElement(element: Element, options: CaptureOptions): Promise<CaptureResult> {
+  assertNotCancelled()
   const box = getTargetBox(element)
   let computed: CSSStyleDeclaration | null = null
   try {
@@ -525,6 +596,8 @@ export async function captureElement(
     options.maxArea
   )
 
+  const backdrop = await resolveBackground(element, box, plan, options)
+
   const restore = expandForCapture(element, box, options.expandNested !== false)
   const restoreSvg = inlineSvgPaintVariables(element)
 
@@ -536,7 +609,7 @@ export async function captureElement(
       width: plan.width,
       height: plan.height,
       pixelRatio: plan.ratio,
-      backgroundColor: options.backgroundScene ? undefined : options.backgroundColor,
+      backgroundColor: backdrop.scene ? undefined : backdrop.color,
       skipAutoScale: true,
       cacheBust: false,
       type: 'image/png',
@@ -549,8 +622,8 @@ export async function captureElement(
 
     const width = Math.max(1, Math.round(plan.width * plan.ratio))
     const height = Math.max(1, Math.round(plan.height * plan.ratio))
-    const blob = options.backgroundScene
-      ? await compositeScene(options.backgroundScene, imageBlob, width, height)
+    const blob = backdrop.scene
+      ? await compositeScene(backdrop.scene, imageBlob, width, height)
       : imageBlob
 
     return {
@@ -576,8 +649,7 @@ interface RegionPlan {
   plan: CaptureScalePlan
 }
 
-function planRegion(rect: TargetBox, options: RegionCaptureOptions): RegionPlan {
-  const doc = native.document
+function planRegion(rect: TargetBox, options: RegionCaptureOptions, doc: Document): RegionPlan {
   const root = doc.documentElement
   if (!root) throw new Error('The page has no document element')
 
@@ -614,6 +686,7 @@ interface ViewportRender {
   options: CaptureOptions
   /** Window scroll: the clone does not carry it. */
   shift: Point
+  doc: Document
 }
 
 /**
@@ -629,9 +702,9 @@ async function renderViewport({
   region,
   plan,
   options,
-  shift
+  shift,
+  doc
 }: ViewportRender): Promise<CaptureResult> {
-  const doc = native.document
   const root = doc.documentElement
   if (!root) throw new Error('The page has no document element')
 
@@ -803,12 +876,32 @@ async function replaceScrollContainer(
  * at their real scroll offsets. The viewport is then rendered once with only the
  * window scroll applied to the clone root, and the result is cropped to the
  * dragged rectangle.
+ *
+ * All of that happens on an off-screen snapshot of the page: the live document is
+ * only read, so the user can keep working while the capture renders.
  */
 export async function captureRegion(
   rect: TargetBox,
   options: RegionCaptureOptions = {}
 ): Promise<CaptureResult> {
-  const { doc, root, region, plan } = planRegion(rect, options)
+  native.capture.aborted = false
+  const snapshot = await createSnapshot({
+    skip: options.filter ? (node) => !options.filter?.(node as HTMLElement) : undefined
+  })
+  try {
+    return await renderRegion(rect, options, snapshot.doc)
+  } finally {
+    snapshot.dispose()
+  }
+}
+
+async function renderRegion(
+  rect: TargetBox,
+  options: RegionCaptureOptions,
+  doc: Document
+): Promise<CaptureResult> {
+  assertNotCancelled()
+  const { root, region, plan } = planRegion(rect, options, doc)
   const targets = options.slices ?? collectScrollSlices(region, doc)
   const replacements: SliceReplacement[] = []
   const shared = targets.length
@@ -817,11 +910,13 @@ export async function captureRegion(
 
   try {
     for (const target of targets) {
+      assertNotCancelled()
       const replacement = await replaceScrollContainer(target, plan.ratio, shared)
       if (replacement) replacements.push(replacement)
     }
+    assertNotCancelled()
     for (const replacement of replacements) replacement.revealFixed()
-    return await renderViewport({ region, plan, options: shared, shift: pageScroll(root) })
+    return await renderViewport({ region, plan, options: shared, shift: pageScroll(root), doc })
   } finally {
     for (let index = replacements.length - 1; index >= 0; index -= 1) {
       replacements[index]?.restore()

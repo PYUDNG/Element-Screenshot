@@ -162,6 +162,9 @@ export async function cloneNode(node, options, isRoot) {
     expect(result.code).toContain('async function __elementScreenshotYield()')
     expect(result.code).toContain('await __elementScreenshotNative.yieldToMain()')
     expect(result.code).toContain('__elementScreenshotNative.now()')
+    // A cancelled capture has to unwind from inside the clone loop.
+    expect(result.code).toContain('__elementScreenshotNative.capture.aborted')
+    expect(result.code).toContain("throw new Error('Capture cancelled')")
     // The yield has to sit inside the clone, after the filter decided to keep
     // the node, and before any work is done for it.
     expect(result.code).toMatch(

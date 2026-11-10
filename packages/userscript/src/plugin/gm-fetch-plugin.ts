@@ -526,6 +526,9 @@ export function patchCloneYield(code: string): { code: string; changed: boolean 
 
   const helper = `let __elementScreenshotChunkStart = 0;
 async function __elementScreenshotYield() {
+    if (__elementScreenshotNative.capture.aborted) {
+        throw new Error('Capture cancelled');
+    }
     const now = __elementScreenshotNative.now();
     if (now - __elementScreenshotChunkStart < ${CLONE_CHUNK_MS}) return;
     await __elementScreenshotNative.yieldToMain();

@@ -3,14 +3,14 @@ import type { App } from 'vue'
 import { applyShadowStyles } from '@element-screenshot/settings'
 import type { I18n, SettingsController } from '@element-screenshot/settings'
 import {
+  cancelCapture,
   captureElement,
   captureRegion,
-  computeCaptureScale,
   describeCaptureError,
   shouldCaptureNode
 } from '../core/capture'
-import { resolveBackdropColor, resolvePageBackground } from '../core/background'
-import { captureBackdropScene, hasComplexBackground } from '../core/backdrop-scene'
+import type { CaptureBackground } from '../core/capture'
+import { resolvePageBackground } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
 import { native } from '../core/native'
 import { ElementPicker } from '../core/picker'
@@ -97,6 +97,7 @@ export class ShotApp implements ShotAppApi {
   private captureToken = 0
   private toastId = 0
   private guardsInstalled = false
+  private cancelKeyInstalled = false
   private stopSettingsWatch: (() => void) | null = null
 
   constructor(
@@ -186,8 +187,12 @@ export class ShotApp implements ShotAppApi {
 
   reset(): void {
     this.captureToken += 1
+    // Nothing is mutated on the live page any more, but a render may still be
+    // running on its snapshot; ask it to unwind.
+    cancelCapture()
     this.picker.stop()
     this.removeGuards()
+    this.removeCancelKey()
     this.pending = null
     this.blob = null
     this.state.mode = 'idle'
@@ -343,7 +348,7 @@ export class ShotApp implements ShotAppApi {
     const active = document.activeElement
     if (active instanceof HTMLElement) active.blur()
 
-    this.installGuards()
+    this.beginRender()
     const token = (this.captureToken += 1)
     this.pending = this.renderCapture(element, token)
   }
@@ -374,7 +379,7 @@ export class ShotApp implements ShotAppApi {
     const active = document.activeElement
     if (active instanceof HTMLElement) active.blur()
 
-    this.installGuards()
+    this.beginRender()
     const token = (this.captureToken += 1)
     this.pending = this.renderRegionCapture(box, token)
   }
@@ -383,9 +388,6 @@ export class ShotApp implements ShotAppApi {
     try {
       const transparent = Boolean(this.settings.get('capture.transparent'))
       const followPage = this.settings.get('capture.backgroundAuto') !== false
-      const scaleSetting = String(this.settings.get('capture.scale') ?? 'auto')
-      const requested =
-        scaleSetting === 'auto' ? Math.min(native.devicePixelRatio || 1, 2) : Number(scaleSetting)
       const background = transparent
         ? undefined
         : followPage
@@ -393,7 +395,7 @@ export class ShotApp implements ShotAppApi {
           : String(this.settings.get('capture.background') ?? '#ffffff')
 
       const result = await captureRegion(rect, {
-        pixelRatio: Number.isFinite(requested) && requested > 0 ? requested : 1,
+        pixelRatio: this.pixelRatio(),
         backgroundColor: background,
         filter: (node) => shouldCaptureNode(node) && !isMarkedUiNode(node)
       })
@@ -411,36 +413,16 @@ export class ShotApp implements ShotAppApi {
       this.state.error = reason
       this.toast('app.toast.captureFailedDetail', 'error', { reason })
     } finally {
-      if (token === this.captureToken) this.state.capturing = false
+      if (token === this.captureToken) this.finishRender()
     }
   }
 
   private async renderCapture(element: Element, token: number): Promise<void> {
     try {
-      const expandNested = Boolean(this.settings.get('capture.expandNested'))
-      const transparent = Boolean(this.settings.get('capture.transparent'))
-      const followPage = this.settings.get('capture.backgroundAuto') !== false
-      const scaleSetting = String(this.settings.get('capture.scale') ?? 'auto')
-      const requested =
-        scaleSetting === 'auto' ? Math.min(native.devicePixelRatio || 1, 2) : Number(scaleSetting)
-      const box = getTargetBox(element)
-      const plan = computeCaptureScale(
-        box.width,
-        box.height,
-        Number.isFinite(requested) ? requested : 1
-      )
-      const baseColor = followPage
-        ? resolveBackdropColor(element)
-        : String(this.settings.get('capture.background') ?? '#ffffff')
-      const complex = !transparent && followPage && hasComplexBackground(element)
-      const scene = complex ? await captureBackdropScene(element, box, plan.ratio, baseColor) : null
-      const background = transparent ? undefined : scene ? undefined : baseColor
-
       const result = await captureElement(element, {
-        expandNested,
-        backgroundColor: background,
-        backgroundScene: scene ?? undefined,
-        pixelRatio: plan.ratio,
+        expandNested: Boolean(this.settings.get('capture.expandNested')),
+        background: this.captureBackground(),
+        pixelRatio: this.pixelRatio(),
         filter: (node) => shouldCaptureNode(node) && !isMarkedUiNode(node)
       })
 
@@ -457,8 +439,36 @@ export class ShotApp implements ShotAppApi {
       this.state.error = reason
       this.toast('app.toast.captureFailedDetail', 'error', { reason })
     } finally {
-      if (token === this.captureToken) this.state.capturing = false
+      if (token === this.captureToken) this.finishRender()
     }
+  }
+
+  /** Effective export scale for this capture. */
+  private pixelRatio(): number {
+    const scaleSetting = String(this.settings.get('capture.scale') ?? 'auto')
+    const requested =
+      scaleSetting === 'auto' ? Math.min(native.devicePixelRatio || 1, 2) : Number(scaleSetting)
+    return Number.isFinite(requested) && requested > 0 ? requested : 1
+  }
+
+  private captureBackground(): CaptureBackground {
+    if (this.settings.get('capture.transparent')) return { mode: 'transparent' }
+    if (this.settings.get('capture.backgroundAuto') === false) {
+      return { mode: 'color', color: String(this.settings.get('capture.background') ?? '#ffffff') }
+    }
+    return { mode: 'page' }
+  }
+
+  /** The render runs on a snapshot, so the page stays usable until it ends. */
+  private beginRender(): void {
+    this.removeGuards()
+    this.installCancelKey()
+  }
+
+  private finishRender(): void {
+    this.state.capturing = false
+    this.removeCancelKey()
+    this.installGuards()
   }
 
   private async ensureBlob(): Promise<Blob | null> {
@@ -531,6 +541,27 @@ export class ShotApp implements ShotAppApi {
     native.removeEventListener(window, 'wheel', this.handleGuardWheel, true)
     native.removeEventListener(window, 'contextmenu', this.handleGuardPointer, true)
     native.removeEventListener(window, 'keydown', this.handleGuardKeyDown, true)
+  }
+
+  /**
+   * While a capture renders the page is fully usable, so only Escape is
+   * intercepted — and it is not swallowed, the page keeps receiving it.
+   */
+  private installCancelKey(): void {
+    if (this.cancelKeyInstalled) return
+    this.cancelKeyInstalled = true
+    native.addEventListener(window, 'keydown', this.handleCancelKey, true)
+  }
+
+  private removeCancelKey(): void {
+    if (!this.cancelKeyInstalled) return
+    this.cancelKeyInstalled = false
+    native.removeEventListener(window, 'keydown', this.handleCancelKey, true)
+  }
+
+  private readonly handleCancelKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || this.isUiEvent(event)) return
+    this.reset()
   }
 
   private readonly handleGuardPointer = (event: Event): void => {
