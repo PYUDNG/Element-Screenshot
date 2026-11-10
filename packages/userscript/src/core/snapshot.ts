@@ -337,13 +337,11 @@ const CASCADE_PROBES = [
 ] as const
 
 /**
- * The copy can miss a rule the page applies (a stylesheet that has not landed
- * yet, a cascade order that differs, a class applied by page script). When that
- * happens the content sits in the wrong place inside the crop even though the
- * crop itself is right, so compare the important properties of the requested
- * element and copy the page's values over when they disagree.
+ * The copy can still miss a rule the page applies (a shadow-root sheet, a class
+ * set by page script). Report it instead of silently patching: the root cause
+ * belongs in the copy, and a log is what a bug report needs.
  */
-function repairCascade(live: Element, clone: Element): void {
+function reportCascadeMismatch(live: Element, clone: Element): void {
   let liveStyle: CSSStyleDeclaration
   let cloneStyle: CSSStyleDeclaration
   try {
@@ -353,26 +351,42 @@ function repairCascade(live: Element, clone: Element): void {
     return
   }
 
-  const mismatched: string[] = []
-  const repairs: Record<string, string> = {}
   const detail: Record<string, string> = {}
   for (const property of CASCADE_PROBES) {
     const expected = liveStyle.getPropertyValue(property)
     const actual = cloneStyle.getPropertyValue(property)
     if (!expected || expected === actual) continue
-    mismatched.push(property)
-    repairs[property] = expected
     detail[property] = `${actual || '(empty)'} -> ${expected}`
   }
-  if (mismatched.length === 0) return
+  if (Object.keys(detail).length === 0) return
 
   console.warn('[element-screenshot] snapshot cascade differs from the page', {
     element: live.tagName.toLowerCase(),
     properties: detail
   })
-  for (const property of mismatched) {
-    const stylable = clone as Element & { style?: CSSStyleDeclaration }
-    stylable.style?.setProperty(property, repairs[property] ?? '', 'important')
+}
+
+/**
+ * Copy stylesheet *objects*, not their markup.
+ *
+ * A page can add rules with `CSSStyleSheet.insertRule()`; those rules live only
+ * in the CSSOM and never appear in the `<style>` text, so a plain `cloneNode`
+ * silently drops them. x.com adds about a thousand atoms that way (padding,
+ * margins, flex directions), and without them the copy lays the page out with
+ * the wrong box metrics even though it looks styled.
+ */
+function copyStyleSheets(live: Document, cloneRoot: ParentNode): void {
+  const liveStyles = Array.from(live.querySelectorAll('style'))
+  const cloneStyles = Array.from(cloneRoot.querySelectorAll('style'))
+  const count = Math.min(liveStyles.length, cloneStyles.length)
+  for (let index = 0; index < count; index += 1) {
+    const style = liveStyles[index]
+    const clone = cloneStyles[index]
+    if (!style || !clone) continue
+    const sheet = style.sheet
+    if (!sheet) continue
+    const text = sheetText(sheet)
+    if (text) clone.textContent = text
   }
 }
 
@@ -532,6 +546,9 @@ export async function createSnapshot(options: SnapshotOptions = {}): Promise<Sna
       ;(head ?? html).append(style)
     }
 
+    // `insertRule` atoms never reach the markup, so replay the CSSOM instead.
+    copyStyleSheets(liveDoc, html)
+
     const current = doc.documentElement
     if (current) doc.replaceChild(html, current)
     else doc.appendChild(html)
@@ -543,7 +560,7 @@ export async function createSnapshot(options: SnapshotOptions = {}): Promise<Sna
     await nextFrame(liveWin)
     restoreScroll(ctx, liveWin, doc.defaultView ?? liveWin)
 
-    if (ctx.target && ctx.targetClone) repairCascade(ctx.target, ctx.targetClone)
+    if (ctx.target && ctx.targetClone) reportCascadeMismatch(ctx.target, ctx.targetClone)
 
     const snapshotWin = doc.defaultView ?? liveWin
     return { doc, win: snapshotWin, target: ctx.targetClone, dispose }

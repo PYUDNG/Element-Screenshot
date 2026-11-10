@@ -75,7 +75,7 @@ describe('page snapshot', () => {
     snapshot.dispose()
   })
 
-  it('copies the page cascade onto the target when the copy disagrees', async () => {
+  it('reports a copy whose cascade disagrees with the page', async () => {
     document.body.innerHTML = '<div id="target">text</div>'
     const target = document.getElementById('target')
     const pageStyle = {
@@ -92,15 +92,16 @@ describe('page snapshot', () => {
     const snapshot = await createSnapshot({ ...FAST, target: target ?? undefined })
     const copy = snapshot.doc.getElementById('target') as HTMLElement
 
-    expect(copy.style.getPropertyValue('padding-left')).toBe('16px')
+    // Reported, not patched: the fix belongs in the copy itself.
     expect(warn).toHaveBeenCalledWith(
       '[element-screenshot] snapshot cascade differs from the page',
       expect.objectContaining({ element: 'div' })
     )
+    expect(copy.style.getPropertyValue('padding-left')).toBe('')
     snapshot.dispose()
   })
 
-  it('leaves the copy alone when the cascade matches', async () => {
+  it('stays quiet when the cascade matches', async () => {
     document.body.innerHTML = '<div id="target" style="padding-left: 8px">text</div>'
     const target = document.getElementById('target')
     const same = {
@@ -114,6 +115,21 @@ describe('page snapshot', () => {
 
     expect(copy.style.getPropertyValue('padding-left')).toBe('8px')
     expect(warn).not.toHaveBeenCalled()
+    snapshot.dispose()
+  })
+
+  it('replays rules that the page added with insertRule', async () => {
+    document.head.innerHTML = '<style id="atoms">.a { color: red }</style>'
+    document.body.innerHTML = '<div id="target" class="a b">text</div>'
+    const sheet = (document.getElementById('atoms') as HTMLStyleElement).sheet
+    // The rule exists only in the CSSOM, never in the <style> text.
+    sheet?.insertRule('.b { padding-left: 16px; }', sheet.cssRules.length)
+
+    const snapshot = await createSnapshot(FAST)
+    const style = snapshot.doc.getElementById('atoms')
+
+    expect(style?.textContent).toContain('.b')
+    expect(style?.textContent).toContain('padding-left: 16px')
     snapshot.dispose()
   })
 

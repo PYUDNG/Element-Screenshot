@@ -33,6 +33,14 @@ All notable changes to this project are documented here. The format follows
   re-measuring it could differ from the page by a pixel or two (a webfont that
   landed late, a different scrollbar); the box measured on the live element wins,
   and a mismatch is logged.
+- The snapshot replays the page's **CSSOM** into the copy instead of copying the
+  `<style>` markup. A page that adds rules with `CSSStyleSheet.insertRule()` keeps
+  them out of the markup entirely — x.com adds ~1000 atoms that way (paddings,
+  margins, flex directions) — so the copy laid the page out with the wrong box
+  metrics even though it looked styled. On x.com the copied article now measures
+  exactly like the page (598×602, `padding: 0 16px`, avatar at `(16, 12)`), and
+  the properties that decide layout are compared with the page and reported when
+  they still disagree.
 - The snapshot forces a layout before waiting for `document.fonts.ready`, and
   keeps re-checking until the font set reports `loaded`. A fresh iframe has not
   requested its `@font-face` files yet, so `fonts.ready` could resolve
