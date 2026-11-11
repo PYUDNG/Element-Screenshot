@@ -614,6 +614,24 @@ function framesInside(root: Element, frames: readonly FrameRecord[]): FrameRecor
   return frames.filter((frame) => frame.copy === root || root.contains(frame.copy))
 }
 
+/** Frames whose box intersects the dragged rectangle, in viewport coordinates. */
+function framesInRegion(frames: readonly FrameRecord[], region: TargetBox): FrameRecord[] {
+  return frames.filter((frame) => {
+    let rect: DOMRect
+    try {
+      rect = native.getBoundingClientRect(frame.copy)
+    } catch {
+      return false
+    }
+    return (
+      rect.right > region.left &&
+      rect.left < region.left + region.width &&
+      rect.bottom > region.top &&
+      rect.top < region.top + region.height
+    )
+  })
+}
+
 /** The copied frame's box, or null when it is collapsed and paints nothing. */
 function frameBoxSize(copy: HTMLIFrameElement): FrameSize | null {
   let rect: DOMRect
@@ -1237,7 +1255,7 @@ export async function captureRegion(
     skip: options.filter ? (node) => !options.filter?.(node as HTMLElement) : undefined
   })
   try {
-    return await renderRegion(rect, options, snapshot.doc)
+    return await renderRegion(rect, options, snapshot.doc, snapshot.frames)
   } finally {
     snapshot.dispose()
   }
@@ -1246,15 +1264,20 @@ export async function captureRegion(
 async function renderRegion(
   rect: TargetBox,
   options: RegionCaptureOptions,
-  doc: Document
+  doc: Document,
+  frames: readonly FrameRecord[] = []
 ): Promise<CaptureResult> {
   assertNotCancelled()
   const { root, region, plan } = planRegion(rect, options, doc)
   const targets = options.slices ?? collectScrollSlices(region, doc)
   const replacements: SliceReplacement[] = []
-  const shared = targets.length
-    ? { ...options, fontEmbedCSS: await sharedFontEmbedCSS(root, options) }
-    : options
+  // A frame is a picture of its viewport, not something to expand: a region
+  // capture is what-you-see-is-what-you-get.
+  const regionFrames = framesInRegion(frames, region)
+  const shared =
+    targets.length || regionFrames.length
+      ? { ...options, fontEmbedCSS: await sharedFontEmbedCSS(root, options) }
+      : options
 
   try {
     for (const target of targets) {
@@ -1262,6 +1285,10 @@ async function renderRegion(
       const replacement = await replaceScrollContainer(target, plan.ratio, shared)
       if (replacement) replacements.push(replacement)
     }
+    assertNotCancelled()
+    // Frames are painted into their own box before the page render, so the
+    // rectangle contains what the frames showed instead of empty boxes.
+    await paintFrames(root, regionFrames, plan.ratio, shared, 1)
     assertNotCancelled()
     for (const replacement of replacements) replacement.revealFixed()
     return await renderViewport({ region, plan, options: shared, shift: pageScroll(root), doc })

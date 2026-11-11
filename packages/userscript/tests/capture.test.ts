@@ -1237,6 +1237,113 @@ describe('region capture', () => {
   })
 })
 
+describe('region capture with frames', () => {
+  const defaultSnapshot = vi.mocked(createSnapshot).getMockImplementation()
+
+  function box(left: number, top: number, width: number, height: number): DOMRect {
+    return {
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+      x: left,
+      y: top,
+      toJSON: () => ({})
+    } as DOMRect
+  }
+
+  function withFrame(copyBox: DOMRect, doc: Document | null): HTMLIFrameElement {
+    const copy = document.createElement('iframe')
+    document.body.append(copy)
+    const live = document.createElement('iframe')
+    document.body.append(live)
+    vi.mocked(createSnapshot).mockImplementation(async (options = {}) => {
+      // A snapshot of the frame document must not report the frame again, or the
+      // frame would render itself recursively.
+      if (options.doc) {
+        return {
+          doc: document.implementation.createHTMLDocument('frame copy'),
+          win: window,
+          target: null,
+          frames: [],
+          dispose: () => undefined
+        }
+      }
+      return {
+        doc: document,
+        win: window,
+        target: options.target ?? null,
+        frames: [{ live, copy, doc }],
+        dispose: () => undefined
+      }
+    })
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? copyBox : box(0, 0, 0, 0)
+    )
+    return copy
+  }
+
+  function observe(): Array<Record<string, unknown>> {
+    const calls: Array<Record<string, unknown>> = []
+    toBlobMock.mockImplementation((_target: Element, options: Record<string, unknown>) => {
+      calls.push(options)
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+    return calls
+  }
+
+  afterEach(() => {
+    if (defaultSnapshot) {
+      vi.mocked(createSnapshot).mockImplementation(defaultSnapshot as never)
+    }
+  })
+
+  it('paints a frame that intersects the rectangle', async () => {
+    const copy = withFrame(box(120, 60, 200, 120), document)
+    const calls = observe()
+
+    const result = await captureRegion(
+      { left: 100, top: 40, width: 260, height: 200 },
+      { pixelRatio: 2, backgroundColor: '#ffffff' }
+    )
+
+    // Frame viewport render, then the page render.
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({ width: window.innerWidth, height: window.innerHeight })
+    expect(calls[1]).toMatchObject({ width: window.innerWidth, height: window.innerHeight })
+    expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
+    // The frame picture and the page share one webfont pass.
+    expect(fontEmbedMock).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ width: 520, height: 400 })
+  })
+
+  it('leaves a frame outside the rectangle alone', async () => {
+    const copy = withFrame(box(600, 500, 200, 120), document)
+    const calls = observe()
+
+    await captureRegion({ left: 0, top: 0, width: 200, height: 150 }, { pixelRatio: 1 })
+
+    expect(calls).toHaveLength(1)
+    expect(copy.style.getPropertyValue('background-image')).toBe('')
+    expect(probeMock).not.toHaveBeenCalled()
+  })
+
+  it('asks the helper when the frame is cross-origin', async () => {
+    const copy = withFrame(box(10, 10, 200, 120), null)
+    const calls = observe()
+    probeMock.mockResolvedValue(new Set<HTMLIFrameElement>([document.querySelectorAll('iframe')[1] as HTMLIFrameElement]))
+    frameImageMock.mockResolvedValue(new Blob(['helper'], { type: 'image/png' }))
+
+    await captureRegion({ left: 0, top: 0, width: 400, height: 300 }, { pixelRatio: 1 })
+
+    expect(frameImageMock).toHaveBeenCalledWith(expect.anything(), { ratio: 1, depth: 1 })
+    expect(calls).toHaveLength(1)
+    expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
+  })
+})
+
 interface ObservedCall {
   target: Element
   width?: number
