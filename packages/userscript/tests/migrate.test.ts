@@ -1,41 +1,46 @@
 import { describe, expect, it } from 'vitest'
-import { migratePointerSetting } from '../src/config/migrate'
+import { SETTINGS_STEPS } from '../src/config/migrate'
 
-describe('pointer setting migration', () => {
+const step = SETTINGS_STEPS[0]
+
+function run(stored: string): Record<string, unknown> | string {
+  const next = step.run(stored)
+  return next === stored ? next : (JSON.parse(next) as Record<string, unknown>)
+}
+
+describe('pointer switch migration (generation 1)', () => {
   it('turns a stored "isolation off" into passthrough on', () => {
-    const stored = JSON.stringify({ 'capture.pointerIsolation': false, 'capture.scale': 2 })
-    expect(JSON.parse(migratePointerSetting(stored) ?? '{}')).toEqual({
+    expect(run(JSON.stringify({ 'capture.pointerIsolation': false, 'capture.scale': 2 }))).toEqual({
       'capture.scale': 2,
       'capture.pointerPassthrough': true
     })
   })
 
   it('turns a stored "isolation on" into passthrough off', () => {
-    const stored = JSON.stringify({ 'capture.pointerIsolation': true })
-    expect(JSON.parse(migratePointerSetting(stored) ?? '{}')).toEqual({
+    expect(run(JSON.stringify({ 'capture.pointerIsolation': true }))).toEqual({
       'capture.pointerPassthrough': false
     })
   })
 
   it('keeps a value the new switch already has and drops the old key', () => {
-    const stored = JSON.stringify({
-      'capture.pointerIsolation': true,
-      'capture.pointerPassthrough': true
-    })
-    expect(JSON.parse(migratePointerSetting(stored) ?? '{}')).toEqual({
-      'capture.pointerPassthrough': true
-    })
+    expect(
+      run(
+        JSON.stringify({
+          'capture.pointerIsolation': true,
+          'capture.pointerPassthrough': true
+        })
+      )
+    ).toEqual({ 'capture.pointerPassthrough': true })
   })
 
   it('drops a legacy value that is not a boolean', () => {
-    const stored = JSON.stringify({ 'capture.pointerIsolation': 'yes' })
-    expect(JSON.parse(migratePointerSetting(stored) ?? '{}')).toEqual({})
+    expect(run(JSON.stringify({ 'capture.pointerIsolation': 'yes' }))).toEqual({})
   })
 
-  it('does nothing without a legacy key or without stored settings', () => {
-    expect(migratePointerSetting(null)).toBeNull()
-    expect(migratePointerSetting(JSON.stringify({ 'capture.scale': 2 }))).toBeNull()
-    expect(migratePointerSetting('not json')).toBeNull()
-    expect(migratePointerSetting(JSON.stringify([1, 2]))).toBeNull()
+  it('returns the payload untouched when there is nothing to rewrite', () => {
+    expect(run(JSON.stringify({ 'capture.scale': 2 }))).toBe(JSON.stringify({ 'capture.scale': 2 }))
+    expect(run('not json')).toBe('not json')
+    expect(run('')).toBe('')
+    expect(run(JSON.stringify([1, 2]))).toBe(JSON.stringify([1, 2]))
   })
 })

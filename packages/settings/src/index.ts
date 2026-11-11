@@ -1,6 +1,7 @@
 export * from './types'
 export * from './i18n'
 export * from './storage'
+export * from './domain'
 export * from './shortcut'
 export * from './settings'
 export * from './styles'

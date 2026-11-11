@@ -45,7 +45,7 @@
 6. `71f05c0` 帧内选择器按键：**不动焦点**，帧把选择器用得上的键经桥上报（`ui` + `key`，协议 `/4`，`core/relay-key.ts`），顶层在 `document.body` 上重放给 picker；
 7. 穿透选取：picker 能选到 iframe 内部任意元素（`hover`/`stack` + `capture`/`captured`，协议 `/5`，`core/pick-target.ts`、`core/frame-pick.ts`），帧内元素由该帧自己渲染；
 8. 帧的字体与并行渲染：`native.fontSource` / `setFontSource()` 把字体嵌入指向帧自己的文档（`patchFontSourceBase`、`patchFontUsageScan`），`paintFrames()` 并行请求 helper、取消时逐个发 `cancel`。
-9. 选择器监听提前到 `document-start`（`installEarlyPickerListeners()`，13 个事件常驻 + `active` 门控），页面在 window 捕获阶段再也看不到、也拦不住拾取期间的点击；`wheel` 仍在开始拾取时才挂。设置反过来改成「鼠标穿透」（默认关）+ 旧值迁移（`config/migrate.ts`）。
+9. 选择器监听提前到 `document-start`（`installEarlyPickerListeners()`，13 个事件常驻 + `active` 门控），页面在 window 捕获阶段再也看不到、也拦不住拾取期间的点击；`wheel` 仍在开始拾取时才挂。设置反过来改成「鼠标穿透」（默认关），并改为**版本化信封** `{version, value}` 存在同一条 GM 值里（`createDomain`，世代 1 = 旧键迁移），规则见 `docs/settings-migrations.md`。
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -466,7 +466,6 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 下一步（按顺序）
 
-0. **设置迁移的版本化**（方案已定、未实现）：现状、三个真实风险和步骤表方案见 `docs/settings-migrations.md`，动手前先读它。
 1. `expandNested` 打开时让**被捕获祖先内部的帧**也参与撑高？现在明确不参与（会重排用户正在看的页面），要做先想清「撑高后祖先布局、兄弟位置」怎么处理。
 2. 帧在**被替换的滚动容器内部**时，区域截图里那一格仍是空的：切片渲染时容器子元素被隐藏，帧图也被藏掉。要支持得在切片渲染前把帧图写进容器内的帧盒子。
 3. 穿透选取的缺口：鼠标穿透开着时帧收不到指针（要帧上报 pointer、父级换算坐标并接管点击）；只穿一层（递归要一层一次坐标换算 + `via` 链路）。

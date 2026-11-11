@@ -9,7 +9,7 @@ import {
 } from '$'
 import {
   DEFAULT_SHORTCUT,
-  createGMStorage,
+  createDomain,
   createI18n,
   createSettings
 } from '@element-screenshot/settings'
@@ -17,7 +17,7 @@ import cssText from './styles.css?inline'
 import { appMessages } from './messages'
 import { projectLinks } from './config/links'
 import { createSettingsTabs } from './config/schema'
-import { migratePointerSetting } from './config/migrate'
+import { SETTINGS_DOMAIN_KEY, SETTINGS_STEPS } from './config/migrate'
 import { native } from './core/native'
 import { installHotkey } from './core/hotkey'
 import { installHotkeyBridge } from './core/hotkey-bridge'
@@ -33,28 +33,26 @@ export function startApp(): void {
     locales: appMessages
   })
 
-  const storage = createGMStorage(
-    {
-      getValue: (key, defaultValue) => GM_getValue<string | null>(key, defaultValue),
-      setValue: (key, value) => GM_setValue(key, value),
-      deleteValue: (key) => GM_deleteValue(key)
-    },
-    'element-screenshot:'
-  )
+  const GM_PREFIX = 'element-screenshot:'
 
-  // Older versions stored the opposite switch; translate it before the settings
-  // are hydrated, so the user's choice survives the rename.
-  try {
-    const migrated = migratePointerSetting(storage.getItem('settings'))
-    if (migrated) storage.setItem('settings', migrated)
-  } catch {
-    // A storage that cannot be read leaves the defaults in place.
-  }
+  // Settings live in a versioned envelope (`{ version, value }`), so the schema
+  // generation and the payload are one manager value: a write can never leave
+  // data without its version, and a rename can never be applied twice.
+  const settingsDomain = createDomain({
+    key: SETTINGS_DOMAIN_KEY,
+    steps: SETTINGS_STEPS,
+    storage: {
+      getValue: (key) => GM_getValue<unknown>(GM_PREFIX + key, null),
+      setValue: (key, value) => GM_setValue(GM_PREFIX + key, value),
+      deleteValue: (key) => GM_deleteValue(GM_PREFIX + key)
+    },
+    onWarn: (message, error) => console.warn(`[element-screenshot] ${message}`, error)
+  })
 
   const settings = createSettings({
     i18n,
-    storage,
-    storageKey: 'settings',
+    storage: settingsDomain.storage,
+    storageKey: SETTINGS_DOMAIN_KEY,
     styles: cssText,
     version: GM_info?.script?.version ?? '0.1.0',
     links: projectLinks,

@@ -75,12 +75,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Settings are stored as a versioned envelope, `{ version, value }`, in the one
+  manager value the script already used. The schema generation therefore travels
+  with the payload: a write can never leave data behind without its version, a
+  migration can never run twice, and a value written by a newer script is left
+  untouched instead of being interpreted with the old rules. The envelope holds
+  only a number and a string, so every manager round-trips it identically. An
+  existing bare value is read as generation 0 and upgraded on the next start.
+  Downgrading to 0.7.x resets the settings once, because that version cannot read
+  the new shape — the alternative was a version key that could never be written
+  atomically with the data.
 - The pointer setting is now the positive **Mouse passthrough** switch (default off)
   instead of “Isolate page interaction” (default on). The behaviour is unchanged —
   off keeps the transparent layer that keeps hover effects out of the capture — but
   a switch whose name matches the default no longer reads as a double negative. A
-  stored value from the old switch is migrated, so nobody's choice flips:
-  `isolation: false` becomes `passthrough: true` and the legacy key is dropped.
+  stored value from the old switch is migrated as generation 1, so nobody's choice
+  flips: `isolation: false` becomes `passthrough: true` and the legacy key is
+  dropped.
 - Frame renders are requested in parallel. Every frame renders in its own realm, so
   the parent no longer waits for one frame before asking the next: a page with
   several frames pays the slowest one instead of the sum. Frames that share a
