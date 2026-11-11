@@ -53,8 +53,13 @@ export interface SliceDocument {
 
 export interface SliceLayer {
   url: string
-  width: number
-  height: number
+  /** Picture size in CSS pixels; `size` overrides it. */
+  width?: number
+  height?: number
+  /** `background-size` for the layer, e.g. `100% 100%` for a frame's content box. */
+  size?: string
+  /** Positioning area the picture starts at. Defaults to the padding box. */
+  origin?: 'padding-box' | 'content-box'
 }
 
 const BACKGROUND_PROPERTIES = [
@@ -355,16 +360,18 @@ export function splitCssList(value: string): string[] {
  * lists do not line up (a browser quirk) only the slice is used.
  */
 export function sliceBackgroundStyle(
-  computed: CSSStyleDeclaration,
+  computed: CSSStyleDeclaration | null,
   layer: SliceLayer
 ): Partial<CSSStyleDeclaration> {
   const head: Record<BackgroundProperty, string> = {
     ...SLICE_LAYER,
     backgroundImage: `url("${layer.url}")`,
-    backgroundSize: `${layer.width}px ${layer.height}px`
+    backgroundSize: layer.size ?? `${layer.width ?? 0}px ${layer.height ?? 0}px`,
+    backgroundOrigin: layer.origin ?? 'padding-box'
   }
 
   const originals = BACKGROUND_PROPERTIES.map((property) => {
+    if (!computed) return splitCssList(BACKGROUND_DEFAULTS[property])
     let value = ''
     try {
       value = computed.getPropertyValue(kebabCase(property))
@@ -431,7 +438,7 @@ function nearestScrollport(element: Element): Element | null {
   return null
 }
 
-function isSticky(element: Element): boolean {
+export function isSticky(element: Element): boolean {
   try {
     const position = native.getComputedStyle(element).position
     return position === 'sticky' || position === '-webkit-sticky'

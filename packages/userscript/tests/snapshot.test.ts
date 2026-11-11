@@ -266,47 +266,20 @@ describe('page snapshot', () => {
     snapshot.dispose()
   })
 
-  it('records a frame with its content box instead of cloning its body', async () => {
+  it('records a frame so the renderer can fill its box later', async () => {
     document.body.innerHTML = '<iframe id="frame"></iframe>'
     const frame = document.getElementById('frame') as HTMLIFrameElement
     frame.contentDocument?.body.append('inside the frame')
 
-    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
-      left: 10,
-      top: 20,
-      width: 304,
-      height: 204,
-      right: 314,
-      bottom: 224,
-      x: 10,
-      y: 20,
-      toJSON: () => ({})
-    } as DOMRect)
-    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
-      borderLeftWidth: '2px',
-      borderTopWidth: '2px',
-      borderRightWidth: '2px',
-      borderBottomWidth: '2px',
-      paddingLeft: '0px',
-      paddingTop: '0px',
-      paddingRight: '0px',
-      paddingBottom: '0px',
-      borderTopLeftRadius: '8px',
-      borderTopRightRadius: '8px',
-      borderBottomRightRadius: '8px',
-      borderBottomLeftRadius: '8px'
-    } as CSSStyleDeclaration)
-
     const snapshot = await createSnapshot(FAST)
     expect(snapshot.frames).toHaveLength(1)
     const [record] = snapshot.frames
-    expect(record?.rect).toEqual({ left: 12, top: 22, width: 300, height: 200 })
-    expect(record?.radius.topLeft).toBe(8)
+    expect(record?.live).toBe(frame)
     expect(record?.doc).toBe(frame.contentDocument)
-
     // The copy keeps an empty frame of the same size and must not load the URL
     // again, so nothing re-runs the page inside the snapshot.
     const copy = snapshot.doc.getElementById('frame')
+    expect(copy).toBe(record?.copy)
     expect(copy?.hasAttribute('src')).toBe(false)
     expect(copy?.hasAttribute('srcdoc')).toBe(false)
     snapshot.dispose()
@@ -320,6 +293,27 @@ describe('page snapshot', () => {
     const snapshot = await createSnapshot(FAST)
     expect(snapshot.frames).toHaveLength(1)
     expect(snapshot.frames[0]?.doc).toBeNull()
+    snapshot.dispose()
+  })
+
+  it('copies a same-origin frame document into a frame of its own', async () => {
+    document.body.innerHTML = '<iframe id="frame"></iframe>'
+    const frame = document.getElementById('frame') as HTMLIFrameElement
+    const doc = frame.contentDocument
+    if (!doc) throw new Error('frame document missing')
+    doc.body.innerHTML = '<p class="inside">frame content</p>'
+
+    const snapshot = await createSnapshot({ ...FAST, doc })
+    expect(snapshot.doc).not.toBe(doc)
+    expect(snapshot.doc.querySelector('.inside')?.textContent).toBe('frame content')
+    // The copy has to be laid out at the frame's viewport, inside the frame's own
+    // document: that is what keeps media queries and viewport units right.
+    const scrollFrame = doc.querySelector<HTMLIFrameElement>(
+      '[data-element-screenshot-snapshot]'
+    )
+    expect(scrollFrame).toBeTruthy()
+    expect(scrollFrame?.parentElement).toBe(doc.documentElement)
+    expect(scrollFrame?.style.getPropertyValue('width')).toBe(`${doc.defaultView?.innerWidth}px`)
     snapshot.dispose()
   })
 

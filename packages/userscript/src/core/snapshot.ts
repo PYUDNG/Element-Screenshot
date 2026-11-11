@@ -36,6 +36,11 @@ export interface Snapshot {
 }
 
 export interface SnapshotOptions {
+  /**
+   * Document to copy. Defaults to the page itself; a same-origin frame passes
+   * its own document so the frame's viewport can be rendered on its own.
+   */
+  doc?: Document
   /** Element to resolve inside the snapshot. */
   target?: Element
   /** Per-element veto, used to drop the script's own UI. */
@@ -218,33 +223,21 @@ function collectShadow(live: LiveElement, clone: Element, ctx: CloneContext): vo
 }
 
 /**
- * A frame whose content has to be rendered on its own and composited into the
- * result. Cloning the frame body into a nested `<iframe>` never reached the
- * picture (html-to-image clones an `<iframe>` without its browsing context), so
- * the copy keeps an empty box and the renderer fills it in later.
+ * A frame whose content has to be rendered on its own and painted into the
+ * result. html-to-image clones an `<iframe>` without its browsing context, so
+ * the copy only keeps an empty box; the renderer fills that box with a picture
+ * of the frame's viewport before the page is rendered.
  */
 export interface FrameRecord {
   /** The live frame, kept for its content document and current viewport. */
   live: HTMLIFrameElement
-  /** Content box in viewport coordinates, borders and padding excluded. */
-  rect: { left: number; top: number; width: number; height: number }
-  /** Corner radii in pixels, for clipping the composited picture. */
-  radius: { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number }
+  /**
+   * The frame inside the snapshot. Its box is measured after the copy is laid
+   * out, so expanding a scrolled ancestor moves the picture with the frame.
+   */
+  copy: HTMLIFrameElement
   /** Null for a cross-origin frame, whose pixels need a helper instance. */
   doc: Document | null
-}
-
-function parsePx(value: string | undefined | null): number {
-  const parsed = Number.parseFloat(value ?? '')
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function frameStyle(element: Element): CSSStyleDeclaration | null {
-  try {
-    return native.getComputedStyle(element)
-  } catch (_error) {
-    return null
-  }
 }
 
 function frameDocument(frame: Element): Document | null {
@@ -262,29 +255,9 @@ function collectFrame(live: LiveElement, clone: HTMLIFrameElement, ctx: CloneCon
   clone.removeAttribute('src')
   clone.removeAttribute('srcdoc')
 
-  const rect = native.getBoundingClientRect(live)
-  const style = frameStyle(live)
-  const inside = {
-    left: parsePx(style?.borderLeftWidth) + parsePx(style?.paddingLeft),
-    top: parsePx(style?.borderTopWidth) + parsePx(style?.paddingTop),
-    right: parsePx(style?.borderRightWidth) + parsePx(style?.paddingRight),
-    bottom: parsePx(style?.borderBottomWidth) + parsePx(style?.paddingBottom)
-  }
-
   ctx.frames.push({
     live: live as unknown as HTMLIFrameElement,
-    rect: {
-      left: rect.left + inside.left,
-      top: rect.top + inside.top,
-      width: Math.max(1, Math.round(rect.width - inside.left - inside.right)),
-      height: Math.max(1, Math.round(rect.height - inside.top - inside.bottom))
-    },
-    radius: {
-      topLeft: parsePx(style?.borderTopLeftRadius),
-      topRight: parsePx(style?.borderTopRightRadius),
-      bottomRight: parsePx(style?.borderBottomRightRadius),
-      bottomLeft: parsePx(style?.borderBottomLeftRadius)
-    },
+    copy: clone,
     doc: frameDocument(live)
   })
 }
@@ -556,13 +529,18 @@ function createFrame(doc: Document, width: number, height: number): HTMLIFrameEl
 }
 
 /**
- * Copy the live page into an off-screen iframe and return the document to
- * render. Everything that follows runs against that copy: mutations, expanded
- * scroll containers and rebuilt panes are invisible to the user.
+ * Copy the live page (or one same-origin frame document) into an off-screen
+ * iframe and return the document to render. Everything that follows runs
+ * against that copy: mutations, expanded scroll containers and rebuilt panes are
+ * invisible to the user.
+ *
+ * A frame is copied into an iframe of its own, sized to the frame's viewport, so
+ * the copy lays out (media queries, viewport units, scrollbar) exactly like the
+ * frame does before its picture is taken.
  */
 export async function createSnapshot(options: SnapshotOptions = {}): Promise<Snapshot> {
-  const liveDoc = document
-  const liveWin = window
+  const liveDoc = options.doc ?? document
+  const liveWin = liveDoc.defaultView ?? window
   const width = Math.max(1, Math.round(liveWin.innerWidth))
   const height = Math.max(1, Math.round(liveWin.innerHeight))
   const timeout = options.timeout ?? DEFAULT_TIMEOUT

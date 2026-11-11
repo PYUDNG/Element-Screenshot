@@ -46,6 +46,7 @@ import {
 } from '../src/core/capture'
 import { native } from '../src/core/native'
 import { createSnapshot } from '../src/core/snapshot'
+import type { FrameRecord } from '../src/core/snapshot'
 import { getTargetBox } from '../src/core/target'
 
 function setMetrics(
@@ -710,6 +711,206 @@ describe('capture box', () => {
   })
 })
 
+describe('iframe compositing', () => {
+  /** The mock's default implementation, restored after every case here. */
+  const defaultSnapshot = vi.mocked(createSnapshot).getMockImplementation()
+
+  function rectOf(width: number, height: number): DOMRect {
+    return {
+      left: 0,
+      top: 0,
+      width,
+      height,
+      right: width,
+      bottom: height,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect
+  }
+
+  function addFrame(record: { live: HTMLIFrameElement; copy: HTMLIFrameElement }): void {
+    document.body.append(record.live)
+  }
+
+  function frameRecord(copy: HTMLIFrameElement, doc: Document | null): FrameRecord {
+    const live = document.createElement('iframe')
+    return { live, copy, doc }
+  }
+
+  /** Answer the page snapshot with `frames`; a frame snapshot gets a private document. */
+  function mockSnapshots(frames: FrameRecord[]): void {
+    vi.mocked(createSnapshot).mockImplementation(async (options = {}) => {
+      if (options.doc) {
+        return {
+          doc: document.implementation.createHTMLDocument('frame copy'),
+          win: window,
+          target: null,
+          frames: [],
+          dispose: () => undefined
+        }
+      }
+      return {
+        doc: document,
+        win: window,
+        target: options.target ?? null,
+        frames,
+        dispose: () => undefined
+      }
+    })
+  }
+
+  function observeCalls(failFirst = false): Array<{ target: Element; options: Record<string, unknown> }> {
+    const calls: Array<{ target: Element; options: Record<string, unknown> }> = []
+    let failing = failFirst
+    toBlobMock.mockImplementation((target: Element, options: Record<string, unknown>) => {
+      calls.push({ target, options })
+      if (failing) {
+        failing = false
+        return Promise.reject(new Error('frame blew up'))
+      }
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+    return calls
+  }
+
+  afterEach(() => {
+    if (defaultSnapshot) {
+      vi.mocked(createSnapshot).mockImplementation(defaultSnapshot as never)
+    }
+  })
+
+  it('renders the frame viewport and paints it into the copied box', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    root.append(copy)
+    const record = frameRecord(copy, document)
+    addFrame(record)
+    mockSnapshots([record])
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(120)
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? rectOf(300, 200) : rectOf(0, 0)
+    )
+    const calls = observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 400, height: 300 },
+      pixelRatio: 2,
+      background: { mode: 'transparent' }
+    })
+
+    expect(calls).toHaveLength(2)
+    const [frameCall, pageCall] = calls
+    // The frame is rendered on its own viewport-sized surface, shifted by the
+    // frame's scroll offset (a clone never carries it).
+    expect(frameCall?.options).toMatchObject({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      pixelRatio: 2,
+      type: 'image/png'
+    })
+    expect(frameCall?.options.style).toMatchObject({
+      position: 'relative',
+      inset: 'auto',
+      top: '-120px',
+      left: '0px',
+      margin: '0',
+      transform: 'none'
+    })
+    // The page render carries the frame picture as the frame's first background
+    // layer, sized to the content box so border, padding and radius stay right.
+    expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
+    expect(copy.style.getPropertyValue('background-size').startsWith('100% 100%')).toBe(true)
+    expect(copy.style.getPropertyValue('background-origin').startsWith('content-box')).toBe(true)
+    expect(pageCall?.options.fontEmbedCSS).toBe('/* page fonts */')
+    expect(frameCall?.options.fontEmbedCSS).toBe('/* page fonts */')
+    // Resolved once for the page and every frame it contains.
+    expect(fontEmbedMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a frame outside the captured element alone', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    document.body.append(copy)
+    mockSnapshots([frameRecord(copy, document)])
+    const calls = observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 100, height: 100 },
+      pixelRatio: 1
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(copy.style.getPropertyValue('background-image')).toBe('')
+  })
+
+  it('keeps a cross-origin frame as an empty box', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    root.append(copy)
+    mockSnapshots([frameRecord(copy, null)])
+    const calls = observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 100, height: 100 },
+      pixelRatio: 1
+    })
+
+    // No readable document and no helper instance yet: nothing to paint.
+    expect(calls).toHaveLength(1)
+    expect(copy.style.getPropertyValue('background-image')).toBe('')
+  })
+
+  it('skips a collapsed frame', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    root.append(copy)
+    mockSnapshots([frameRecord(copy, document)])
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue(rectOf(0, 0))
+    const calls = observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 100, height: 100 },
+      pixelRatio: 1
+    })
+
+    expect(calls).toHaveLength(1)
+  })
+
+  it('keeps the capture when one frame fails to render', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const broken = document.createElement('iframe')
+    const healthy = document.createElement('iframe')
+    root.append(broken, healthy)
+    mockSnapshots([frameRecord(broken, document), frameRecord(healthy, document)])
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === broken || element === healthy ? rectOf(200, 100) : rectOf(0, 0)
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const calls = observeCalls(true)
+
+    const result = await captureElement(root, {
+      box: { left: 0, top: 0, width: 300, height: 200 },
+      pixelRatio: 1
+    })
+
+    expect(result.blob).toBeInstanceOf(Blob)
+    expect(console.warn).toHaveBeenCalledWith(
+      '[element-screenshot] frame render failed:',
+      'frame blew up'
+    )
+    // The broken frame keeps its empty box, the healthy one still gets painted.
+    expect(broken.style.getPropertyValue('background-image')).toBe('')
+    expect(healthy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
+    expect(calls).toHaveLength(3)
+  })
+})
+
 describe('capture cancellation', () => {
   it('stops a render that was cancelled while it was starting', async () => {
     const element = document.createElement('div')
@@ -1018,3 +1219,4 @@ describe('region capture with scroll slices', () => {
     expect(panel.scrollTop).toBe(120)
   })
 })
+

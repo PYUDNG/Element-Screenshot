@@ -112,6 +112,22 @@ describe('slice background', () => {
     expect(style.backgroundImage).toBe('url("data:image/png;base64,AAA")')
     expect(style.backgroundSize).toBe('200px 100px')
   })
+
+  it('places a frame picture in the content box at the box size', () => {
+    // A frame's picture fills the content box no matter how the copied frame
+    // computes its box, so the layer is sized in percentages.
+    const style = sliceBackgroundStyle(null, {
+      url: 'data:image/png;base64,AAA',
+      origin: 'content-box',
+      size: '100% 100%'
+    })
+
+    expect(style.backgroundImage).toBe('url("data:image/png;base64,AAA"), none')
+    expect(style.backgroundSize).toBe('100% 100%, auto')
+    expect(style.backgroundOrigin).toBe('content-box, padding-box')
+    // Without a readable style the defaults stand in for the container's layers.
+    expect(style.backgroundRepeat).toBe('no-repeat, repeat')
+  })
 })
 
 describe('slice clone root', () => {

@@ -7,6 +7,7 @@ import { clampRegion } from './region'
 import type { Point, ViewportSize } from './region'
 import { planCrop, cropBlob } from './crop'
 import { createSnapshot } from './snapshot'
+import type { FrameRecord } from './snapshot'
 import {
   blobToDataUrl,
   collectFixedDescendants,
@@ -14,6 +15,7 @@ import {
   collectSliceSticky,
   hideSliceContent,
   isScrollContainer,
+  isSticky,
   kebabCase,
   pinSticky,
   restoreStyle,
@@ -86,6 +88,10 @@ export interface RegionCaptureOptions extends CaptureOptions {
 const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
 const ERROR_SOURCE_LIMIT = 512
+/** Frames nested deeper than this stay empty boxes instead of nested renders. */
+const MAX_FRAME_DEPTH = 2
+/** Guard rail for the sticky scan inside a frame. */
+const MAX_STICKY_SCAN = 6_000
 /** Shared by the clone loop in the build patch and by `assertNotCancelled()`. */
 const CANCEL_MESSAGE = 'Capture cancelled'
 const NON_RENDERING_TAGS = new Set(['SCRIPT', 'NOSCRIPT'])
@@ -560,6 +566,185 @@ async function resolveBackground(
   return scene ? { scene } : { color: baseColor }
 }
 
+interface FrameViewport {
+  width: number
+  height: number
+}
+
+/** The frame's own viewport in CSS pixels: the surface its picture is drawn on. */
+function frameViewport(doc: Document): FrameViewport | null {
+  const win = doc.defaultView
+  if (!win) return null
+  const width = Math.round(win.innerWidth)
+  const height = Math.round(win.innerHeight)
+  if (width < 1 || height < 1) return null
+  return { width, height }
+}
+
+function frameScroll(doc: Document): Point {
+  const win = doc.defaultView
+  return { x: Math.round(win?.scrollX ?? 0), y: Math.round(win?.scrollY ?? 0) }
+}
+
+/**
+ * A frame is rendered the same way the region capture renders the page: the
+ * clone never carries the scroll offset, so the root is shifted by it.
+ */
+function frameRootStyle(scroll: Point): Partial<CSSStyleDeclaration> {
+  return {
+    margin: '0',
+    position: 'relative',
+    inset: 'auto',
+    top: `${-scroll.y}px`,
+    left: `${-scroll.x}px`,
+    transform: 'none'
+  }
+}
+
+/**
+ * Pin the sticky descendants of a frame.
+ *
+ * A clone has no scrollport, so `position: sticky` is laid out at its static
+ * position — for a header pinned to the top of a scrolled frame that position is
+ * above the shifted viewport, and the header disappears from the picture. Pinning
+ * has to happen while the copy still sits at the frame's scroll offset, which is
+ * what the offsets below are measured against.
+ */
+function pinFrameSticky(root: Element): void {
+  let inspected = 0
+  for (const element of Array.from(native.querySelectorAll(root, '*'))) {
+    if (inspected >= MAX_STICKY_SCAN) break
+    inspected += 1
+    if (!isSticky(element)) continue
+    pinSticky(element)
+  }
+}
+
+/** Frames html-to-image will paint: the ones inside the clone root. */
+function framesInside(root: Element, frames: readonly FrameRecord[]): FrameRecord[] {
+  return frames.filter((frame) => frame.copy === root || root.contains(frame.copy))
+}
+
+/** The copied frame's box, or null when it is collapsed and paints nothing. */
+function frameBoxSize(copy: HTMLIFrameElement): FrameViewport | null {
+  let rect: DOMRect
+  try {
+    rect = native.getBoundingClientRect(copy)
+  } catch {
+    return null
+  }
+  const width = Math.round(rect.width)
+  const height = Math.round(rect.height)
+  if (width < 1 || height < 1) return null
+  return { width, height }
+}
+
+/**
+ * Paint one frame's current viewport.
+ *
+ * The frame document is copied into an off-screen iframe of the same size, so
+ * the copy lays out exactly like the frame; the surface is the frame's viewport
+ * and the root is shifted by the frame's scroll, because a clone carries neither.
+ * The frames nested inside are painted first: their pictures land in this one.
+ */
+async function renderFrameViewport(
+  frame: FrameRecord,
+  ratio: number,
+  options: CaptureOptions,
+  depth: number
+): Promise<Blob | null> {
+  const live = frame.doc
+  // A cross-origin frame has no readable document and needs a helper instance.
+  if (!live || depth > MAX_FRAME_DEPTH) return null
+  const viewport = frameViewport(live)
+  if (!viewport) return null
+
+  const scroll = frameScroll(live)
+  const snapshot = await createSnapshot({
+    doc: live,
+    skip: options.filter ? (node) => !options.filter?.(node as HTMLElement) : undefined
+  })
+  try {
+    const root = snapshot.doc.documentElement
+    if (!root) return null
+
+    // Order matters: the pin is measured against the copy's replayed scroll, and
+    // expanding the root resets that scroll.
+    pinFrameSticky(root)
+    const surface = { left: 0, top: 0, width: viewport.width, height: viewport.height }
+    expandForCapture(root, surface, false)
+    await paintFrames(root, snapshot.frames, ratio, options, depth + 1)
+    await nextFrame()
+
+    return await toBlob(root as HTMLElement, {
+      width: viewport.width,
+      height: viewport.height,
+      pixelRatio: ratio,
+      skipAutoScale: true,
+      cacheBust: false,
+      type: 'image/png',
+      imagePlaceholder: TRANSPARENT_PIXEL,
+      onImageErrorHandler: handleImageError,
+      style: frameRootStyle(scroll),
+      filter: options.filter,
+      fontEmbedCSS: options.fontEmbedCSS
+    })
+  } finally {
+    snapshot.dispose()
+  }
+}
+
+/**
+ * Put a frame's picture into the frame's own box in the copy.
+ *
+ * The picture becomes the first background layer, so the page render keeps
+ * painting the frame's border, its rounded corners and everything that overlaps
+ * it; the alternative — compositing on the result canvas — would paste the frame
+ * over any header or tooltip that happens to cover it.
+ */
+function paintFrameBackground(copy: HTMLIFrameElement, url: string): void {
+  let computed: CSSStyleDeclaration | null = null
+  try {
+    computed = native.getComputedStyle(copy)
+  } catch {
+    // Paint the picture over the defaults below.
+  }
+  const layer = sliceBackgroundStyle(computed, {
+    url,
+    origin: 'content-box',
+    size: '100% 100%'
+  })
+  for (const [property, value] of Object.entries(layer)) {
+    if (typeof value === 'string') setImportant(copy, kebabCase(property), value)
+  }
+}
+
+/**
+ * Render every frame inside `root` and paint it into its own box before the page
+ * render. A frame that cannot be rendered keeps its empty box: a missing picture
+ * is not a reason to lose the whole capture.
+ */
+async function paintFrames(
+  root: Element,
+  frames: readonly FrameRecord[],
+  ratio: number,
+  options: CaptureOptions,
+  depth: number
+): Promise<void> {
+  for (const frame of framesInside(root, frames)) {
+    assertNotCancelled()
+    if (!frameBoxSize(frame.copy)) continue
+    try {
+      const image = await renderFrameViewport(frame, ratio, options, depth)
+      if (!image) continue
+      paintFrameBackground(frame.copy, await blobToDataUrl(image))
+    } catch (error) {
+      if (native.capture.aborted) throw error
+      console.warn('[element-screenshot] frame render failed:', describeCaptureError(error))
+    }
+  }
+}
+
 /**
  * Render an element (including its full scrollable content) to a PNG blob.
  * The element is first copied into an off-screen snapshot, and every mutation
@@ -581,13 +766,17 @@ export async function captureElement(
     // The element may have been removed from the page between the click and the
     // snapshot; html-to-image would render an empty picture.
     if (!target) throw new Error('The selected element is no longer on the page')
-    return await renderElement(target, options)
+    return await renderElement(target, options, snapshot.frames)
   } finally {
     snapshot.dispose()
   }
 }
 
-async function renderElement(element: Element, options: CaptureOptions): Promise<CaptureResult> {
+async function renderElement(
+  element: Element,
+  options: CaptureOptions,
+  frames: readonly FrameRecord[] = []
+): Promise<CaptureResult> {
   assertNotCancelled()
   const measured = getTargetBox(element)
   // Prefer the box the picker showed. A copy can lay out a hair differently
@@ -651,6 +840,16 @@ async function renderElement(element: Element, options: CaptureOptions): Promise
       options.maxDimension,
       options.maxArea
     )
+
+    // Frames are painted into their own box before the page render, and every
+    // render reuses the webfont CSS that html-to-image would otherwise resolve
+    // from scratch.
+    const nested = framesInside(element, frames)
+    const shared = nested.length
+      ? { ...options, fontEmbedCSS: await sharedFontEmbedCSS(element as HTMLElement, options) }
+      : options
+    await paintFrames(element, nested, plan.ratio, shared, 1)
+
     const backdrop = await resolveBackground(element, finalBox, plan, options)
 
     const imageBlob = await toBlob(element as HTMLElement, {
@@ -664,7 +863,8 @@ async function renderElement(element: Element, options: CaptureOptions): Promise
       imagePlaceholder: TRANSPARENT_PIXEL,
       onImageErrorHandler: handleImageError,
       style: rootStyle,
-      filter: options.filter
+      filter: options.filter,
+      fontEmbedCSS: shared.fontEmbedCSS
     })
     if (!imageBlob) throw new Error('html-to-image returned an empty blob')
 
