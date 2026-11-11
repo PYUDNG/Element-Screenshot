@@ -172,6 +172,12 @@
         border-radius: 10px;
         background: #fff;
       }
+      /* The demo must hug its content: `main` is a grid, so without this the card
+         stretches to the height of the tall filler next to it and its own
+         scroll expansion can never make it taller. */
+      #nested-demo {
+        align-self: start;
+      }
       #nested-panel {
         margin-top: 12px;
         /* A small padding gives the picker a strip where the panel itself is

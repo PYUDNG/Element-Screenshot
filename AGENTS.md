@@ -338,7 +338,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - `fitBoxToLayout()` 用 `getTargetBox()` 重新量根；变高/变宽时**同时**给根写显式 `height/width`（`documentElement` 除外），否则根的背景和边框会在旧盒子处结束、内容溢出到画布外面。
 - 展开是**重排**：展开后代等于替祖先重新排版，所以默认不做。嵌套展开仍然可能被中间的 `overflow: hidden` 面板裁掉——那不是 bug，是页面自己的裁剪（playground 的 `#pick-stage` 就是这种）。
 - 自定义元素的坑：`cloneNode()` 会对克隆出来的自定义元素**跑构造函数**（jsdom 和 Chrome 都是），构造函数里 `attachShadow` + `insertRule` 会在未连接的克隆上抛 `Cannot read properties of null (reading 'insertRule')`，构造函数建出的 shadow 树还会和 `collectShadow()` 收集的内容**重复**。`attachDeferred()` 现在用 `root.replaceChildren(shadow.content)` 覆盖构造函数产物；playground 的 `<shadow-card>` 也加了 `sheet?.insertRule(...)` 兜底。
-- **未解决**（下次先查这个）：playground 的 `#nested-panel` 在「关闭嵌套展开」时截出来仍是 505px 而不是 252px——看起来像快照副本里 `#nested-scroll { height: 240px }` 没有生效（`copyStyleSheets()` 按索引配对的假设可能不成立），于是副本里的滚动列表铺满内容高度、`fitBoxToLayout()` 又把根撑到了 505。需要直接对比「活文档 `<style>` 数量/CSSOM」与「副本里同一个 `<style>` 的 cssText」。
+- **未解决**（下次先查这个）：自动化里出现过「设置面板和 localStorage 都是 `capture.expandNested: true`，但 `expandForCapture()` 收到的是 `false`」的情况（调试日志实测）。要么是 `shot-app` 读取设置与面板绑定的不是同一个值，要么是自动化在设置生效前就触发了截图。复现方式：关掉嵌套展开截一次 `#nested-demo`（应为 520×373 → 1040×746，已验证），再打开开关截同一张卡（应约 520×631）。如果打开后尺寸不变，就在 `renderCapture()` 里打印 `this.settings.get('capture.expandNested')` 定位。
+- playground 的 fixture 注意 `main` 是 grid：卡片默认会被同一行里 900px 的 `.tall` 撑高，所以 `#nested-demo` 必须写 `align-self: start`，否则「内部展开后变高」永远观察不到。
 
 ### 克隆根的位置
 
