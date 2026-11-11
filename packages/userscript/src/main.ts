@@ -9,6 +9,7 @@ import { GM_getValue, GM_setValue } from '$'
 import { native } from './core/native'
 import { setFrameToken } from './core/frame-bridge'
 import { installFrameHelper } from './core/frame-helper'
+import { installFrameHotkey } from './core/hotkey-bridge'
 import { startApp } from './app'
 
 /** Storage key of the per-install secret that gates the frame helper. */
@@ -64,4 +65,7 @@ if (window === window.top) {
 } else if (token) {
   // A frame serves the parent only: no UI, no menu commands, no settings panel.
   installFrameHelper()
+  // Keys pressed inside a frame never reach the top document, so the frame
+  // reports the shortcut upward instead of starting a capture of its own.
+  installFrameHotkey()
 }

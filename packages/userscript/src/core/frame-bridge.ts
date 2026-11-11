@@ -17,10 +17,14 @@ import type { FrameSize } from './frame-size'
  *
  * Two requests travel over the bridge: `measure` (how tall the document is once
  * its root is expanded, used to size the frame's box) and `render` (the picture).
+ * The keyboard shortcut travels the other way: the frame asks for the shortcut
+ * once (`subscribe`) and reports a press (`trigger`) that the parent then
+ * verifies against its own setting, because a keydown inside a frame never
+ * reaches the top document.
  */
 
 /** Bump when the message shape or the frame renderer changes. */
-export const FRAME_PROTOCOL = 'element-screenshot:frame/2'
+export const FRAME_PROTOCOL = 'element-screenshot:frame/3'
 /** How long a frame gets to answer the hello probe. */
 export const FRAME_READY_TIMEOUT = 400
 /** How long one helper render may take before the parent stops waiting. */
@@ -84,6 +88,35 @@ export interface FrameResultMessage {
   error?: string
 }
 
+/** Frame asks its parent which shortcut to watch for. */
+export interface FrameSubscribeMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'subscribe'
+  token: string
+  nonce: string
+}
+
+/** Parent hands its current shortcut to a frame. */
+export interface FrameHotkeyMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'hotkey'
+  token: string
+  nonce: string
+  shortcut: string
+}
+
+/**
+ * A frame saw its shortcut pressed. The shortcut string is repeated so the
+ * parent can drop a press that was matched against an outdated configuration.
+ */
+export interface FrameTriggerMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'trigger'
+  token: string
+  nonce: string
+  shortcut: string
+}
+
 export type FrameMessage =
   | FrameHelloMessage
   | FrameReadyMessage
@@ -91,8 +124,21 @@ export type FrameMessage =
   | FrameSizeMessage
   | FrameRenderMessage
   | FrameResultMessage
+  | FrameSubscribeMessage
+  | FrameHotkeyMessage
+  | FrameTriggerMessage
 
-const MESSAGE_TYPES = new Set(['hello', 'ready', 'measure', 'size', 'render', 'result'])
+const MESSAGE_TYPES = new Set([
+  'hello',
+  'ready',
+  'measure',
+  'size',
+  'render',
+  'result',
+  'subscribe',
+  'hotkey',
+  'trigger'
+])
 
 /**
  * Per-install secret shared by every frame of this script.
@@ -328,4 +374,49 @@ export async function requestFrameSize(
 
   if (failure) console.warn('[element-screenshot] frame helper failed:', failure)
   return size
+}
+
+/**
+ * Ask the parent for the current shortcut.
+ *
+ * A keydown fired inside a frame stays in that frame, so the frame has to know
+ * which combination to watch for. It cannot read the settings (they live in the
+ * top realm), and the frame may load before the parent's UI exists, so the
+ * caller retries a few times.
+ */
+export function subscribeToHotkey(win: Window = window): boolean {
+  const token = frameToken
+  if (!token) return false
+  return postFrameMessage(win.parent, {
+    protocol: FRAME_PROTOCOL,
+    type: 'subscribe',
+    token,
+    nonce: createNonce()
+  })
+}
+
+/** Hand the current shortcut to one frame. */
+export function postHotkeyConfig(win: Window | null, shortcut: string): boolean {
+  const token = frameToken
+  if (!token || !win) return false
+  return postFrameMessage(win, {
+    protocol: FRAME_PROTOCOL,
+    type: 'hotkey',
+    token,
+    nonce: createNonce(),
+    shortcut
+  })
+}
+
+/** Tell the parent that the shortcut was pressed inside this frame. */
+export function postHotkeyTrigger(win: Window, shortcut: string): boolean {
+  const token = frameToken
+  if (!token) return false
+  return postFrameMessage(win.parent, {
+    protocol: FRAME_PROTOCOL,
+    type: 'trigger',
+    token,
+    nonce: createNonce(),
+    shortcut
+  })
 }

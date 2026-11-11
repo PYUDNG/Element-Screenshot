@@ -19,6 +19,7 @@ import { projectLinks } from './config/links'
 import { createSettingsTabs } from './config/schema'
 import { native } from './core/native'
 import { installHotkey } from './core/hotkey'
+import { installHotkeyBridge } from './core/hotkey-bridge'
 import { enableSiteForUrl, isSiteEnabled } from './core/site-policy'
 import { createShotApp, UI_ROOT_ATTRIBUTE } from './ui/shot-app'
 import type { ShotApp } from './ui/shot-app'
@@ -85,11 +86,20 @@ export function startApp(): void {
     }
     shot = createShotApp({ settings, i18n, styles: cssText })
     shot.mount()
+    const shortcut = (): string => String(settings.get('capture.shortcut') ?? DEFAULT_SHORTCUT)
     installHotkey({
-      getShortcut: () => String(settings.get('capture.shortcut') ?? DEFAULT_SHORTCUT),
+      getShortcut: shortcut,
       shouldIgnore: () => settings.isOpen.value || shot?.state.mode !== 'idle',
       onTrigger: () => shot?.startPicker()
     })
+    // Frames run their own copy of the script; they cannot read these settings,
+    // so hand them the shortcut and accept the presses they report back.
+    const bridge = installHotkeyBridge({
+      getShortcut: shortcut,
+      shouldIgnore: () => settings.isOpen.value || shot?.state.mode !== 'idle',
+      onTrigger: () => shot?.startPicker()
+    })
+    watch(shortcut, () => bridge.broadcast())
   }
 
   function registerMenus(): void {

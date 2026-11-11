@@ -74,6 +74,13 @@ describe('frame messages', () => {
     expect(readFrameMessage(message)).toBe(message)
     expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'size', nonce: 'n', width: 1, height: 2 })).not.toBeNull()
     expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'measure', nonce: 'n', token: 't' })).not.toBeNull()
+    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'subscribe', nonce: 'n', token: 't' })).not.toBeNull()
+    expect(
+      readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'hotkey', nonce: 'n', token: 't', shortcut: 'Alt+S' })
+    ).not.toBeNull()
+    expect(
+      readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'trigger', nonce: 'n', token: 't', shortcut: 'Alt+S' })
+    ).not.toBeNull()
   })
 
   it('reads a frame window and survives a frame without one', () => {
