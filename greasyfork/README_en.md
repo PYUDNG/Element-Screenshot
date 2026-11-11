@@ -19,7 +19,7 @@ Capture any element on a web page — including everything hidden inside its scr
 - **Drag a region** — press and drag a rectangle; on release that exact region is captured, with every scrolled pane restored at its own scroll offset, plus sticky headers and fixed overlays as you see them.
 - **High-resolution export** — 1× / 2× / 3×. Very large pages are downscaled automatically when they exceed browser canvas limits.
 - **Faithful backgrounds** — solid colors, gradients, background images and dark themes are preserved; transparent regions no longer default to white.
-- **Leaves the page alone** — interaction isolation prevents hover/click effects from leaking into the capture; the UI lives in Shadow DOM; rendering happens in an off-screen snapshot, so page styles and scroll positions are never touched.
+- **Leaves the page alone** — by default an interaction shield keeps hover/click effects out of the capture (turn on “mouse passthrough” when you want the page's own hover); the UI lives in Shadow DOM; rendering happens in an off-screen snapshot, so page styles and scroll positions are never touched.
 - **Configurable** — shortcut, border color/width, floating button, site rules, background mode, three UI languages and light/dark themes.
 - **Local processing** — screenshots are not uploaded. Cross-origin images and fonts are requested through the userscript manager only when they need to be inlined.
 
@@ -93,21 +93,21 @@ After selection:
 ### Settings
 
 - **Trigger** — shortcut, floating button visibility/size and dragged position.
-- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, picker interaction isolation.
+- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, mouse passthrough (off by default).
 - **Appearance** — border color and width, UI language, light/dark theme.
 - **Site rules** — only run on, or exclude, specific sites. Excluded pages can still be enabled temporarily from the userscript menu.
 
 ## Known limitations
 
 - Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, and its contents are rebuilt in the snapshot.
-- Cross-origin iframes cannot be picked. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
+- Cross-origin iframes are captured too (the frame needs its own copy of the script), and elements inside a frame can be picked through the boundary; a frame that runs no script is captured as an empty box. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
 - Region capture is limited to the current viewport; scroll to the target before dragging.
 - Every scrolled container inside the region costs one more render: a few seconds for a single pane, and 10–15 seconds for four in our measurements. The page stays usable while it renders and the result is unaffected; only a small “Rendering…” chip is shown.
 - Inside a scrolled pane, pseudo-element overlays, `mix-blend-mode`, and descendants positioned outside the pane's clip may differ slightly from the page.
 - `position: sticky/fixed` elements in full-page captures are handled against the renderer's viewport and may differ from a manually stitched capture.
 - Cross-origin fonts can only be inlined when the stylesheet is readable; otherwise they fall back to system fonts.
-- Interaction isolation suppresses hover by default; turn it off when a hover state is required.
+- Mouse passthrough is off by default, which suppresses hover; turn it on when a hover state is required.
 - Rendering stays on the main thread: cloning yields to the event loop every ~8 ms so the page no longer freezes for long stretches, but the final viewport render can still hitch for ~200 ms.
 
 ## Acknowledgements

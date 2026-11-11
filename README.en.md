@@ -17,7 +17,7 @@ Capture any element on a web page — including everything hidden inside its scr
 - **What you select is what you get** — the selection frame covers the element's complete scroll range, and the output matches that box rather than only the visible viewport.
 - **High-resolution export** — export at 1× / 2× / 3×. Very large pages are downscaled automatically when they exceed the browser's canvas limits.
 - **Faithful backgrounds** — solid colors, gradients, background images and dark themes are preserved; transparent regions no longer default to white.
-- **Leaves the page alone** — an interaction shield prevents hover/click effects from leaking into the capture; the UI lives in Shadow DOM; rendering happens in an off-screen snapshot, so page styles and scroll positions are never touched.
+- **Leaves the page alone** — by default an interaction shield keeps hover/click effects out of the capture (turn on “mouse passthrough” when you want the page's own hover); the UI lives in Shadow DOM; rendering happens in an off-screen snapshot, so page styles and scroll positions are never touched.
 - **Configurable** — shortcut, border color/width, floating button, site rules, page/custom/transparent background, three UI languages and light/dark themes.
 - **Local processing** — screenshots are not uploaded. Cross-origin images and fonts are requested through the userscript manager only when they need to be inlined.
 
@@ -102,14 +102,14 @@ After selection:
 ### Settings
 
 - **Trigger** — shortcut, floating button visibility/size and dragged position.
-- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, picker interaction isolation.
+- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, mouse passthrough (off by default).
 - **Appearance** — border color and width, UI language (简体中文 / 繁體中文 / English), light/dark theme.
 - **Site rules** — only run on, or exclude, specific sites. Excluded pages can still be enabled temporarily from the userscript menu.
 
 ## Known limitations
 
 - Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, and its contents are rebuilt in the snapshot (including `<style>`, adoptedStyleSheets, and the rules a script adds to a shadow `<style>` at runtime with `insertRule()`).
-- Cross-origin iframes cannot be picked; same-origin frame content is included. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
+- Cross-origin iframes are captured too: a copy of the script runs inside the frame and renders its own document (same install, and the frame must allow scripts). A frame that runs no script (`about:blank`, `srcdoc`, a sandbox without `allow-scripts`) can only be captured as an empty box. Elements inside a frame can be picked through the boundary (also requiring a helper instance), except while mouse passthrough is on. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
 - A snapshot is a full copy of the page: memory and the first layout roughly double, and a very large page pauses for a few hundred milliseconds before rendering starts.
 - Stay on the page while it renders: navigating or reloading discards the snapshot, and with it the capture (cancel and start again).
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
@@ -118,7 +118,7 @@ After selection:
 - Inside a scrolled pane, pseudo-element overlays, `mix-blend-mode`, and descendants positioned outside the pane's clip may differ slightly from the page.
 - `position: sticky/fixed` elements in full-page captures are handled against the renderer's viewport and may differ from a manually stitched capture.
 - Cross-origin fonts can only be inlined when the stylesheet is readable; otherwise they fall back to system fonts.
-- Interaction isolation suppresses hover by default; turn it off when a hover state is required.
+- Mouse passthrough is off by default, which suppresses hover; turn it on when a hover state is required.
 - Complex backgrounds currently cover gradients and background images on `html` / `body`; pseudo-elements, masks and all fixed/absolute layers may still differ.
 - Rendering cannot leave the main thread: cloning and style inlining now yield to the event loop every ~8 ms, so the page no longer freezes for long stretches, but the total time is unchanged. The final viewport render still hands the browser a multi-megabyte SVG data URL to parse, which can be one ~200 ms hitch.
 
