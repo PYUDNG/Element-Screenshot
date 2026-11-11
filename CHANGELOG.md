@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Cross-origin iframes are captured too. Every frame now runs a small copy of the
+  script that renders its own document when the top page asks over
+  `postMessage` (protocol version, per-request nonce, and a per-install token
+  that the page itself cannot read, so an embedding site cannot use the helper to
+  screenshot a frame it is not allowed to read). Same-origin frames use the same
+  helper path, so a frame's own fonts and pixel ratio always apply; the parent
+  still renders a frame locally when no helper answers (`about:blank`, `srcdoc`,
+  sandboxed frames without scripts, or a frame that is still starting). `@noframes`
+  is gone, and frames never mount the UI, menu commands or the settings panel.
 - Same-origin iframes are captured: the frame's current viewport is rendered from
   a snapshot of the frame's own document (so its styles, scroll position and
   scrollbar layout are the frame's) and painted into the frame's box as a
@@ -16,8 +25,8 @@ All notable changes to this project are documented here. The format follows
   right order. Sticky elements inside the frame are pinned first — a clone has no
   scrollport, so a sticky header would otherwise be rasterized above the shifted
   viewport and disappear. Nested frames are painted recursively (two levels), a
-  frame that fails to render keeps its empty box, and cross-origin frames still
-  wait for the in-frame helper.
+  frame that fails to render keeps its empty box, and the parent falls back to
+  rendering a readable frame itself.
 - The picker shows which layer scrolls: the solid frame is the element as seen on
   screen, a dashed frame appears when the capture will be larger, and a badge
   reads `可滚动 ↓Npx` / `→Npx` / `↕` for the active layer. `Shift`+wheel and

@@ -41,7 +41,8 @@
 2. `4bc826e` 展开语义：默认只展开根 + `fitBoxToLayout()` 重测画布 + 自定义元素 shadow 去重；
 3. `8ad160d` playground：`#nested-demo` / `#frame-demo` 加 `align-self: start`；
 4. `d491bc8` + `cbb0ad0` iframe：`FrameRecord` 记录、跳过快照自身 iframe、`/frame.html` 夹具与路由；
-5. `38b1696` iframe 视口合成：`createSnapshot({ doc })`、帧视口出图写回帧盒子背景、帧内 sticky 钉住、递归深度 2、单帧失败降级。
+5. `38b1696` iframe 视口合成：`createSnapshot({ doc })`、帧视口出图写回帧盒子背景、帧内 sticky 钉住、递归深度 2、单帧失败降级；
+6. `770e9be` 统一帧渲染：每个帧装 helper（`main.ts` 分流 + `frame-bridge`/`frame-helper`）、helper 优先 / 父级兜底、安装级 token 鉴权、去掉 `@noframes`、`app.ts` 拆分、`#cross-frame-demo` 夹具。
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -386,10 +387,29 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 验证页：`playground/region.html`（三个独立面板 + 嵌套面板 + 渐变/圆角 + 面板内 fixed 元素 + 吸顶表头 + 页面滚动），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；页面把初始滚动位置写死，方便反复对比；
 - 调试顺序：内容错位先核对「滚动口尺寸 + border 并入 padding + 根偏移 = 滚动量 + 边框」；边框/圆角残影先看是不是只清了颜色没清 `border-width`/`border-radius`；出现假滚动条先看 `scrollbar-width: none` 是否生效；样式没恢复先看 `replaceScrollContainer()` 的 `restore` 是否按逆序执行。
 
-## iframe 视口合成（0.9.0，同源已实现）
+## iframe 视口合成（0.9.0，同源 + 跨域都已实现）
 
 > 2026-11-10 用户拍板：**跨域也要做**，走「帧内 helper 渲染回传像素」，接受为此去掉 `@noframes`。
 > 2026-11-11 用户确认：先做同源部分，跨域随后；帧内滚动沿用普通元素的规则（选中 iframe 本身 = 展开，选中祖先 = 只画当前视口）。
+> 2026-11-11 用户拍板：**统一成 helper 优先、父级兜底**（方案 A），同源也走 helper，只为没有 helper 的帧保留父级渲染。
+
+### 架构（一条渲染器，两种宿主）
+
+`renderFrameViewport(doc, ratio, options, depth)` 是**唯一**的帧渲染实现，它只做「把某个 document 的当前视口画成 PNG」。跑在哪个 realm 都一样：
+
+- **helper（首选）**：每个 iframe 里都有本脚本的一份实例（`main.ts` 检测 `window !== window.top` → 只装 helper，不挂 UI、不注册菜单、不建设置面板）。父级发 `postMessage` 请它渲染，它渲染完回传 PNG。跨域帧**只能**走这条；同源帧也走这条，因为帧自己的 realm 里 `getFontEmbedCSS` 读的是帧自己的样式表、`devicePixelRatio`/字体/`color-scheme` 也都是帧的。
+- **父级兜底**：帧里没有 helper（`about:blank` / `srcdoc` / `data:` 帧、`sandbox` 没有 `allow-scripts`、或脚本还没加载完）时，只要 `frame.doc` 可读就用同一份实现本地渲染。跨域且没有 helper → 保持空盒。
+
+### 桥协议（`core/frame-bridge.ts` + `core/frame-helper.ts`）
+
+- `FRAME_PROTOCOL = 'element-screenshot:frame/1'`，消息 `hello/ready/render/result`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。
+- 探测：`probeFrameHelpers(frames)` 一次向所有帧发 `hello`，在**同一个 400ms 窗口**里收 `ready`，所以一页有 N 个没有 helper 的帧也只等一次；返回的集合里没有的帧就走兜底。
+- 请求：`requestFrameImage(frame, { ratio, depth })` 发 `render`，等 `result`（默认 10 秒），期间每 100ms 检查 `native.capture.aborted`，用户取消时立即放弃等待。失败/超时/`busy`/`error` 都返回 `null` → 走兜底（可读时）或空盒。
+- 顺序：`paintFrames()` 先 `probeFrameHelpers`，再逐帧 `requestFrameImage ?? renderFrameViewport(frame.doc, …)`，图写回副本 iframe 的 `background-image`（`origin: content-box`、`size: 100% 100%`），父级只渲染一次页面。
+- 深度：`paintFrames(root, frames, ratio, options, depth)` 里 `depth > MAX_FRAME_DEPTH(2)` 直接返回；helper 收到 `depth` 原样转给 `renderFrameViewport`，所以「帧里的帧」最多两层，再深留空盒。
+- 并发：helper 同时只渲染一个请求，第二个立刻回 `busy`；helper 会等 `DOMContentLoaded`（最多 5 秒）再开始，避免在解析中途拍照。
+- **鉴权（别拆）**：helper 会渲染自己的页面，没有门槛的话任何站点都能嵌一个页面进来、用我们的 helper 截它的图（跨域像素外泄）。现在 `main.ts` 用 `GM_getValue/GM_setValue` 生成并共享一个安装级 token（`element-screenshot:frame-token`），helper 只接受 `event.source === window.parent` 且 token 匹配的请求。页面脚本读不到 userscript 存储，所以拿不到 token。两个不同安装（或 playground stub 与 VM）token 不同 → 互相不响应，这是**预期**行为。
+- `setFrameToken()` / `getFrameToken()` 是模块级状态：`main.ts` 在两边的 realm 里都要先调用 `setFrameToken(ensureFrameToken())`；token 为空时桥整体沉默（探测返回空集、请求返回 null），安全降级。
 
 ### 已经做完（别再重复实现）
 
@@ -403,41 +423,49 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
   }
   ```
 - `collectFrame()` 仍只清 `src` / `srcdoc`（不重复请求、不二次执行页面脚本），克隆时跳过带 `data-element-screenshot-snapshot` / `-ignore` 的节点。
-- 渲染在 `capture.ts`：`renderFrameViewport()`（帧视口出图）+ `paintFrames()`（把图写进帧盒子）+ `pinFrameSticky()`。
+- 渲染在 `capture.ts`：`renderFrameViewport()`（帧视口出图，**导出**给 helper 用）+ `paintFrames()`（探测 helper → 请求 → 写回背景）+ `pinFrameSticky()`。
 - **帧图不走结果 canvas 合成，而是写回副本里那个空 iframe 的背景**（和区域截图的切片同一套思路）：`sliceBackgroundStyle(computed, { url, origin: 'content-box', size: '100% 100%' })`。好处是边框、圆角、`overflow` 裁剪、以及「压在 iframe 上的 sticky 表头/浮层」全部由父级那一次渲染按真实层叠顺序画，不存在「把帧图贴在最上层盖住别的东西」的问题。
 - **必须钉住帧内 sticky**：克隆里没有滚动口，sticky 退化为 static；帧视口又是靠 `top: -scrollY` 平移出来的，文档顶部的 sticky 表头会直接跑到画布外消失（实测 `frame.html` 的表头会整条不见）。`pinFrameSticky()` 在**展开根之前**（副本还在帧的真实滚动位置时）量 `pinned - static` 差值，写成 `position: relative + top`，顺序不能颠倒——`expandForCapture()` 会把副本滚回 0。
 - 帧渲染的根样式与区域截图一致：`position: relative; inset: auto; top: -scrollY; left: -scrollX; transform: none`（`transform` 会把 `fixed` 后代变成相对克隆根定位）；渲染面 = 帧的 `innerWidth × innerHeight`，`pixelRatio` 取父级 `plan.ratio`。
 - 递归：`paintFrames()` 先给「帧里的帧」出图，深度上限 `MAX_FRAME_DEPTH = 2`，更深的留空盒；单帧失败只 `console.warn`，不影响整次截图；取消会向上抛。
-- 字体：有帧时用 `sharedFontEmbedCSS()` 解析一次顶层页面的字体 CSS，同时传给帧渲染和页面渲染（否则每次渲染都重走一遍样式表）。帧自己文档里独有的 `@font-face` 目前仍会回退，见下。
-- 测试：`snapshot.test.ts` 覆盖 `doc` 选项（副本挂在帧 documentElement、宽度 = 帧视口）、`FrameRecord.copy/doc`、跨域 `doc: null`、副本不留 `src` / `srcdoc`；`capture.test.ts` 的 `iframe compositing` 覆盖帧视口参数、背景层写法（`100% 100%` / `content-box`）、根外的帧不渲染、跨域留空盒、零尺寸跳过、单帧失败不影响整次、字体 CSS 只解析一次。
-- playground 夹具：`playground/frame.html`（自带样式、sticky 表头、30 行、初始 `scrollTo(0, 60)`）；`index.html` 的 `#frame-demo` 卡片嵌了它（1px 边框 + 10px 圆角）；`scripts/serve-playground.mjs` 有 `/frame.html` 路由。
+- 字体：helper 渲染用帧自己的样式表（正确）；父级兜底时用 `sharedFontEmbedCSS()` 解析一次顶层页面的字体 CSS 并共享给页面渲染，帧独有字体在**兜底路径**上仍会回退。
+- 测试：`snapshot.test.ts` 覆盖 `doc` 选项（副本挂在帧 documentElement、宽度 = 帧视口）、`FrameRecord.copy/doc`、跨域 `doc: null`、副本不留 `src` / `srcdoc`；`capture.test.ts` 的 `iframe compositing` 覆盖帧视口参数、背景层写法（`100% 100%` / `content-box`）、根外的帧不探测、跨域留空盒、零尺寸跳过、单帧失败不影响整次、字体 CSS 只解析一次、**helper 优先 / helper 沉默时回退**；`frame-bridge.test.ts` 覆盖协议校验、探测、请求、超时、取消、无 token 沉默；`frame-helper.test.ts` 覆盖 ready/render/result、错误回传、busy、等 DOMContentLoaded、非父窗口与非 token 请求被忽略。
+- playground 夹具：`playground/frame.html`（自带样式、sticky 表头、30 行、初始 `scrollTo(0, 60)`）；`index.html` 的 `#frame-demo`（同源）与 `#cross-frame-demo`（`http://127.0.0.1:4177/frame.html`，跨域，需要 `PLAYGROUND_PORT=4177 pnpm playground`）；`scripts/serve-playground.mjs` 有 `/frame.html` 路由。
 
-### 已验证（真实浏览器，VM 实例 + playground）
+### 已验证（真实浏览器，VM 实例 + playground，2026-11-11）
 
-- 截 `#frame-demo` 卡片：432×363 CSS → 864×726 设备像素，`ratio 2`，3.2 秒；iframe 内容区从 `(38, 248)` 开始、788×440，正好是 `(iframe 相对卡片位置) × 2`。
-- 帧内 sticky 表头出现在帧图顶部（`#eef2ff` 像素 52,811 个），表头下沿能看到被它盖住的 `Frame row 02` 半行 → 说明帧自己的 `scrollY = 60` 平移正确（若没平移，会从 `Frame row 01` 开始）。
-- 圆角：帧图四个角外侧是卡片底色（`255,255,255`），内缩 1px 起才是表头色 → 帧自身的 `border-radius` 裁剪由页面渲染完成。
-- 截 iframe 元素本身：788×440，边框 `#d4d4d8`、圆角、帧内容都在，同样 2 秒级。
+验证手法：`page.addInitScript` 把 `HTMLCanvasElement.prototype.toBlob` 包一层统计每个 realm 的调用次数（`window.__shotCount`），再用 `frame.contentWindow.__shotCount` 区分「帧自己渲染」和「父级渲染」。
+
+- 同源 `#frame-demo`（`?vm=1`）：864×726、`ratio 2`，1.4 秒；**父级计数器 +1、帧内计数器 = 1** → 走 helper；帧内 sticky 表头 `#eef2ff` 52,811 像素，表头下沿露出被它盖住的 `Frame row 02` 半行 → 帧自己的 `scrollY = 60` 平移正确。同源走父级兜底时输出完全一致（864×726、表头 52,811）。
+- 帧圆角/边框：帧图四个角外侧是卡片底色（`255,255,255`），内缩 1px 起才是表头色；截 iframe 元素本身时 788×440、边框 `#d4d4d8` 都在。
+- 跨域 `#cross-frame-demo`（顶层 4176、帧 4177）：1040×682（卡片 520×341 @2），1.5 秒；`topCalls = 1`、帧内容 65,835 像素（表头色）→ **只有 helper 能做到**（父级读不到 `contentDocument`）。
+- 兜底：`about:blank` + `document.write` 的帧（VM 不注入）→ `frameCalls = 0`、`topCalls = 2`（帧 + 页面），内容与 sticky 表头正常（720×360，1.1 秒）。
+- 鉴权：从页面直接 `postMessage` 伪造 `hello`/`render`（token 猜错、或 token 为空）→ 900ms 内没有任何回复；来源检查 + token 缺一不可。
 - 截完活页面干净：页面和帧内都没有残留 `[data-element-screenshot-snapshot]`，iframe 行内样式/背景未改、帧滚动仍是 60。
 
 ### 下一步（按顺序）
 
-1. **跨域 helper**：去掉 `@noframes`、helper 模式（帧内不挂 UI、不注册菜单命令）、postMessage 协议（nonce + 协议版本 + 单帧 4s 超时 + 失败降级空盒）。复用同一个 `renderFrameViewport()`，只换「谁来渲染」。
-2. **选中 iframe 本身 = 展开**：现在选中 iframe 是「它的视口」，按已定语义应该把帧文档当根整页展开，并让父级副本里的 iframe 盒子长高、父级重排（在副本里改 iframe 高度即可，别动活页面）。需要同时处理「父级盒子长高后画布尺寸跟着变」。
-3. **帧内字体**：给 `native` 加一个「字体源文档」钩子，把 `gm-fetch-plugin.ts` 里 `toArray(node.ownerDocument.styleSheets)` 的替换改成可切换的 document，让帧渲染用帧自己（副本）的 `@font-face`；否则帧独有字体只能回退。
-4. **区域截图里的 iframe**：暂不处理，写进已知限制（`captureRegion()` 现在不读 `snapshot.frames`）。
-5. 分布式 picker（穿透任意 iframe）——独立功能，排在合成之后。
+1. **选中 iframe 本身 = 展开**：现在选中 iframe 是「它的视口」，按已定语义应该把帧文档当根整页展开，并让父级副本里的 iframe 盒子长高、父级重排（在副本里改 iframe 高度即可，别动活页面）。跨域时「帧内容有多高」要由 helper 回报（协议加字段），并且要处理「父级盒子长高后画布尺寸跟着变」。
+2. **区域截图里的 iframe**：暂不处理，写进已知限制（`captureRegion()` 现在不读 `snapshot.frames`）。
+3. **兜底路径的帧内字体**：给 `native` 加一个「字体源文档」钩子，把 `gm-fetch-plugin.ts` 里 `toArray(node.ownerDocument.styleSheets)` 的替换改成可切换的 document，让本地兜底渲染也能用帧自己的 `@font-face`（helper 路径已经正确）。
+4. 分布式 picker（穿透任意 iframe）：有了 helper 通道后，picker 可以让帧内实例回报「指针下最内层元素」，再把整条层级栈拼起来（跨域只拿得到帧自身，除非 helper 回传标签）。
+5. 多帧并行：现在 `paintFrames()` 串行请求，整页有 N 个帧就是 N 次串行渲染；帧之间互不依赖，可以并行发请求（注意 helper 是 busy 队列）。
 
 ### 关键约束（别踩）
 
 - html-to-image 克隆 `<iframe>` 时**不带浏览上下文**：`cloneIFrameElement()` 会退化成「克隆 `contentDocument.body` 并把 iframe 的 computed style 扣到那个 `<body>` 上」。所以副本里的空 iframe 仍会保留正确尺寸/边框/圆角/背景——我们的帧图正是作为它的 `background-image` 画出来的。
-- 帧渲染用的是**帧自己的文档**：背景、`color-scheme` 跟帧走；`getFontEmbedCSS` 在构建时被 patch 成读顶层 document，见上。
+- 帧渲染用的是**帧自己的文档**：背景、`color-scheme` 跟帧走；`getFontEmbedCSS` 在构建时被 patch 成读「当前 realm 的 `native.document`」，所以 helper（帧 realm）自动正确，父级兜底只能读顶层。
 - 帧内滚动语义：**直接选中 iframe** 时它相当于「根」，可以按整页展开并让父级把盒子撑高；**选中包含 iframe 的祖先**时只画帧的当前可见视口（除非打开「展开内部滚动区域」）。
-- 每个同源帧都是一次独立 html-to-image 渲染：整页截图里有 N 个同源帧就多 N 次渲染（实测小帧 1～2 秒/个），跨域帧直接跳过。日志里出现 `[element-screenshot] frame render failed:` 表示该帧降级成空盒。
+- 每个帧都是一次独立 html-to-image 渲染：整页截图里有 N 个帧就多 N 次渲染（实测小帧 1～1.5 秒/个）；没有 helper 的帧只多等一次 400ms 探测窗口。日志里出现 `[element-screenshot] frame render failed:` / `frame helper failed:` 表示该帧降级成空盒。
+- 去掉了 `@noframes`：脚本会在**每个** iframe 里执行一遍（解析 520KB bundle、读一次 token），但帧实例不挂 UI、不注册菜单、不建设置，开销只在这个量级。不要给它加「顺手」的初始化逻辑。
+- playground 的坑：`/frame.html` 只有在帧里也装了这个脚本时才有 helper。用 **VM 安装**（`?vm=1` 或不带参数都行，VM 会注入每个帧）时跨域那格也能出图；完全不装 VM 时 playground 的 stub 只注入顶层页面，`/frame.html` 没有实例 → 同源帧走兜底、跨域帧只能空白。
 
 ### 验证素材
 
-还需要：跨域 iframe（换端口起第二个 server，例如 `PLAYGROUND_PORT=4177`）、「帧内再嵌跨域帧」、以及「帧在可滚动祖先里，祖先被展开后帧位置是否跟得上」的用例。
+- 同源：`http://127.0.0.1:4176/?vm=1` 的 `#frame-demo`。
+- 跨域：先 `PLAYGROUND_PORT=4177 pnpm playground`，再访问 4176 页面的 `#cross-frame-demo`。
+- 兜底：`about:blank` + `document.write` 的临时 iframe（VM 不注入这种帧）。
+- 还缺：「帧内再嵌帧」的两层用例、「帧在可滚动祖先里、祖先展开后帧位置是否跟得上」的用例。
 
 ## 验证建议
 
