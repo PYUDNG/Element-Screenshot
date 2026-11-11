@@ -39,7 +39,7 @@
 
 1. `77831ea` / `4bc826e` picker 双层框、`可滚动 ↓Npx` 徽标、`Shift+滚轮` 跳滚动层、`scrollContainerInfo()` 统一判定；默认只展开根 + `fitBoxToLayout()` 重测画布 + 自定义元素 shadow 去重；
 2. `8ad160d` playground：`#nested-demo` / `#frame-demo` 加 `align-self: start`；`d491bc8` + `cbb0ad0` iframe 记录（`FrameRecord`）与 `/frame.html` 夹具；`c5ec8a8` playground 的 `index.html` 也认 `?vm=1`；
-3. `38b1696` 帧视口合成：`createSnapshot({ doc })`、帧图写回帧盒子背景、帧内 sticky、深度 2、单帧降级；`770e9be` 统一帧渲染：每帧装 helper、helper 优先 / 父级兜底、安装级 token、去掉 `@noframes`、`app.ts` 拆分；`f00cdad` 选中帧本身 = 展开（`core/frame-size.ts`、`measure`/`size`、`planFrameExpansion()`）；`36bc973` 区域截图里的帧（`framesInRegion()` + `paintFrames()`）；
+3. `38b1696` + `770e9be` + `f00cdad` + `36bc973` 帧渲染：`createSnapshot({doc})`、帧图写回帧盒子背景、帧内 sticky、深度 2、每帧装 helper（token 鉴权、去 `@noframes`）、选中帧本身 = 展开、区域截图里的帧；
 4. `25b4443` 帧内快捷键：`core/hotkey-bridge.ts`（`subscribe` / `hotkey` / `trigger`，协议 `/3`），帧内按键回到顶层再复核；
 5. `d02ba88` 设置项归位：`触发快捷键` 从「截图 → 触发方式」搬到「触发 → 快捷键」；`b17e4d5` 文档；
 6. `71f05c0` 帧内选择器按键：**不动焦点**，帧把选择器用得上的键经桥上报（`ui` + `key`，协议 `/4`，`core/relay-key.ts`），顶层在 `document.body` 上重放给 picker；
@@ -173,10 +173,6 @@ Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = 
 - Playwright extension 模式可以连接正在运行的 Edge，并共享登录态；
 - 它只能控制自己的受控标签页，不接管用户正在看的标签页；**不能操作 `extension://` / `chrome-extension://` 页面**（导航会 detached）；
 - 截图只能写到 `C:\Users\InvFish\.dsh\profiles\desktop`（或其 `.playwright-mcp`）。
-
-### 旧的 CDP 方案
-
-仅在 MCP 完全不可用时：`msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile>`，再连 `http://127.0.0.1:9222/json/list` 的 page target。CDP 无认证，别把主力 Profile 裸开调试端口。
 
 ## 发布流程
 
@@ -464,15 +460,16 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 穿透选取（同一环境）：
 
-- 悬停同源帧（394×220）→ 标签 `div.row帧内377 × 369/9`、可见框 `784.5,389.7 377×36`（帧在 783.5,300.7，1px 边框）；层级 1/9→9/9 = `html → body → main → section#frame-demo → iframe → html帧内 → body帧内 → div#frame-list 帧内 → div.row 帧内`。点它 → **754×72**、跨域帧同样 → **930×72**（父级拿不到这些元素）；选中 `iframe` 层仍是 **788×2226**；无 helper 的帧（`about:blank` + `document.write`）悬停 ~120ms 退回 `iframe`，2 秒内重进直接命中缓存。
+- 悬停同源帧（394×220）→ 标签 `div.row帧内377 × 369/9`、可见框 `784.5,389.7 377×36`（帧在 783.5,300.7，1px 边框）；层级 1/9→9/9 = `html → body → main → section#frame-demo → iframe → html帧内 → body帧内 → div#frame-list 帧内 → div.row 帧内`。点它 → **754×72**、跨域帧同样 → **930×72**；无 helper 的帧悬停 ~120ms 退回 `iframe`，2 秒内重进命中缓存。
 
 > 自动化坑：`hidden` 标签页里 `requestAnimationFrame` 完全不跑，而 picker 的 hover 是 rAF 节流的 → 先 `mouse.move`（同步更新 `picker.cursor`）再 `dispatchEvent(new Event('resize'))`（`handleResize()` 同步 `refresh()`）。FAB 贴右边时坐标用 `innerWidth`（含滚动条），`elementsFromPoint()` 在滚动条区域返回空数组，点击要落在 `clientWidth` 内。注意 `native` 在 document-start 快照了 `toBlob`，运行期再包原型统计不到（要统计得用 `addInitScript`）。
 
 ### 下一步（按顺序）
 
-1. `expandNested` 打开时，让**被捕获祖先内部的帧**也参与撑高？现在明确不参与（会重排用户正在看的页面结构），要做得先想清楚「撑高后祖先的布局、兄弟节点位置」怎么处理。
-2. 帧在**被替换的滚动容器内部**时，区域截图里那一格仍然是空的：切片渲染时容器的子元素被隐藏了，帧图也就被藏掉了。真要支持，得在切片渲染前把帧图写进容器内的帧盒子。
-3. 穿透选取的缺口：隔离关闭时帧收不到指针（要帧在 `ui` 期间上报 pointer、父级换算坐标并接管点击）；只穿一层（递归要一层一次坐标换算 + `via` 链路才能让 deepen 的 capture 找到元素）。
+0. **设置迁移的版本化**（方案已定、未实现）：现状、三个真实风险和步骤表方案见 `docs/settings-migrations.md`，动手前先读它。
+1. `expandNested` 打开时让**被捕获祖先内部的帧**也参与撑高？现在明确不参与（会重排用户正在看的页面），要做先想清「撑高后祖先布局、兄弟位置」怎么处理。
+2. 帧在**被替换的滚动容器内部**时，区域截图里那一格仍是空的：切片渲染时容器子元素被隐藏，帧图也被藏掉。要支持得在切片渲染前把帧图写进容器内的帧盒子。
+3. 穿透选取的缺口：鼠标穿透开着时帧收不到指针（要帧上报 pointer、父级换算坐标并接管点击）；只穿一层（递归要一层一次坐标换算 + `via` 链路）。
 
 ### 关键约束（别踩）
 
