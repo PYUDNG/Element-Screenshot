@@ -30,6 +30,7 @@ export default defineConfig({
         'packages/settings/src/icons.ts',
         'packages/settings/src/messages.ts',
         'packages/userscript/src/main.ts',
+        'packages/userscript/src/app.ts',
         'packages/userscript/src/messages.ts',
         'packages/userscript/src/config/**',
         'packages/userscript/src/net/gm-adapter.ts',

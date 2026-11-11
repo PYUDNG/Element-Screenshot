@@ -1,15 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as CropModule from '../src/core/crop'
 
-const { toBlobMock, cropBlobMock, fontEmbedMock } = vi.hoisted(() => ({
+const { toBlobMock, cropBlobMock, fontEmbedMock, probeMock, frameImageMock } = vi.hoisted(() => ({
   toBlobMock: vi.fn(),
   cropBlobMock: vi.fn(),
-  fontEmbedMock: vi.fn(async () => '/* page fonts */')
+  fontEmbedMock: vi.fn(async () => '/* page fonts */'),
+  probeMock: vi.fn(async (_frames: readonly HTMLIFrameElement[]) => new Set<HTMLIFrameElement>()),
+  frameImageMock: vi.fn(
+    async (_frame: HTMLIFrameElement, _request: { ratio: number; depth: number }) =>
+      null as Blob | null
+  )
 }))
 
 vi.mock('html-to-image', () => ({
   toBlob: toBlobMock,
   getFontEmbedCSS: fontEmbedMock
+}))
+
+vi.mock('../src/core/frame-bridge', () => ({
+  probeFrameHelpers: probeMock,
+  requestFrameImage: frameImageMock
 }))
 
 vi.mock('../src/core/crop', async (importOriginal) => {
@@ -68,6 +78,10 @@ beforeEach(() => {
   toBlobMock.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
   cropBlobMock.mockReset()
   cropBlobMock.mockResolvedValue(new Blob(['crop'], { type: 'image/png' }))
+  probeMock.mockReset()
+  probeMock.mockResolvedValue(new Set<HTMLIFrameElement>())
+  frameImageMock.mockReset()
+  frameImageMock.mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -827,6 +841,82 @@ describe('iframe compositing', () => {
     expect(frameCall?.options.fontEmbedCSS).toBe('/* page fonts */')
     // Resolved once for the page and every frame it contains.
     expect(fontEmbedMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('paints the picture the frame helper sends back', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    root.append(copy)
+    // Cross-origin: only a helper can produce these pixels.
+    const record = frameRecord(copy, null)
+    mockSnapshots([record])
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? rectOf(200, 100) : rectOf(0, 0)
+    )
+    probeMock.mockResolvedValue(new Set([record.live]))
+    frameImageMock.mockResolvedValue(new Blob(['helper'], { type: 'image/png' }))
+    const calls = observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 300, height: 200 },
+      pixelRatio: 2
+    })
+
+    expect(probeMock).toHaveBeenCalledWith([record.live])
+    expect(frameImageMock).toHaveBeenCalledWith(record.live, { ratio: 2, depth: 1 })
+    expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
+    // The frame picture came from the helper, so the page render is the only
+    // local html-to-image call.
+    expect(calls).toHaveLength(1)
+  })
+
+  it('renders locally when a probed helper stays silent', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    root.append(copy)
+    const record = frameRecord(copy, document)
+    mockSnapshots([record])
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? rectOf(200, 100) : rectOf(0, 0)
+    )
+    probeMock.mockResolvedValue(new Set([record.live]))
+    frameImageMock.mockResolvedValue(null)
+    const calls = observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 300, height: 200 },
+      pixelRatio: 1
+    })
+
+    expect(frameImageMock).toHaveBeenCalled()
+    // Frame viewport render plus the page render.
+    expect(calls).toHaveLength(2)
+    expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
+  })
+
+  it('probes only the frames inside the captured element', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const inside = document.createElement('iframe')
+    const outside = document.createElement('iframe')
+    root.append(inside)
+    document.body.append(outside)
+    const insideRecord = frameRecord(inside, document)
+    const outsideRecord = frameRecord(outside, document)
+    mockSnapshots([insideRecord, outsideRecord])
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === inside ? rectOf(200, 100) : rectOf(0, 0)
+    )
+    observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 300, height: 200 },
+      pixelRatio: 1
+    })
+
+    expect(probeMock).toHaveBeenCalledWith([insideRecord.live])
   })
 
   it('leaves a frame outside the captured element alone', async () => {

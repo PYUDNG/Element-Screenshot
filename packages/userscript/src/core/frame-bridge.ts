@@ -1,0 +1,254 @@
+import { native } from './native'
+
+/**
+ * Bridge to the copy of this script that runs inside an iframe.
+ *
+ * html-to-image resolves the computed style of the document it renders, and the
+ * webfont embedder reads that document's stylesheets. Rendering a frame inside
+ * the frame is therefore both the accurate path (its fonts, its device pixel
+ * ratio, its `color-scheme`) and the only path for a cross-origin frame, whose
+ * document the parent cannot read at all.
+ *
+ * The parent still keeps a fallback: a frame the manager does not inject into
+ * (`about:blank`, `srcdoc`, a sandbox without `allow-scripts`) or one that is
+ * still starting up never answers, and a same-origin frame is then rendered by
+ * the parent the way it was before this bridge existed.
+ */
+
+/** Bump when the message shape or the frame renderer changes. */
+export const FRAME_PROTOCOL = 'element-screenshot:frame/1'
+/** How long a frame gets to answer the hello probe. */
+export const FRAME_READY_TIMEOUT = 400
+/** How long one helper render may take before the parent stops waiting. */
+export const FRAME_RESULT_TIMEOUT = 10_000
+/** How often a pending request checks whether the capture was cancelled. */
+const CANCEL_POLL_INTERVAL = 100
+
+export interface FrameHelloMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'hello'
+  token: string
+  nonce: string
+}
+
+export interface FrameReadyMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'ready'
+  nonce: string
+}
+
+export interface FrameRenderMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'render'
+  token: string
+  nonce: string
+  /** Capture ratio of the parent, so the frame picture matches its pixels. */
+  ratio: number
+  /** Nesting depth of the frame being rendered. */
+  depth: number
+}
+
+export interface FrameResultMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'result'
+  nonce: string
+  blob: Blob | null
+  error?: string
+}
+
+export type FrameMessage =
+  | FrameHelloMessage
+  | FrameReadyMessage
+  | FrameRenderMessage
+  | FrameResultMessage
+
+const MESSAGE_TYPES = new Set(['hello', 'ready', 'render', 'result'])
+
+/**
+ * Per-install secret shared by every frame of this script.
+ *
+ * The helper renders its own page, so without a gate any site could embed a page
+ * in an iframe and ask our helper for a picture of it — a same-origin bypass for
+ * whatever the frame shows. The page itself cannot read the userscript storage,
+ * so a token from there proves that the request comes from this script.
+ */
+let frameToken = ''
+
+export function setFrameToken(token: string): void {
+  frameToken = token
+}
+
+export function getFrameToken(): string {
+  return frameToken
+}
+
+let nonceCounter = 0
+
+function createNonce(): string {
+  nonceCounter += 1
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2)
+  return `${random}-${nonceCounter}`
+}
+
+/** The helper window of a frame, or null when the frame has no browsing context. */
+export function frameWindow(frame: HTMLIFrameElement): Window | null {
+  try {
+    return frame.contentWindow ?? null
+  } catch (_error) {
+    return null
+  }
+}
+
+/** Reject anything that is not a current protocol message. */
+export function readFrameMessage(value: unknown): FrameMessage | null {
+  if (!value || typeof value !== 'object') return null
+  const data = value as Record<string, unknown>
+  if (data.protocol !== FRAME_PROTOCOL) return null
+  if (typeof data.type !== 'string' || !MESSAGE_TYPES.has(data.type)) return null
+  if (typeof data.nonce !== 'string' || data.nonce.length === 0) return null
+  return value as FrameMessage
+}
+
+export function postFrameMessage(target: Window | null, message: FrameMessage): boolean {
+  if (!target) return false
+  try {
+    target.postMessage(message, '*')
+    return true
+  } catch (_error) {
+    return false
+  }
+}
+
+interface FrameWaitOptions {
+  timeout: number
+  /** Handle one validated message; return true when the wait is over. */
+  onMessage: (message: FrameMessage, event: MessageEvent) => boolean
+}
+
+/**
+ * Wait for bridge messages, ending early on the first `true`, on the timeout or
+ * on a cancelled capture. The listener stays on the capture phase so a page that
+ * stops propagation cannot hide an answer.
+ */
+function waitForMessages(options: FrameWaitOptions): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false
+    let poll = 0
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      native.removeEventListener(window, 'message', listener, true)
+      native.clearTimeout(timer)
+      native.clearTimeout(poll)
+      resolve()
+    }
+    const listener = (event: Event): void => {
+      const message = readFrameMessage((event as MessageEvent).data)
+      if (!message) return
+      if (options.onMessage(message, event as MessageEvent)) finish()
+    }
+    const tick = (): void => {
+      poll = native.setTimeout(() => {
+        if (settled) return
+        if (native.capture.aborted) {
+          finish()
+          return
+        }
+        tick()
+      }, CANCEL_POLL_INTERVAL)
+    }
+
+    native.addEventListener(window, 'message', listener, true)
+    const timer = native.setTimeout(finish, options.timeout)
+    tick()
+  })
+}
+
+export interface FrameProbeOptions {
+  timeout?: number
+}
+
+/**
+ * Find the frames that run a helper.
+ *
+ * Every frame is asked at once and the answers are collected in one window, so a
+ * page full of frames without a helper costs one timeout instead of one each.
+ */
+export async function probeFrameHelpers(
+  frames: readonly HTMLIFrameElement[],
+  options: FrameProbeOptions = {}
+): Promise<Set<HTMLIFrameElement>> {
+  const ready = new Set<HTMLIFrameElement>()
+  const token = frameToken
+  if (!token) return ready
+
+  const pending = new Map<string, { frame: HTMLIFrameElement; win: Window }>()
+  for (const frame of frames) {
+    const win = frameWindow(frame)
+    if (!win) continue
+    const nonce = createNonce()
+    pending.set(nonce, { frame, win })
+    postFrameMessage(win, { protocol: FRAME_PROTOCOL, type: 'hello', token, nonce })
+  }
+  if (pending.size === 0) return ready
+
+  await waitForMessages({
+    timeout: options.timeout ?? FRAME_READY_TIMEOUT,
+    onMessage: (message, event) => {
+      if (message.type !== 'ready') return false
+      const entry = pending.get(message.nonce)
+      if (!entry || event.source !== entry.win) return false
+      pending.delete(message.nonce)
+      ready.add(entry.frame)
+      return pending.size === 0
+    }
+  })
+
+  return ready
+}
+
+export interface FrameRenderRequest {
+  ratio: number
+  depth: number
+  timeout?: number
+}
+
+/** Ask one helper for a picture of its viewport; null when it does not answer. */
+export async function requestFrameImage(
+  frame: HTMLIFrameElement,
+  request: FrameRenderRequest
+): Promise<Blob | null> {
+  const token = frameToken
+  const win = frameWindow(frame)
+  if (!token || !win) return null
+
+  const nonce = createNonce()
+  let image: Blob | null = null
+  let failure = ''
+  const sent = postFrameMessage(win, {
+    protocol: FRAME_PROTOCOL,
+    type: 'render',
+    token,
+    nonce,
+    ratio: request.ratio,
+    depth: request.depth
+  })
+  if (!sent) return null
+
+  await waitForMessages({
+    timeout: request.timeout ?? FRAME_RESULT_TIMEOUT,
+    onMessage: (message, event) => {
+      if (message.type !== 'result') return false
+      if (message.nonce !== nonce || event.source !== win) return false
+      image = message.blob ?? null
+      failure = message.error ?? ''
+      return true
+    }
+  })
+
+  if (failure) console.warn('[element-screenshot] frame helper failed:', failure)
+  return image
+}

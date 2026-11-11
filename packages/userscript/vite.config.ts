@@ -89,7 +89,6 @@ export default defineConfig({
         supportURL: 'https://github.com/PYUDNG/Element-Screenshot/issues',
         match: ['*://*/*'],
         'run-at': 'document-start',
-        noframes: true,
         grant: [
           'GM_xmlhttpRequest',
           'GM_registerMenuCommand',

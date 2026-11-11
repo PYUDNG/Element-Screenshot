@@ -178,7 +178,8 @@
       #nested-demo {
         align-self: start;
       }
-      #frame-demo {
+      #frame-demo,
+      #cross-frame-demo {
         align-self: start;
       }
       #nested-panel {
@@ -376,6 +377,28 @@
         <iframe
           src="/frame.html"
           title="frame fixture"
+          style="
+            display: block;
+            width: 100%;
+            height: 220px;
+            border: 1px solid #d4d4d8;
+            border-radius: 10px;
+            background: #fff;
+          "
+        ></iframe>
+      </section>
+
+      <!-- 跨域帧：需要第二个 playground 实例（PLAYGROUND_PORT=4177 pnpm playground）。
+           它只能靠帧内 helper 出图，没有 helper 时整块保持空白。 -->
+      <section class="card" id="cross-frame-demo">
+        <h2>Cross-origin iframe</h2>
+        <p class="muted">
+          指向 <code>http://127.0.0.1:4177/frame.html</code>。需要同时启动 4177 端口的
+          playground；不启动时这张卡片只有空白。
+        </p>
+        <iframe
+          src="http://127.0.0.1:4177/frame.html"
+          title="cross-origin frame fixture"
           style="
             display: block;
             width: 100%;

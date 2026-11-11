@@ -8,6 +8,7 @@ import type { Point, ViewportSize } from './region'
 import { planCrop, cropBlob } from './crop'
 import { createSnapshot } from './snapshot'
 import type { FrameRecord } from './snapshot'
+import { probeFrameHelpers, requestFrameImage } from './frame-bridge'
 import {
   blobToDataUrl,
   collectFixedDescendants,
@@ -640,28 +641,32 @@ function frameBoxSize(copy: HTMLIFrameElement): FrameViewport | null {
 }
 
 /**
- * Paint one frame's current viewport.
+ * Render a frame's current viewport.
  *
- * The frame document is copied into an off-screen iframe of the same size, so
- * the copy lays out exactly like the frame; the surface is the frame's viewport
- * and the root is shifted by the frame's scroll, because a clone carries neither.
- * The frames nested inside are painted first: their pictures land in this one.
+ * The document is copied into an off-screen iframe of the same size, so the copy
+ * lays out exactly like the frame; the surface is the frame's viewport and the
+ * root is shifted by the frame's scroll, because a clone carries neither. The
+ * frames nested inside are painted first: their pictures land in this one.
+ *
+ * This runs in whichever realm can read the document: the frame's own copy of the
+ * script (the accurate path, and the only one for a cross-origin frame) or, as a
+ * fallback, the parent.
  */
-async function renderFrameViewport(
-  frame: FrameRecord,
+export async function renderFrameViewport(
+  doc: Document | null,
   ratio: number,
   options: CaptureOptions,
   depth: number
 ): Promise<Blob | null> {
-  const live = frame.doc
+  assertNotCancelled()
   // A cross-origin frame has no readable document and needs a helper instance.
-  if (!live || depth > MAX_FRAME_DEPTH) return null
-  const viewport = frameViewport(live)
+  if (!doc || depth > MAX_FRAME_DEPTH) return null
+  const viewport = frameViewport(doc)
   if (!viewport) return null
 
-  const scroll = frameScroll(live)
+  const scroll = frameScroll(doc)
   const snapshot = await createSnapshot({
-    doc: live,
+    doc,
     skip: options.filter ? (node) => !options.filter?.(node as HTMLElement) : undefined
   })
   try {
@@ -721,8 +726,15 @@ function paintFrameBackground(copy: HTMLIFrameElement, url: string): void {
 
 /**
  * Render every frame inside `root` and paint it into its own box before the page
- * render. A frame that cannot be rendered keeps its empty box: a missing picture
- * is not a reason to lose the whole capture.
+ * render.
+ *
+ * The frame's own copy of the script is asked first: it renders in the frame's
+ * realm, so the frame's fonts and pixel ratio come out right, and it is the only
+ * way to reach a cross-origin frame. A frame without a helper (not injected —
+ * `about:blank`, `srcdoc`, a sandbox without `allow-scripts` — or still starting
+ * up) is rendered by the parent when its document is readable. A frame that
+ * cannot be rendered keeps its empty box: a missing picture is not a reason to
+ * lose the whole capture.
  */
 async function paintFrames(
   root: Element,
@@ -731,11 +743,18 @@ async function paintFrames(
   options: CaptureOptions,
   depth: number
 ): Promise<void> {
-  for (const frame of framesInside(root, frames)) {
+  if (depth > MAX_FRAME_DEPTH) return
+  const targets = framesInside(root, frames).filter((frame) => frameBoxSize(frame.copy))
+  if (targets.length === 0) return
+
+  const helpers = await probeFrameHelpers(targets.map((frame) => frame.live))
+  for (const frame of targets) {
     assertNotCancelled()
-    if (!frameBoxSize(frame.copy)) continue
     try {
-      const image = await renderFrameViewport(frame, ratio, options, depth)
+      const remote = helpers.has(frame.live)
+        ? await requestFrameImage(frame.live, { ratio, depth })
+        : null
+      const image = remote ?? (await renderFrameViewport(frame.doc, ratio, options, depth))
       if (!image) continue
       paintFrameBackground(frame.copy, await blobToDataUrl(image))
     } catch (error) {
