@@ -165,6 +165,19 @@
         border-bottom: 1px solid #f4f4f5;
         font-size: 13px;
       }
+      #nested-scroll {
+        height: 240px;
+        overflow: auto;
+        border: 1px solid #d4d4d8;
+        border-radius: 10px;
+        background: #fff;
+      }
+      #nested-panel {
+        margin-top: 12px;
+        /* A small padding gives the picker a strip where the panel itself is
+           the deepest element, so it can be selected without walking layers. */
+        padding: 6px;
+      }
       .icon-row {
         display: flex;
         align-items: center;
@@ -321,6 +334,30 @@
         </div>
       </section>
 
+      <section class="card" id="nested-demo">
+        <h2>Nested scroll area</h2>
+        <p class="muted">
+          卡片高度由内容决定，内部是一个 240px 高的滚动列表。默认（只展开根）截图高度不变；
+          开启设置里的「展开内部滚动区域」后卡片会被撑高，画布也随之变长。
+        </p>
+        <div id="nested-panel">
+          <div id="nested-scroll">
+            <div class="pick-row">Nested row 01</div>
+            <div class="pick-row">Nested row 02</div>
+            <div class="pick-row">Nested row 03</div>
+            <div class="pick-row">Nested row 04</div>
+            <div class="pick-row">Nested row 05</div>
+            <div class="pick-row">Nested row 06</div>
+            <div class="pick-row">Nested row 07</div>
+            <div class="pick-row">Nested row 08</div>
+            <div class="pick-row">Nested row 09</div>
+            <div class="pick-row">Nested row 10</div>
+            <div class="pick-row">Nested row 11</div>
+            <div class="pick-row">Nested row 12</div>
+          </div>
+        </div>
+      </section>
+
       <div class="stack">
         <div class="tall">tall filler for full-page capture</div>
       </div>
@@ -340,8 +377,10 @@
             <style>:host { display: block; } .box { border: 1px solid #d4d4d8; border-radius: 8px; }</style>
             <div class="box"><strong>Shadow card</strong><p>padding 与背景由 insertRule 注入</p></div>
           `
+          // A detached clone (e.g. inside a snapshot) has no sheet yet; the
+          // capture replays the live CSSOM instead, so a missing sheet is fine.
           const sheet = root.querySelector('style').sheet
-          sheet.insertRule('.box { padding: 16px 20px; background: #fef9c3 }', sheet.cssRules.length)
+          sheet?.insertRule('.box { padding: 16px 20px; background: #fef9c3 }', sheet.cssRules.length)
         }
       }
 
@@ -356,7 +395,7 @@
             '<style>.box { border: 1px dashed #a1a1aa; border-radius: 8px; }</style>' +
             '<div class="box"><strong>Nested shadow</strong><p>外层与内层各有一个 shadow style</p></div>'
           const sheet = inner.querySelector('style').sheet
-          sheet.insertRule('.box { padding: 12px 18px; background: #dcfce7 }', sheet.cssRules.length)
+          sheet?.insertRule('.box { padding: 12px 18px; background: #dcfce7 }', sheet.cssRules.length)
         }
       }
 

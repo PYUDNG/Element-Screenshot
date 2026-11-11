@@ -403,6 +403,31 @@ function expandElement(element: Element, box: TargetBox, doc: Document): void {
   }
 }
 
+/**
+ * The copy can lay out taller (or wider) than the live page measured: expanding
+ * the root reveals its own overflow, and nested expansion grows the root through
+ * a descendant. Grow the box with the layout. Anything but the document itself
+ * also gets an explicit size, otherwise its background and border would stop
+ * where the old box ended and the extra content would spill out of them.
+ */
+function fitBoxToLayout(element: Element, box: TargetBox): TargetBox {
+  const measured = getTargetBox(element)
+  const width = Math.max(box.width, measured.width)
+  const height = Math.max(box.height, measured.height)
+  if (width === box.width && height === box.height) return box
+
+  if (element !== element.ownerDocument.documentElement) {
+    if (height > box.height) {
+      setImportant(element, 'height', `${Math.max(1, Math.ceil(height))}px`)
+    }
+    if (width > box.width) {
+      setImportant(element, 'width', `${Math.max(1, Math.ceil(width))}px`)
+    }
+  }
+
+  return { ...box, width, height }
+}
+
 function expandForCapture(root: Element, box: TargetBox, expandNested: boolean): () => void {
   const doc = root.ownerDocument
   const snapshots: StyleSnapshot[] = []
@@ -607,23 +632,26 @@ async function renderElement(element: Element, options: CaptureOptions): Promise
   } catch {
     // Keep the measured box when computed styles are unavailable.
   }
-  const requestedRatio = options.pixelRatio ?? Math.min(native.devicePixelRatio || 1, 2)
-  const plan = computeCaptureScale(
-    box.width,
-    box.height,
-    requestedRatio,
-    options.maxDimension,
-    options.maxArea
-  )
-
-  const backdrop = await resolveBackground(element, box, plan, options)
-
   const restore = expandForCapture(element, box, options.expandNested !== false)
   const restoreSvg = inlineSvgPaintVariables(element)
 
   try {
     await nextFrame()
     await nextFrame()
+
+    // Expanding the copy can lay out more than the live page showed: the root's
+    // own overflow becomes visible, and with nested expansion a descendant grows
+    // its ancestor. Measure again so the canvas covers the layout instead of
+    // cropping the extra content away.
+    const finalBox = fitBoxToLayout(element, box)
+    const plan = computeCaptureScale(
+      finalBox.width,
+      finalBox.height,
+      options.pixelRatio ?? Math.min(native.devicePixelRatio || 1, 2),
+      options.maxDimension,
+      options.maxArea
+    )
+    const backdrop = await resolveBackground(element, finalBox, plan, options)
 
     const imageBlob = await toBlob(element as HTMLElement, {
       width: plan.width,

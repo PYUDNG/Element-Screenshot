@@ -43,7 +43,8 @@ const zhCN: LocaleDefinition = {
         transparent: '透明背景',
         transparentDesc: '导出透明 PNG，并忽略背景颜色设置。',
         expandNested: '展开内部滚动区域',
-        expandNestedDesc: '截图时递归展开元素内部可滚动的子区域，获取完整内容。',
+        expandNestedDesc:
+          '默认只展开选中元素自己的滚动内容。开启后还会递归展开内部的滚动子区域，外层元素会被撑高、重新排版。',
         fabShow: '显示悬浮按钮',
         fabShowDesc: '在页面边缘显示可拖动的截图按钮。',
         fabSize: '悬浮按钮尺寸',
@@ -147,7 +148,8 @@ const zhTW: LocaleDefinition = {
         transparent: '透明背景',
         transparentDesc: '匯出透明 PNG，並忽略背景顏色設定。',
         expandNested: '展開內部捲動區域',
-        expandNestedDesc: '截圖時遞迴展開元素內部可捲動的子區域，取得完整內容。',
+        expandNestedDesc:
+          '預設只展開選取元素自己的捲動內容。開啟後還會遞迴展開內部的捲動子區域，外層元素會被撐高、重新排版。',
         fabShow: '顯示懸浮按鈕',
         fabShowDesc: '在頁面邊緣顯示可拖曳的截圖按鈕。',
         fabSize: '懸浮按鈕尺寸',
@@ -254,7 +256,7 @@ const en: LocaleDefinition = {
         transparentDesc: 'Export a transparent PNG and ignore the background color.',
         expandNested: 'Expand nested scroll areas',
         expandNestedDesc:
-          'Recursively expand scrollable descendants so the capture contains their full content.',
+          'Only the selected element’s own scroll content is expanded. Turning this on also expands scrollable descendants, which reflows and grows the outer element.',
         fabShow: 'Show floating button',
         fabShowDesc: 'Show a draggable capture button at the edge of the page.',
         fabSize: 'Floating button size',

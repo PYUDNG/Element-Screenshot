@@ -82,7 +82,9 @@ scripts/serve-playground.mjs      本地 playground 服务器
 选择元素
 → getTargetBox(活元素)  —— 选框尺寸，之后作为 options.box 传进渲染
 → createSnapshot() 把整页复制进离屏 iframe，并把目标元素映射到副本里
-→ expandForCapture() 在副本里展开滚动容器（根节点尺寸用 options.box 冻结）
+→ expandForCapture() 在副本里展开滚动容器（默认只展开根）
+→ fitBoxToLayout() 按展开后的布局重新量根并撑到内容尺寸
+→ computeCaptureScale() 用最终尺寸算比例（画布上限在这里生效）
 → 解析背景（纯色 / 复杂背景，也在副本里渲染）
 → html-to-image 克隆副本子树并嵌入资源
 → SVG / XML 清理
@@ -328,6 +330,15 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 截图框是 border box，克隆根必须清除 `margin`；
 - `inline` / `inline-*` 根会进入行盒，要改成对应的块级 display；
 - 元素内部滚动容器需要在截图前展开，截完恢复。
+
+### 展开语义与画布尺寸（0.8.0）
+
+- **默认只展开根**：`capture.expandNested` 默认 `false`。根自己的滚动内容永远展开（`getTargetBox()` 已经把 `max(rect, scrollHeight)` 当截图框）；开启设置后才会递归展开后代滚动容器。
+- **画布跟着布局走**：`renderElement()` 的顺序必须是「展开 → 重新测量（`fitBoxToLayout()`）→ `computeCaptureScale()` → 渲染」。早期版本先算 `plan` 再展开，导致后代撑高的内容被裁掉（实测：选中包含 `#long-card` 的 `section`，盒高 398、内部展开到 934，输出仍是 398）。
+- `fitBoxToLayout()` 用 `getTargetBox()` 重新量根；变高/变宽时**同时**给根写显式 `height/width`（`documentElement` 除外），否则根的背景和边框会在旧盒子处结束、内容溢出到画布外面。
+- 展开是**重排**：展开后代等于替祖先重新排版，所以默认不做。嵌套展开仍然可能被中间的 `overflow: hidden` 面板裁掉——那不是 bug，是页面自己的裁剪（playground 的 `#pick-stage` 就是这种）。
+- 自定义元素的坑：`cloneNode()` 会对克隆出来的自定义元素**跑构造函数**（jsdom 和 Chrome 都是），构造函数里 `attachShadow` + `insertRule` 会在未连接的克隆上抛 `Cannot read properties of null (reading 'insertRule')`，构造函数建出的 shadow 树还会和 `collectShadow()` 收集的内容**重复**。`attachDeferred()` 现在用 `root.replaceChildren(shadow.content)` 覆盖构造函数产物；playground 的 `<shadow-card>` 也加了 `sheet?.insertRule(...)` 兜底。
+- **未解决**（下次先查这个）：playground 的 `#nested-panel` 在「关闭嵌套展开」时截出来仍是 505px 而不是 252px——看起来像快照副本里 `#nested-scroll { height: 240px }` 没有生效（`copyStyleSheets()` 按索引配对的假设可能不成立），于是副本里的滚动列表铺满内容高度、`fitBoxToLayout()` 又把根撑到了 505。需要直接对比「活文档 `<style>` 数量/CSSOM」与「副本里同一个 `<style>` 的 cssText」。
 
 ### 克隆根的位置
 

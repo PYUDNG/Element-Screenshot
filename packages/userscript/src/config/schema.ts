@@ -110,7 +110,7 @@ export function createSettingsTabs(): SettingsTab[] {
               key: 'capture.expandNested',
               label: 'app.field.expandNested',
               description: 'app.field.expandNestedDesc',
-              default: true
+              default: false
             }
           ]
         }

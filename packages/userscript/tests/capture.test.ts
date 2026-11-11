@@ -418,6 +418,123 @@ describe('scroll expansion planning', () => {
     expect(result.blob.type).toBe('image/png')
   })
 
+  it('grows the canvas when expanding a descendant makes the copy taller', async () => {
+    const root = document.createElement('div')
+    const panel = document.createElement('div')
+    root.appendChild(panel)
+    document.body.appendChild(root)
+
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 400,
+      right: 300,
+      bottom: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect)
+    vi.spyOn(native, 'getComputedStyle').mockImplementation(
+      (element) =>
+        ({
+          borderLeftWidth: '0px',
+          borderRightWidth: '0px',
+          borderTopWidth: '0px',
+          borderBottomWidth: '0px',
+          overflowX: element === panel ? 'auto' : 'visible',
+          overflowY: element === panel ? 'auto' : 'visible'
+        }) as CSSStyleDeclaration
+    )
+    setMetrics(root, { scrollWidth: 300, scrollHeight: 400, clientWidth: 300, clientHeight: 400 })
+    setMetrics(panel, {
+      scrollWidth: 300,
+      scrollHeight: 900,
+      clientWidth: 300,
+      clientHeight: 400
+    })
+    // A real browser grows the root when the panel below it is expanded; the
+    // mock cannot lay out, so mirror that by reading the expanded overflow.
+    Object.defineProperty(root, 'scrollHeight', {
+      configurable: true,
+      get: () => (root.style.overflow === 'visible' ? 900 : 400)
+    })
+
+    let captured: { width?: number; height?: number } = {}
+    toBlobMock.mockImplementation((_node, options) => {
+      captured = { width: options.width, height: options.height }
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+
+    const result = await captureElement(root, {
+      expandNested: true,
+      background: { mode: 'color', color: '#ffffff' },
+      pixelRatio: 1,
+      box: { left: 0, top: 0, width: 300, height: 400 }
+    })
+
+    expect(captured).toEqual({ width: 300, height: 900 })
+    expect(result).toMatchObject({ width: 300, height: 900, sourceWidth: 300, sourceHeight: 900 })
+  })
+
+  it('keeps the canvas at the measured box when nested expansion is off', async () => {
+    const root = document.createElement('div')
+    const panel = document.createElement('div')
+    root.appendChild(panel)
+    document.body.appendChild(root)
+
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 400,
+      right: 300,
+      bottom: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect)
+    vi.spyOn(native, 'getComputedStyle').mockImplementation(
+      (element) =>
+        ({
+          borderLeftWidth: '0px',
+          borderRightWidth: '0px',
+          borderTopWidth: '0px',
+          borderBottomWidth: '0px',
+          overflowX: element === panel ? 'auto' : 'visible',
+          overflowY: element === panel ? 'auto' : 'visible'
+        }) as CSSStyleDeclaration
+    )
+    setMetrics(root, { scrollWidth: 300, scrollHeight: 400, clientWidth: 300, clientHeight: 400 })
+    setMetrics(panel, {
+      scrollWidth: 300,
+      scrollHeight: 900,
+      clientWidth: 300,
+      clientHeight: 400
+    })
+
+    let captured: { width?: number; height?: number } = {}
+    let panelOverflow = ''
+    toBlobMock.mockImplementation((_node, options) => {
+      captured = { width: options.width, height: options.height }
+      panelOverflow = panel.style.overflow
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+
+    const result = await captureElement(root, {
+      expandNested: false,
+      background: { mode: 'color', color: '#ffffff' },
+      pixelRatio: 1,
+      box: { left: 0, top: 0, width: 300, height: 400 }
+    })
+
+    // The panel is a descendant, so only the root is expanded: the capture is
+    // exactly the box the user saw, with the panel clipped inside it.
+    expect(captured).toEqual({ width: 300, height: 400 })
+    expect(panelOverflow).not.toBe('visible')
+    expect(result).toMatchObject({ width: 300, height: 400 })
+  })
+
   it('passes a transparent background and filter through', async () => {
     const element = document.createElement('div')
     document.body.appendChild(element)

@@ -287,7 +287,10 @@ function attachDeferred(ctx: CloneContext): void {
   for (const shadow of ctx.shadows) {
     try {
       const root = shadow.clone.shadowRoot ?? shadow.clone.attachShadow({ mode: 'open' })
-      root.append(shadow.content)
+      // A custom element constructor runs when its clone is created and may have
+      // built a shadow tree of its own; the collected content is the faithful
+      // copy, so it replaces whatever the constructor produced.
+      root.replaceChildren(shadow.content)
     } catch (error) {
       console.warn('[element-screenshot] snapshot shadow root failed', error)
     }

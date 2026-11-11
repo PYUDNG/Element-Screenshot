@@ -247,6 +247,25 @@ describe('page snapshot', () => {
     snapshot.dispose()
   })
 
+  it('replaces a shadow tree that a custom element constructor built on the clone', async () => {
+    const name = `x-shadow-probe-${Math.random().toString(36).slice(2)}`
+    class Probe extends HTMLElement {
+      constructor() {
+        super()
+        this.attachShadow({ mode: 'open' }).innerHTML = '<b>built by the constructor</b>'
+      }
+    }
+    customElements.define(name, Probe)
+
+    document.body.innerHTML = `<${name}></${name}>`
+    const snapshot = await createSnapshot(FAST)
+    const copy = snapshot.doc.querySelector(name)
+
+    expect(copy?.shadowRoot?.querySelectorAll('b')).toHaveLength(1)
+    expect(copy?.shadowRoot?.textContent).toBe('built by the constructor')
+    snapshot.dispose()
+  })
+
   it('leaves a canvas without readable pixels as an element with its box', async () => {
     document.body.innerHTML = '<canvas id="chart" width="60" height="40"></canvas>'
     const canvas = document.getElementById('chart') as HTMLCanvasElement
