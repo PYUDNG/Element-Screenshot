@@ -1,6 +1,8 @@
 import { native } from './native'
 import { scrollContainerInfo } from './scroll-axis'
 import type { ScrollAxis } from './scroll-axis'
+import { frameContentSize, frameDocument, frameOuterSize } from './frame-size'
+import type { FrameSize } from './frame-size'
 
 export interface TargetBox {
   left: number
@@ -75,6 +77,19 @@ function parsePx(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+/**
+ * The content a frame can show beyond its own box.
+ *
+ * An `<iframe>` is a scroll container whose scroll size lives in another document,
+ * so its own `scrollWidth` / `scrollHeight` only ever describe the box. Picking the
+ * frame itself expands that document, which is why its capture box has to grow to
+ * it here — the picker draws the same box the capture will produce.
+ */
+function frameContent(element: Element): FrameSize | null {
+  if (element.tagName !== 'IFRAME') return null
+  return frameContentSize(frameDocument(element as HTMLIFrameElement))
+}
+
 export function getTargetBox(element: Element): TargetBox {
   const doc = element.ownerDocument
   const rect = native.getBoundingClientRect(element)
@@ -89,8 +104,15 @@ export function getTargetBox(element: Element): TargetBox {
   const borderX = parsePx(style.borderLeftWidth) + parsePx(style.borderRightWidth)
   const borderY = parsePx(style.borderTopWidth) + parsePx(style.borderBottomWidth)
 
-  const width = Math.max(Math.ceil(rect.width), element.scrollWidth + borderX)
-  const height = Math.max(Math.ceil(rect.height), element.scrollHeight + borderY)
+  let width = Math.max(Math.ceil(rect.width), element.scrollWidth + borderX)
+  let height = Math.max(Math.ceil(rect.height), element.scrollHeight + borderY)
+
+  const content = frameContent(element)
+  if (content) {
+    const outer = frameOuterSize(element, content)
+    width = Math.max(width, outer.width)
+    height = Math.max(height, outer.height)
+  }
 
   return {
     left: rect.left,

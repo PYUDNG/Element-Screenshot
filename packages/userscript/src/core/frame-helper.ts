@@ -1,10 +1,24 @@
 import { native } from './native'
 import { renderFrameViewport } from './capture'
+import { frameContentSize } from './frame-size'
+import type { FrameSize } from './frame-size'
 import { FRAME_PROTOCOL, getFrameToken, postFrameMessage, readFrameMessage } from './frame-bridge'
-import type { FrameHelloMessage, FrameRenderMessage, FrameResultMessage } from './frame-bridge'
+import type {
+  FrameHelloMessage,
+  FrameMeasureMessage,
+  FrameRenderMessage,
+  FrameResultMessage,
+  FrameSizeMessage
+} from './frame-bridge'
 
 /** A frame whose parser never finishes must not hang the parent's capture. */
 const PARSE_TIMEOUT = 5_000
+
+export interface FrameRenderRequest {
+  ratio: number
+  depth: number
+  expand?: FrameSize
+}
 
 export interface FrameHelperOptions {
   /** Window this helper serves; defaults to the current one. */
@@ -12,7 +26,9 @@ export interface FrameHelperOptions {
   /** Document to render; defaults to the current one. */
   doc?: Document
   /** Renderer override, used by tests. */
-  render?: (request: { ratio: number; depth: number }) => Promise<Blob | null>
+  render?: (request: FrameRenderRequest) => Promise<Blob | null>
+  /** Measurement override, used by tests. */
+  measure?: (doc: Document) => FrameSize | null
 }
 
 export interface FrameHelper {
@@ -48,11 +64,12 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
   const doc = options.doc ?? document
   const render =
     options.render ??
-    ((request: { ratio: number; depth: number }) =>
-      renderFrameViewport(doc, request.ratio, {}, request.depth))
+    ((request: FrameRenderRequest) =>
+      renderFrameViewport(doc, request.ratio, {}, request.depth, request.expand))
+  const measure = options.measure ?? frameContentSize
   let busy = false
 
-  const reply = (source: Window | null, message: FrameResultMessage): void => {
+  const reply = (source: Window | null, message: FrameResultMessage | FrameSizeMessage): void => {
     if (source) postFrameMessage(source, message)
   }
 
@@ -71,18 +88,28 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
       postFrameMessage(source, { protocol: FRAME_PROTOCOL, type: 'ready', nonce: message.nonce })
       return
     }
-    if (message.type !== 'render') return
-    const request = message as FrameRenderMessage
-    if (request.token !== token) return
+    if (message.type !== 'render' && message.type !== 'measure') return
+    if ((message as FrameRenderMessage | FrameMeasureMessage).token !== token) return
 
     if (busy) {
-      reply(source, {
-        protocol: FRAME_PROTOCOL,
-        type: 'result',
-        nonce: request.nonce,
-        blob: null,
-        error: 'busy'
-      })
+      if (message.type === 'render') {
+        reply(source, {
+          protocol: FRAME_PROTOCOL,
+          type: 'result',
+          nonce: message.nonce,
+          blob: null,
+          error: 'busy'
+        })
+      } else {
+        reply(source, {
+          protocol: FRAME_PROTOCOL,
+          type: 'size',
+          nonce: message.nonce,
+          width: 0,
+          height: 0,
+          error: 'busy'
+        })
+      }
       return
     }
 
@@ -90,16 +117,43 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
     void (async () => {
       try {
         await whenParsed(doc)
-        const blob = await render({ ratio: request.ratio, depth: request.depth })
-        reply(source, { protocol: FRAME_PROTOCOL, type: 'result', nonce: request.nonce, blob })
-      } catch (error) {
-        reply(source, {
-          protocol: FRAME_PROTOCOL,
-          type: 'result',
-          nonce: request.nonce,
-          blob: null,
-          error: error instanceof Error ? error.message : String(error)
+        if (message.type === 'measure') {
+          const size = measure(doc)
+          reply(source, {
+            protocol: FRAME_PROTOCOL,
+            type: 'size',
+            nonce: message.nonce,
+            width: size?.width ?? 0,
+            height: size?.height ?? 0
+          })
+          return
+        }
+        const blob = await render({
+          ratio: message.ratio,
+          depth: message.depth,
+          ...(message.expand ? { expand: message.expand } : {})
         })
+        reply(source, { protocol: FRAME_PROTOCOL, type: 'result', nonce: message.nonce, blob })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        if (message.type === 'measure') {
+          reply(source, {
+            protocol: FRAME_PROTOCOL,
+            type: 'size',
+            nonce: message.nonce,
+            width: 0,
+            height: 0,
+            error: detail
+          })
+        } else {
+          reply(source, {
+            protocol: FRAME_PROTOCOL,
+            type: 'result',
+            nonce: message.nonce,
+            blob: null,
+            error: detail
+          })
+        }
       } finally {
         busy = false
       }

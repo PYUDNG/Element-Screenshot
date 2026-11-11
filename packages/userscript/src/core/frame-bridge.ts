@@ -1,4 +1,5 @@
 import { native } from './native'
+import type { FrameSize } from './frame-size'
 
 /**
  * Bridge to the copy of this script that runs inside an iframe.
@@ -13,14 +14,19 @@ import { native } from './native'
  * (`about:blank`, `srcdoc`, a sandbox without `allow-scripts`) or one that is
  * still starting up never answers, and a same-origin frame is then rendered by
  * the parent the way it was before this bridge existed.
+ *
+ * Two requests travel over the bridge: `measure` (how tall the document is once
+ * its root is expanded, used to size the frame's box) and `render` (the picture).
  */
 
 /** Bump when the message shape or the frame renderer changes. */
-export const FRAME_PROTOCOL = 'element-screenshot:frame/1'
+export const FRAME_PROTOCOL = 'element-screenshot:frame/2'
 /** How long a frame gets to answer the hello probe. */
 export const FRAME_READY_TIMEOUT = 400
 /** How long one helper render may take before the parent stops waiting. */
 export const FRAME_RESULT_TIMEOUT = 10_000
+/** Measuring is a read of two layout properties; it must not stall the capture. */
+export const FRAME_SIZE_TIMEOUT = 3_000
 /** How often a pending request checks whether the capture was cancelled. */
 const CANCEL_POLL_INTERVAL = 100
 
@@ -37,6 +43,23 @@ export interface FrameReadyMessage {
   nonce: string
 }
 
+export interface FrameMeasureMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'measure'
+  token: string
+  nonce: string
+}
+
+export interface FrameSizeMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'size'
+  nonce: string
+  /** Zero when the helper could not measure its document. */
+  width: number
+  height: number
+  error?: string
+}
+
 export interface FrameRenderMessage {
   protocol: typeof FRAME_PROTOCOL
   type: 'render'
@@ -46,6 +69,11 @@ export interface FrameRenderMessage {
   ratio: number
   /** Nesting depth of the frame being rendered. */
   depth: number
+  /**
+   * Render the whole document on this surface instead of the current viewport.
+   * The parent sends the size it already reserved for the frame's box.
+   */
+  expand?: FrameSize
 }
 
 export interface FrameResultMessage {
@@ -59,10 +87,12 @@ export interface FrameResultMessage {
 export type FrameMessage =
   | FrameHelloMessage
   | FrameReadyMessage
+  | FrameMeasureMessage
+  | FrameSizeMessage
   | FrameRenderMessage
   | FrameResultMessage
 
-const MESSAGE_TYPES = new Set(['hello', 'ready', 'render', 'result'])
+const MESSAGE_TYPES = new Set(['hello', 'ready', 'measure', 'size', 'render', 'result'])
 
 /**
  * Per-install secret shared by every frame of this script.
@@ -213,6 +243,8 @@ export async function probeFrameHelpers(
 export interface FrameRenderRequest {
   ratio: number
   depth: number
+  /** Render the whole document instead of its current viewport. */
+  expand?: FrameSize
   timeout?: number
 }
 
@@ -234,7 +266,8 @@ export async function requestFrameImage(
     token,
     nonce,
     ratio: request.ratio,
-    depth: request.depth
+    depth: request.depth,
+    ...(request.expand ? { expand: request.expand } : {})
   })
   if (!sent) return null
 
@@ -251,4 +284,48 @@ export async function requestFrameImage(
 
   if (failure) console.warn('[element-screenshot] frame helper failed:', failure)
   return image
+}
+
+export interface FrameSizeRequest {
+  timeout?: number
+}
+
+/**
+ * Ask one helper how large its document is when its root is expanded.
+ *
+ * A cross-origin frame's document cannot be read from the parent, and the parent
+ * needs that number before it can reserve the frame's box in its own layout. The
+ * helper answers from its own `scrollWidth` / `scrollHeight`, without rendering.
+ */
+export async function requestFrameSize(
+  frame: HTMLIFrameElement,
+  request: FrameSizeRequest = {}
+): Promise<FrameSize | null> {
+  const token = frameToken
+  const win = frameWindow(frame)
+  if (!token || !win) return null
+
+  const nonce = createNonce()
+  let size: FrameSize | null = null
+  let failure = ''
+  const sent = postFrameMessage(win, { protocol: FRAME_PROTOCOL, type: 'measure', token, nonce })
+  if (!sent) return null
+
+  await waitForMessages({
+    timeout: request.timeout ?? FRAME_SIZE_TIMEOUT,
+    onMessage: (message, event) => {
+      if (message.type !== 'size') return false
+      if (message.nonce !== nonce || event.source !== win) return false
+      failure = message.error ?? ''
+      const width = Number(message.width)
+      const height = Number(message.height)
+      if (Number.isFinite(width) && Number.isFinite(height) && width >= 1 && height >= 1) {
+        size = { width, height }
+      }
+      return true
+    }
+  })
+
+  if (failure) console.warn('[element-screenshot] frame helper failed:', failure)
+  return size
 }

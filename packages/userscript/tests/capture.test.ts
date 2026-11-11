@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as CropModule from '../src/core/crop'
 
-const { toBlobMock, cropBlobMock, fontEmbedMock, probeMock, frameImageMock } = vi.hoisted(() => ({
-  toBlobMock: vi.fn(),
-  cropBlobMock: vi.fn(),
-  fontEmbedMock: vi.fn(async () => '/* page fonts */'),
-  probeMock: vi.fn(async (_frames: readonly HTMLIFrameElement[]) => new Set<HTMLIFrameElement>()),
-  frameImageMock: vi.fn(
-    async (_frame: HTMLIFrameElement, _request: { ratio: number; depth: number }) =>
-      null as Blob | null
-  )
-}))
+const { toBlobMock, cropBlobMock, fontEmbedMock, probeMock, frameImageMock, frameSizeMock } =
+  vi.hoisted(() => ({
+    toBlobMock: vi.fn(),
+    cropBlobMock: vi.fn(),
+    fontEmbedMock: vi.fn(async () => '/* page fonts */'),
+    probeMock: vi.fn(async (_frames: readonly HTMLIFrameElement[]) => new Set<HTMLIFrameElement>()),
+    frameImageMock: vi.fn(
+      async (_frame: HTMLIFrameElement, _request: { ratio: number; depth: number }) =>
+        null as Blob | null
+    ),
+    frameSizeMock: vi.fn(async (_frame: HTMLIFrameElement) => null as { width: number; height: number } | null)
+  }))
 
 vi.mock('html-to-image', () => ({
   toBlob: toBlobMock,
@@ -19,7 +21,8 @@ vi.mock('html-to-image', () => ({
 
 vi.mock('../src/core/frame-bridge', () => ({
   probeFrameHelpers: probeMock,
-  requestFrameImage: frameImageMock
+  requestFrameImage: frameImageMock,
+  requestFrameSize: frameSizeMock
 }))
 
 vi.mock('../src/core/crop', async (importOriginal) => {
@@ -82,6 +85,8 @@ beforeEach(() => {
   probeMock.mockResolvedValue(new Set<HTMLIFrameElement>())
   frameImageMock.mockReset()
   frameImageMock.mockResolvedValue(null)
+  frameSizeMock.mockReset()
+  frameSizeMock.mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -998,6 +1003,131 @@ describe('iframe compositing', () => {
     expect(broken.style.getPropertyValue('background-image')).toBe('')
     expect(healthy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
     expect(calls).toHaveLength(3)
+  })
+
+  /** A copy whose rect follows the size its inline style asks for, like a layout. */
+  function followStyle(
+    copy: HTMLIFrameElement,
+    fallback: { width: number; height: number }
+  ): DOMRect {
+    const read = (property: string, value: number): number => {
+      const parsed = Number.parseFloat(copy.style.getPropertyValue(property))
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : value
+    }
+    return rectOf(read('width', fallback.width), read('height', fallback.height))
+  }
+
+  it('expands a picked frame to its whole document', async () => {
+    const copy = document.createElement('iframe')
+    copy.style.border = '0'
+    document.body.append(copy)
+    const record = frameRecord(copy, document)
+    mockSnapshots([record])
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(300)
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(200)
+    vi.spyOn(document.documentElement, 'scrollWidth', 'get').mockReturnValue(300)
+    // The frame document scrolls far past its own viewport.
+    vi.spyOn(document.documentElement, 'scrollHeight', 'get').mockReturnValue(1_200)
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? followStyle(copy, { width: 300, height: 200 }) : rectOf(0, 0)
+    )
+    const calls = observeCalls()
+
+    const result = await captureElement(copy, {
+      pixelRatio: 2,
+      background: { mode: 'transparent' }
+    })
+
+    // The copied box grew to the frame's content, so the page render and the
+    // canvas cover the whole frame instead of the 200px viewport.
+    const [frameCall, pageCall] = calls
+    expect(frameCall?.options).toMatchObject({ width: 300, height: 1_200, pixelRatio: 2 })
+    // An expanded frame is rendered from the top: no scroll shift, no pinning.
+    expect(frameCall?.options.style).toMatchObject({ top: '0px', left: '0px' })
+    expect(pageCall?.options).toMatchObject({ width: 300, height: 1_200, pixelRatio: 2 })
+    expect(result).toMatchObject({ width: 600, height: 2_400, sourceHeight: 1_200 })
+  })
+
+  it('asks the helper how tall a cross-origin frame is before growing it', async () => {
+    const copy = document.createElement('iframe')
+    copy.style.border = '0'
+    document.body.append(copy)
+    const record = frameRecord(copy, null)
+    mockSnapshots([record])
+    setMetrics(record.live, { clientWidth: 200, clientHeight: 150 })
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? followStyle(copy, { width: 200, height: 150 }) : rectOf(0, 0)
+    )
+    probeMock.mockResolvedValue(new Set([record.live]))
+    frameSizeMock.mockResolvedValue({ width: 640, height: 900 })
+    frameImageMock.mockResolvedValue(new Blob(['helper'], { type: 'image/png' }))
+    const calls = observeCalls()
+
+    const result = await captureElement(copy, { pixelRatio: 2 })
+
+    expect(frameSizeMock).toHaveBeenCalledWith(record.live)
+    expect(probeMock).toHaveBeenCalledTimes(1)
+    // The helper renders the expanded document on the surface the parent reserved.
+    expect(frameImageMock).toHaveBeenCalledWith(record.live, {
+      ratio: 2,
+      depth: 1,
+      expand: { width: 640, height: 900 }
+    })
+    // Only the page render is local.
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.options).toMatchObject({ width: 640, height: 900 })
+    expect(result).toMatchObject({ width: 1_280, height: 1_800 })
+  })
+
+  it('leaves a frame that fits its own viewport alone', async () => {
+    const copy = document.createElement('iframe')
+    copy.style.border = '0'
+    document.body.append(copy)
+    const record = frameRecord(copy, document)
+    mockSnapshots([record])
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(300)
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(200)
+    vi.spyOn(document.documentElement, 'scrollWidth', 'get').mockReturnValue(300)
+    vi.spyOn(document.documentElement, 'scrollHeight', 'get').mockReturnValue(200)
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? followStyle(copy, { width: 300, height: 200 }) : rectOf(0, 0)
+    )
+    const calls = observeCalls()
+
+    const result = await captureElement(copy, { pixelRatio: 1 })
+
+    // Nothing to reveal: the viewport picture already is the whole frame, so the
+    // box keeps its size and the frame renders at its current scroll.
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.options).toMatchObject({ width: 300, height: 200 })
+    expect(calls[1]?.options).toMatchObject({ width: 300, height: 200 })
+    expect(result).toMatchObject({ width: 300, height: 200 })
+  })
+
+  it('does not expand a frame nested inside the picked element', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    root.append(copy)
+    const record = frameRecord(copy, document)
+    mockSnapshots([record])
+    vi.spyOn(document.documentElement, 'scrollHeight', 'get').mockReturnValue(9_000)
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? rectOf(200, 100) : rectOf(0, 0)
+    )
+    const calls = observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 300, height: 200 },
+      pixelRatio: 1
+    })
+
+    // An ancestor capture keeps the frame's current viewport: growing a nested
+    // frame would reflow the page the user is looking at.
+    expect(calls[0]?.options).toMatchObject({
+      width: window.innerWidth,
+      height: window.innerHeight
+    })
   })
 })
 

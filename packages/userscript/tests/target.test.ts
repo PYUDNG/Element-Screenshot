@@ -193,4 +193,49 @@ describe('target helpers', () => {
       height: 5000
     })
   })
+
+  /** An iframe whose document can be measured but has no layout of its own. */
+  function frameWithContent(width: number, height: number): HTMLIFrameElement {
+    const frame = document.createElement('iframe')
+    frame.style.border = '0'
+    const doc = document.implementation.createHTMLDocument('frame content')
+    Object.defineProperty(doc.documentElement, 'scrollWidth', { configurable: true, value: width })
+    Object.defineProperty(doc.documentElement, 'scrollHeight', {
+      configurable: true,
+      value: height
+    })
+    Object.defineProperty(frame, 'contentDocument', { configurable: true, value: doc })
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      borderLeftWidth: '0px',
+      borderRightWidth: '0px',
+      borderTopWidth: '0px',
+      borderBottomWidth: '0px'
+    } as CSSStyleDeclaration)
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 200,
+      right: 300,
+      bottom: 200,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect)
+    document.body.append(frame)
+    return frame
+  }
+
+  it('grows a frame box to the content of its own document', () => {
+    // A frame scrolls one level down, so its own box never reports the size the
+    // capture will have once the frame is expanded.
+    const frame = frameWithContent(420, 900)
+    expect(getTargetBox(frame)).toEqual({ left: 0, top: 0, width: 420, height: 900 })
+  })
+
+  it('keeps the box of a frame it cannot read', () => {
+    const frame = frameWithContent(420, 900)
+    Object.defineProperty(frame, 'contentDocument', { configurable: true, value: null })
+    expect(getTargetBox(frame)).toEqual({ left: 0, top: 0, width: 300, height: 200 })
+  })
 })

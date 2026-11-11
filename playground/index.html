@@ -372,7 +372,8 @@
         <h2>Same-origin iframe</h2>
         <p class="muted">
           下面是一个指向 <code>/frame.html</code> 的同源 iframe（带 1px 边框、10px 圆角、内部
-          sticky 表头和自己的滚动位置）。截图应保留帧内当前可见的内容。
+          sticky 表头和自己的滚动位置）。选中这个 iframe 本身会展开成帧内整页内容（约 1150px）；
+          选中它的外层卡片则只保留帧当前可见的那一段。
         </p>
         <iframe
           src="/frame.html"
@@ -394,7 +395,8 @@
         <h2>Cross-origin iframe</h2>
         <p class="muted">
           指向 <code>http://127.0.0.1:4177/frame.html</code>。需要同时启动 4177 端口的
-          playground；不启动时这张卡片只有空白。
+          playground；不启动时这张卡片只有空白。选中帧本身同样会展开，帧内容的高度由帧内
+          helper 回报。
         </p>
         <iframe
           src="http://127.0.0.1:4177/frame.html"

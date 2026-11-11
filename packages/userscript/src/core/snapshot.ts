@@ -1,4 +1,5 @@
 import { native } from './native'
+import { frameDocument } from './frame-size'
 
 /**
  * Render target for one capture.
@@ -240,15 +241,6 @@ export interface FrameRecord {
   doc: Document | null
 }
 
-function frameDocument(frame: Element): Document | null {
-  try {
-    // A cross-origin frame throws (or answers null) and needs a helper.
-    return (frame as HTMLIFrameElement).contentDocument ?? null
-  } catch (_error) {
-    return null
-  }
-}
-
 function collectFrame(live: LiveElement, clone: HTMLIFrameElement, ctx: CloneContext): void {
   // The snapshot must not fetch the frame's URL again: that would run the page a
   // second time (and may be slow). The copy keeps an empty box of the same size.
@@ -258,7 +250,7 @@ function collectFrame(live: LiveElement, clone: HTMLIFrameElement, ctx: CloneCon
   ctx.frames.push({
     live: live as unknown as HTMLIFrameElement,
     copy: clone,
-    doc: frameDocument(live)
+    doc: frameDocument(live as unknown as HTMLIFrameElement)
   })
 }
 

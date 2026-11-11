@@ -8,7 +8,15 @@ import type { Point, ViewportSize } from './region'
 import { planCrop, cropBlob } from './crop'
 import { createSnapshot } from './snapshot'
 import type { FrameRecord } from './snapshot'
-import { probeFrameHelpers, requestFrameImage } from './frame-bridge'
+import { probeFrameHelpers, requestFrameImage, requestFrameSize } from './frame-bridge'
+import {
+  frameContentSize,
+  frameElementViewport,
+  frameOuterSize,
+  frameScroll,
+  frameViewport
+} from './frame-size'
+import type { FrameSize } from './frame-size'
 import {
   blobToDataUrl,
   collectFixedDescendants,
@@ -567,26 +575,6 @@ async function resolveBackground(
   return scene ? { scene } : { color: baseColor }
 }
 
-interface FrameViewport {
-  width: number
-  height: number
-}
-
-/** The frame's own viewport in CSS pixels: the surface its picture is drawn on. */
-function frameViewport(doc: Document): FrameViewport | null {
-  const win = doc.defaultView
-  if (!win) return null
-  const width = Math.round(win.innerWidth)
-  const height = Math.round(win.innerHeight)
-  if (width < 1 || height < 1) return null
-  return { width, height }
-}
-
-function frameScroll(doc: Document): Point {
-  const win = doc.defaultView
-  return { x: Math.round(win?.scrollX ?? 0), y: Math.round(win?.scrollY ?? 0) }
-}
-
 /**
  * A frame is rendered the same way the region capture renders the page: the
  * clone never carries the scroll offset, so the root is shifted by it.
@@ -627,7 +615,7 @@ function framesInside(root: Element, frames: readonly FrameRecord[]): FrameRecor
 }
 
 /** The copied frame's box, or null when it is collapsed and paints nothing. */
-function frameBoxSize(copy: HTMLIFrameElement): FrameViewport | null {
+function frameBoxSize(copy: HTMLIFrameElement): FrameSize | null {
   let rect: DOMRect
   try {
     rect = native.getBoundingClientRect(copy)
@@ -641,12 +629,17 @@ function frameBoxSize(copy: HTMLIFrameElement): FrameViewport | null {
 }
 
 /**
- * Render a frame's current viewport.
+ * Render a frame's current viewport, or its whole document when `expand` is set.
  *
  * The document is copied into an off-screen iframe of the same size, so the copy
  * lays out exactly like the frame; the surface is the frame's viewport and the
  * root is shifted by the frame's scroll, because a clone carries neither. The
  * frames nested inside are painted first: their pictures land in this one.
+ *
+ * An expanded frame is the "select the frame itself" case: its document is the
+ * root, so the surface is the size the parent reserved for it and the content is
+ * rendered from the top with the root expanded — the same thing that happens to a
+ * scrollable element, one level down.
  *
  * This runs in whichever realm can read the document: the frame's own copy of the
  * script (the accurate path, and the only one for a cross-origin frame) or, as a
@@ -656,7 +649,8 @@ export async function renderFrameViewport(
   doc: Document | null,
   ratio: number,
   options: CaptureOptions,
-  depth: number
+  depth: number,
+  expand?: FrameSize
 ): Promise<Blob | null> {
   assertNotCancelled()
   // A cross-origin frame has no readable document and needs a helper instance.
@@ -664,7 +658,16 @@ export async function renderFrameViewport(
   const viewport = frameViewport(doc)
   if (!viewport) return null
 
-  const scroll = frameScroll(doc)
+  const scroll = expand ? { x: 0, y: 0 } : frameScroll(doc)
+  const surface = expand
+    ? {
+        left: 0,
+        top: 0,
+        width: Math.max(1, Math.ceil(expand.width)),
+        height: Math.max(1, Math.ceil(expand.height))
+      }
+    : { left: 0, top: 0, width: viewport.width, height: viewport.height }
+
   const snapshot = await createSnapshot({
     doc,
     skip: options.filter ? (node) => !options.filter?.(node as HTMLElement) : undefined
@@ -674,16 +677,16 @@ export async function renderFrameViewport(
     if (!root) return null
 
     // Order matters: the pin is measured against the copy's replayed scroll, and
-    // expanding the root resets that scroll.
-    pinFrameSticky(root)
-    const surface = { left: 0, top: 0, width: viewport.width, height: viewport.height }
+    // expanding the root resets that scroll. An expanded frame shows its content
+    // from the top, so its sticky descendants belong at their static position.
+    if (!expand) pinFrameSticky(root)
     expandForCapture(root, surface, false)
     await paintFrames(root, snapshot.frames, ratio, options, depth + 1)
     await nextFrame()
 
     return await toBlob(root as HTMLElement, {
-      width: viewport.width,
-      height: viewport.height,
+      width: surface.width,
+      height: surface.height,
       pixelRatio: ratio,
       skipAutoScale: true,
       cacheBust: false,
@@ -725,6 +728,65 @@ function paintFrameBackground(copy: HTMLIFrameElement, url: string): void {
 }
 
 /**
+ * What an expanded frame needs: the surface to render on, and the helper probe
+ * that has already been done, so painting the frame does not probe twice.
+ */
+interface FrameExpansion {
+  size: FrameSize
+  helpers: Set<HTMLIFrameElement> | null
+}
+
+/**
+ * Resize the copied frame so its viewport is exactly `content` big.
+ *
+ * Only the copy is touched: the live frame keeps its box, and the surrounding
+ * layout in the copy reflows around the grown frame the way the page would if the
+ * frame were that tall.
+ */
+function growFrameCopy(copy: HTMLIFrameElement, content: FrameSize): void {
+  const outer = frameOuterSize(copy, content)
+  setImportant(copy, 'width', `${outer.width}px`)
+  setImportant(copy, 'height', `${outer.height}px`)
+}
+
+/**
+ * Decide whether picking a frame means "the whole frame" and make room for it.
+ *
+ * Selecting a scrollable element expands its own scroll content; a frame is the
+ * same thing one level down, so a frame whose document scrolls is rendered from
+ * the top at full content size instead of at its current viewport. A frame that
+ * fits entirely is left alone: its viewport picture is already the whole frame.
+ *
+ * The parent has to know that size before it measures the capture, and a
+ * cross-origin frame cannot be measured locally, so this asks the frame's helper.
+ */
+async function planFrameExpansion(frame: FrameRecord): Promise<FrameExpansion | null> {
+  assertNotCancelled()
+  // A collapsed frame paints nothing; there is no frame content to expand.
+  if (!frameBoxSize(frame.copy)) return null
+  const viewport = frameViewport(frame.doc) ?? frameElementViewport(frame.live)
+  if (!viewport) return null
+
+  let measured = frameContentSize(frame.doc)
+  let helpers: Set<HTMLIFrameElement> | null = null
+  if (!measured) {
+    // A cross-origin frame: only its helper can report how tall it is.
+    helpers = await probeFrameHelpers([frame.live])
+    if (helpers.has(frame.live)) measured = await requestFrameSize(frame.live)
+  }
+  if (!measured) return null
+  // The frame is never captured narrower or shorter than what it shows today.
+  const size = {
+    width: Math.max(viewport.width, measured.width),
+    height: Math.max(viewport.height, measured.height)
+  }
+  if (size.width <= viewport.width && size.height <= viewport.height) return null
+
+  growFrameCopy(frame.copy, size)
+  return { size, helpers }
+}
+
+/**
  * Render every frame inside `root` and paint it into its own box before the page
  * render.
  *
@@ -735,26 +797,33 @@ function paintFrameBackground(copy: HTMLIFrameElement, url: string): void {
  * up) is rendered by the parent when its document is readable. A frame that
  * cannot be rendered keeps its empty box: a missing picture is not a reason to
  * lose the whole capture.
+ *
+ * `expansion` only applies to the root itself, i.e. when the picked element is the
+ * frame: that frame is rendered expanded on the surface reserved for it, while the
+ * frames inside it keep their current viewport.
  */
 async function paintFrames(
   root: Element,
   frames: readonly FrameRecord[],
   ratio: number,
   options: CaptureOptions,
-  depth: number
+  depth: number,
+  expansion: FrameExpansion | null = null
 ): Promise<void> {
   if (depth > MAX_FRAME_DEPTH) return
   const targets = framesInside(root, frames).filter((frame) => frameBoxSize(frame.copy))
   if (targets.length === 0) return
 
-  const helpers = await probeFrameHelpers(targets.map((frame) => frame.live))
+  const helpers =
+    expansion?.helpers ?? (await probeFrameHelpers(targets.map((frame) => frame.live)))
   for (const frame of targets) {
     assertNotCancelled()
+    const expand = frame.copy === root ? expansion?.size : undefined
     try {
       const remote = helpers.has(frame.live)
-        ? await requestFrameImage(frame.live, { ratio, depth })
+        ? await requestFrameImage(frame.live, { ratio, depth, ...(expand ? { expand } : {}) })
         : null
-      const image = remote ?? (await renderFrameViewport(frame.doc, ratio, options, depth))
+      const image = remote ?? (await renderFrameViewport(frame.doc, ratio, options, depth, expand))
       if (!image) continue
       paintFrameBackground(frame.copy, await blobToDataUrl(image))
     } catch (error) {
@@ -823,7 +892,12 @@ async function renderElement(
   try {
     const style = computed ?? native.getComputedStyle(element)
     const display = style.display
-    if (display === 'inline') {
+    if (display === 'inline' && element.tagName === 'IFRAME') {
+      // A frame is a replaced element: it already renders exactly at its border
+      // box, so the line-box correction below would only add a stray font-size of
+      // blank space to the capture.
+      rootStyle.display = 'block'
+    } else if (display === 'inline') {
       const fontSize = Number.parseFloat(style.fontSize) || 16
       // An inline root is laid out in a line box with a strut, which pushes the
       // glyphs below the element's 12px border box. Render it as a block and
@@ -847,6 +921,13 @@ async function renderElement(
     await nextFrame()
     await nextFrame()
 
+    // Picking the frame itself means "the whole frame": its document is the root,
+    // so the copied box grows to the frame's content size and the frame is
+    // rendered expanded from the top instead of at its current scroll offset. The
+    // copy reflows around the grown frame, so the box below is measured afterwards.
+    const rootFrame = frames.find((frame) => frame.copy === element) ?? null
+    const expansion = rootFrame ? await planFrameExpansion(rootFrame) : null
+
     // Expanding the copy can lay out more than the live page showed: the root's
     // own overflow becomes visible, and with nested expansion a descendant grows
     // its ancestor. Measure again so the canvas covers the layout instead of
@@ -867,7 +948,7 @@ async function renderElement(
     const shared = nested.length
       ? { ...options, fontEmbedCSS: await sharedFontEmbedCSS(element as HTMLElement, options) }
       : options
-    await paintFrames(element, nested, plan.ratio, shared, 1)
+    await paintFrames(element, nested, plan.ratio, shared, 1, expansion)
 
     const backdrop = await resolveBackground(element, finalBox, plan, options)
 

@@ -20,6 +20,10 @@ function renderRequest(token = 'test-token', nonce = 'n2', ratio = 2, depth = 1)
   return messageEvent({ protocol: FRAME_PROTOCOL, type: 'render', token, nonce, ratio, depth })
 }
 
+function measureRequest(token = 'test-token', nonce = 'n3'): MessageEvent {
+  return messageEvent({ protocol: FRAME_PROTOCOL, type: 'measure', token, nonce })
+}
+
 /** Wait for the helper's async reply to be posted. */
 async function settle(): Promise<void> {
   for (let tick = 0; tick < 20; tick += 1) {
@@ -145,9 +149,63 @@ describe('frame helper', () => {
 
     helper.handleMessage(hello())
     helper.handleMessage(renderRequest())
+    helper.handleMessage(measureRequest())
     await settle()
 
     expect(post).not.toHaveBeenCalled()
     expect(render).not.toHaveBeenCalled()
+  })
+
+  it('reports how large its document is', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const measure = vi.fn(() => ({ width: 640, height: 900 }))
+    const helper = createFrameHelper({ measure })
+
+    helper.handleMessage(measureRequest('test-token', 'm1'))
+    await settle()
+
+    expect(measure).toHaveBeenCalled()
+    expect(post).toHaveBeenCalledWith(
+      { protocol: FRAME_PROTOCOL, type: 'size', nonce: 'm1', width: 640, height: 900 },
+      '*'
+    )
+  })
+
+  it('answers a failed measurement with a zero size', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const helper = createFrameHelper({ measure: () => null })
+
+    helper.handleMessage(measureRequest('test-token', 'm2'))
+    await settle()
+
+    expect(post).toHaveBeenCalledWith(
+      { protocol: FRAME_PROTOCOL, type: 'size', nonce: 'm2', width: 0, height: 0 },
+      '*'
+    )
+  })
+
+  it('renders the expanded surface the parent asks for', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const render = vi.fn(async () => BLOB)
+    const helper = createFrameHelper({ render })
+
+    helper.handleMessage(
+      messageEvent({
+        protocol: FRAME_PROTOCOL,
+        type: 'render',
+        token: 'test-token',
+        nonce: 'x1',
+        ratio: 2,
+        depth: 1,
+        expand: { width: 300, height: 900 }
+      })
+    )
+    await settle()
+
+    expect(render).toHaveBeenCalledWith({ ratio: 2, depth: 1, expand: { width: 300, height: 900 } })
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'result', nonce: 'x1', blob: BLOB }),
+      '*'
+    )
   })
 })
