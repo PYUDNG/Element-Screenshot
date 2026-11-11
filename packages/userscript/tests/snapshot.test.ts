@@ -266,6 +266,63 @@ describe('page snapshot', () => {
     snapshot.dispose()
   })
 
+  it('records a frame with its content box instead of cloning its body', async () => {
+    document.body.innerHTML = '<iframe id="frame"></iframe>'
+    const frame = document.getElementById('frame') as HTMLIFrameElement
+    frame.contentDocument?.body.append('inside the frame')
+
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 10,
+      top: 20,
+      width: 304,
+      height: 204,
+      right: 314,
+      bottom: 224,
+      x: 10,
+      y: 20,
+      toJSON: () => ({})
+    } as DOMRect)
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      borderLeftWidth: '2px',
+      borderTopWidth: '2px',
+      borderRightWidth: '2px',
+      borderBottomWidth: '2px',
+      paddingLeft: '0px',
+      paddingTop: '0px',
+      paddingRight: '0px',
+      paddingBottom: '0px',
+      borderTopLeftRadius: '8px',
+      borderTopRightRadius: '8px',
+      borderBottomRightRadius: '8px',
+      borderBottomLeftRadius: '8px'
+    } as CSSStyleDeclaration)
+
+    const snapshot = await createSnapshot(FAST)
+    expect(snapshot.frames).toHaveLength(1)
+    const [record] = snapshot.frames
+    expect(record?.rect).toEqual({ left: 12, top: 22, width: 300, height: 200 })
+    expect(record?.radius.topLeft).toBe(8)
+    expect(record?.doc).toBe(frame.contentDocument)
+
+    // The copy keeps an empty frame of the same size and must not load the URL
+    // again, so nothing re-runs the page inside the snapshot.
+    const copy = snapshot.doc.getElementById('frame')
+    expect(copy?.hasAttribute('src')).toBe(false)
+    expect(copy?.hasAttribute('srcdoc')).toBe(false)
+    snapshot.dispose()
+  })
+
+  it('records a cross-origin frame without a document', async () => {
+    document.body.innerHTML = '<iframe id="frame"></iframe>'
+    const frame = document.getElementById('frame') as HTMLIFrameElement
+    Object.defineProperty(frame, 'contentDocument', { configurable: true, value: null })
+
+    const snapshot = await createSnapshot(FAST)
+    expect(snapshot.frames).toHaveLength(1)
+    expect(snapshot.frames[0]?.doc).toBeNull()
+    snapshot.dispose()
+  })
+
   it('leaves a canvas without readable pixels as an element with its box', async () => {
     document.body.innerHTML = '<canvas id="chart" width="60" height="40"></canvas>'
     const canvas = document.getElementById('chart') as HTMLCanvasElement

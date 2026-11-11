@@ -29,6 +29,8 @@ export interface Snapshot {
   readonly win: Window
   /** Counterpart of `options.target` inside the snapshot, if one was requested. */
   readonly target: Element | null
+  /** Frames inside the copy whose pixels have to be composited separately. */
+  readonly frames: FrameRecord[]
   /** Detach the iframe. The live page never needed restoring. */
   dispose(): void
 }
@@ -65,17 +67,12 @@ interface ShadowPair {
   content: DocumentFragment
 }
 
-interface FramePair {
-  clone: HTMLIFrameElement
-  content: DocumentFragment
-}
-
 interface CloneContext {
   /** The live document, used to create the cloned nodes. */
   doc: Document
   pairs: Array<{ live: LiveElement; clone: Element }>
   shadows: ShadowPair[]
-  frames: FramePair[]
+  frames: FrameRecord[]
   target: LiveElement | null
   targetClone: Element | null
   skip?: (element: Element) => boolean
@@ -220,28 +217,82 @@ function collectShadow(live: LiveElement, clone: Element, ctx: CloneContext): vo
   ctx.shadows.push({ live, clone, content })
 }
 
+/**
+ * A frame whose content has to be rendered on its own and composited into the
+ * result. Cloning the frame body into a nested `<iframe>` never reached the
+ * picture (html-to-image clones an `<iframe>` without its browsing context), so
+ * the copy keeps an empty box and the renderer fills it in later.
+ */
+export interface FrameRecord {
+  /** The live frame, kept for its content document and current viewport. */
+  live: HTMLIFrameElement
+  /** Content box in viewport coordinates, borders and padding excluded. */
+  rect: { left: number; top: number; width: number; height: number }
+  /** Corner radii in pixels, for clipping the composited picture. */
+  radius: { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number }
+  /** Null for a cross-origin frame, whose pixels need a helper instance. */
+  doc: Document | null
+}
+
+function parsePx(value: string | undefined | null): number {
+  const parsed = Number.parseFloat(value ?? '')
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function frameStyle(element: Element): CSSStyleDeclaration | null {
+  try {
+    return native.getComputedStyle(element)
+  } catch (_error) {
+    return null
+  }
+}
+
+function frameDocument(frame: Element): Document | null {
+  try {
+    // A cross-origin frame throws (or answers null) and needs a helper.
+    return (frame as HTMLIFrameElement).contentDocument ?? null
+  } catch (_error) {
+    return null
+  }
+}
+
 function collectFrame(live: LiveElement, clone: HTMLIFrameElement, ctx: CloneContext): void {
   // The snapshot must not fetch the frame's URL again: that would run the page a
-  // second time (and may be slow). Same-origin content is cloned instead.
+  // second time (and may be slow). The copy keeps an empty box of the same size.
   clone.removeAttribute('src')
   clone.removeAttribute('srcdoc')
-  let body: HTMLElement | null
-  try {
-    body = live.contentDocument?.body ?? null
-  } catch (_error) {
-    body = null
+
+  const rect = native.getBoundingClientRect(live)
+  const style = frameStyle(live)
+  const inside = {
+    left: parsePx(style?.borderLeftWidth) + parsePx(style?.paddingLeft),
+    top: parsePx(style?.borderTopWidth) + parsePx(style?.paddingTop),
+    right: parsePx(style?.borderRightWidth) + parsePx(style?.paddingRight),
+    bottom: parsePx(style?.borderBottomWidth) + parsePx(style?.paddingBottom)
   }
-  if (!body) return
-  const content = ctx.doc.createDocumentFragment()
-  for (const child of body.childNodes) {
-    const cloned = cloneNodeAny(child, ctx)
-    if (cloned) content.append(cloned)
-  }
-  ctx.frames.push({ clone, content })
+
+  ctx.frames.push({
+    live: live as unknown as HTMLIFrameElement,
+    rect: {
+      left: rect.left + inside.left,
+      top: rect.top + inside.top,
+      width: Math.max(1, Math.round(rect.width - inside.left - inside.right)),
+      height: Math.max(1, Math.round(rect.height - inside.top - inside.bottom))
+    },
+    radius: {
+      topLeft: parsePx(style?.borderTopLeftRadius),
+      topRight: parsePx(style?.borderTopRightRadius),
+      bottomRight: parsePx(style?.borderBottomRightRadius),
+      bottomLeft: parsePx(style?.borderBottomLeftRadius)
+    },
+    doc: frameDocument(live)
+  })
 }
 
 function cloneElement(live: LiveElement, ctx: CloneContext): Element | null {
   if (SKIPPED_TAGS.has(tagOf(live))) return null
+  // Never copy the capture machinery itself (the off-screen snapshot frame).
+  if (live.hasAttribute?.(SNAPSHOT_ATTRIBUTE) || live.hasAttribute?.(IGNORE_ATTRIBUTE)) return null
   if (ctx.skip?.(live)) return null
 
   const tag = tagOf(live)
@@ -282,7 +333,7 @@ function cloneNodeAny(node: Node, ctx: CloneContext): Node | null {
   }
 }
 
-/** Attach the collected shadow trees and same-origin frame bodies. */
+/** Attach the collected shadow trees. */
 function attachDeferred(ctx: CloneContext): void {
   for (const shadow of ctx.shadows) {
     try {
@@ -293,14 +344,6 @@ function attachDeferred(ctx: CloneContext): void {
       root.replaceChildren(shadow.content)
     } catch (error) {
       console.warn('[element-screenshot] snapshot shadow root failed', error)
-    }
-  }
-  for (const frame of ctx.frames) {
-    try {
-      const body = frame.clone.contentDocument?.body
-      if (body) body.append(frame.content)
-    } catch (_error) {
-      // A frame that stayed cross-origin has no readable body.
     }
   }
 }
@@ -590,7 +633,7 @@ export async function createSnapshot(options: SnapshotOptions = {}): Promise<Sna
     if (ctx.target && ctx.targetClone) reportCascadeMismatch(ctx.target, ctx.targetClone)
 
     const snapshotWin = doc.defaultView ?? liveWin
-    return { doc, win: snapshotWin, target: ctx.targetClone, dispose }
+    return { doc, win: snapshotWin, target: ctx.targetClone, frames: ctx.frames, dispose }
   } catch (error) {
     dispose()
     throw error

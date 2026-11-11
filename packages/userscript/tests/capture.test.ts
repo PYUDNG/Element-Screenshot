@@ -26,6 +26,7 @@ vi.mock('../src/core/snapshot', () => ({
     doc: document,
     win: window,
     target: options.target ?? null,
+    frames: [],
     dispose: () => undefined
   }))
 }))
@@ -717,7 +718,13 @@ describe('capture cancellation', () => {
     // The user hits cancel while the snapshot is still being built.
     vi.mocked(createSnapshot).mockImplementationOnce(async (options = {}) => {
       cancelCapture()
-      return { doc: document, win: window, target: options.target ?? null, dispose: () => undefined }
+      return {
+        doc: document,
+        win: window,
+        target: options.target ?? null,
+        frames: [],
+        dispose: () => undefined
+      }
     })
 
     await expect(captureElement(element, { pixelRatio: 1 })).rejects.toThrow(/cancelled/)

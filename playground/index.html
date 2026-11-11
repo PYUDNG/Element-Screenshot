@@ -178,6 +178,9 @@
       #nested-demo {
         align-self: start;
       }
+      #frame-demo {
+        align-self: start;
+      }
       #nested-panel {
         margin-top: 12px;
         /* A small padding gives the picker a strip where the panel itself is
@@ -362,6 +365,26 @@
             <div class="pick-row">Nested row 12</div>
           </div>
         </div>
+      </section>
+
+      <section class="card" id="frame-demo">
+        <h2>Same-origin iframe</h2>
+        <p class="muted">
+          下面是一个指向 <code>/frame.html</code> 的同源 iframe（带 1px 边框、10px 圆角、内部
+          sticky 表头和自己的滚动位置）。截图应保留帧内当前可见的内容。
+        </p>
+        <iframe
+          src="/frame.html"
+          title="frame fixture"
+          style="
+            display: block;
+            width: 100%;
+            height: 220px;
+            border: 1px solid #d4d4d8;
+            border-radius: 10px;
+            background: #fff;
+          "
+        ></iframe>
       </section>
 
       <div class="stack">

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Element Screenshot — iframe fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        background: #fff;
+        color: #18181b;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        padding: 10px 16px;
+        background: #eef2ff;
+        border-bottom: 1px solid #c7d2fe;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .list {
+        padding: 4px 0;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 9px 16px;
+        border-bottom: 1px solid #f4f4f5;
+        font-size: 13px;
+      }
+      .row .tag {
+        color: #6366f1;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <header>Inside the frame — this header is sticky</header>
+    <div class="list" id="frame-list"></div>
+    <script>
+      const list = document.getElementById('frame-list')
+      for (let index = 1; index <= 30; index += 1) {
+        const row = document.createElement('div')
+        row.className = 'row'
+        row.innerHTML = `<span>Frame row ${String(index).padStart(2, '0')}</span><span class="tag">#${index}</span>`
+        list.append(row)
+      }
+      // Start scrolled so the capture has to respect the frame's own scroll.
+      window.scrollTo(0, 60)
+    </script>
+  </body>
+</html>
