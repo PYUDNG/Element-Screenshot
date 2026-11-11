@@ -35,19 +35,20 @@
 
 ### main 上的未发布改动（截至 2026-11-11，无 tag）
 
-按顺序，都是 0.8.0 / 0.9.0 的组成部分，**尚未 bump 版本、未写 CHANGELOG**：
+按顺序，都是 0.8.0 / 0.9.0 的组成部分。详细行为见 `CHANGELOG.md` 的 `[Unreleased]` 与本文件对应小节：
 
-1. `77831ea` picker：实线/虚线双层框、`可滚动 ↓Npx` 徽标、`Shift+滚轮` 跳到滚动层、`scrollContainerInfo()` 统一判定；
+1. `77831ea` picker：实线/虚线双层框、`可滚动 ↓Npx` 徽标、`Shift+滚轮` 跳滚动层、`scrollContainerInfo()` 统一判定；
 2. `4bc826e` 展开语义：默认只展开根 + `fitBoxToLayout()` 重测画布 + 自定义元素 shadow 去重；
 3. `8ad160d` playground：`#nested-demo` / `#frame-demo` 加 `align-self: start`；
-4. `d491bc8` + `cbb0ad0` iframe：`FrameRecord` 记录、跳过快照自身 iframe、`/frame.html` 夹具与路由；
-5. `38b1696` iframe 视口合成：`createSnapshot({ doc })`、帧视口出图写回帧盒子背景、帧内 sticky 钉住、递归深度 2、单帧失败降级；
-6. `770e9be` 统一帧渲染：每个帧装 helper（`main.ts` 分流 + `frame-bridge`/`frame-helper`）、helper 优先 / 父级兜底、安装级 token 鉴权、去掉 `@noframes`、`app.ts` 拆分、`#cross-frame-demo` 夹具；
-7. `f00cdad` 选中帧本身 = 展开：新增 `core/frame-size.ts`，桥协议升到 `/2` 并加 `measure` / `size`（跨域帧的高度只能由 helper 回报），`planFrameExpansion()` 先把副本里的 iframe 盒子撑到帧内容尺寸再量画布，`renderFrameViewport()` 增加「展开」模式（不从帧滚动位置平移、不钉 sticky），`getTargetBox()` 对 iframe 也算上帧文档的内容尺寸，iframe 作为克隆根时不再套行内盒的 font-size 补偿；
-8. `36bc973` 区域截图里的 iframe：`framesInRegion()` 挑出与拖拽矩形相交的帧，在整页渲染前用同一套 `paintFrames()` 把帧视口图写进帧盒子背景；区域截图保持所见即所得，不展开帧；
-9. `c5ec8a8` playground：`index.html` 也认 `?vm=1`（此前无条件注入本地构建，顶层会同时跑 stub 与 VM 两份实例，谁先挂 UI 不确定）；
-10. `25b4443` 帧内快捷键：键按下时焦点在 iframe 里 → `window` 的 keydown 到不了顶层。新增 `core/hotkey-bridge.ts`：帧侧 `subscribe`（向父级要快捷键，带退避重试）→ 父级 `hotkey` 下发 → 帧本地按 `isTriggerStroke()` 匹配 → 发 `trigger`（只带「按下的是哪条快捷键」，不带按键内容）→ 父级用当前设置复核后才开始选择；桥协议升到 `/3`；
-11. `d02ba88` 设置项归位：`触发快捷键` 从「截图 → 触发方式」搬到「触发 → 快捷键」；`b17e4d5` 文档。
+4. `d491bc8` + `cbb0ad0` iframe 记录（`FrameRecord`）与 `/frame.html` 夹具；
+5. `38b1696` 帧视口合成：`createSnapshot({ doc })`、帧图写回帧盒子背景、帧内 sticky、深度 2、单帧降级；
+6. `770e9be` 统一帧渲染：每帧装 helper、helper 优先 / 父级兜底、安装级 token、去掉 `@noframes`、`app.ts` 拆分；
+7. `f00cdad` 选中帧本身 = 展开：`core/frame-size.ts`、协议 `/2` 的 `measure`/`size`、`planFrameExpansion()`、iframe 根不做 font-size 补偿；
+8. `36bc973` 区域截图里的帧：`framesInRegion()` + `paintFrames()`，所见即所得不展开；
+9. `c5ec8a8` playground：`index.html` 也认 `?vm=1`（此前顶层同时跑 stub 与 VM 两份实例，谁先挂 UI 不确定）；
+10. `25b4443` 帧内快捷键：新增 `core/hotkey-bridge.ts`（`subscribe` / `hotkey` / `trigger`，协议 `/3`），帧内按键回到顶层再复核；
+11. `d02ba88` 设置项归位：`触发快捷键` 从「截图 → 触发方式」搬到「触发 → 快捷键」；`b17e4d5` 文档；
+12. `bf0dbec` 焦点：`startPicker()` 把焦点从帧里 `blur()` 回页面，`Esc` 等按键重新到得了顶层（`ui/focus.ts`）。
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -182,9 +183,7 @@ Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = 
 
 ### 旧的 CDP 方案
 
-仅在 MCP 不可用时使用：用 `msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile> --window-size=1400,1000 about:blank` 起一个专用 profile，再通过 `http://127.0.0.1:9222/json/list` 连 page target 跑临时脚本（放仓库外，例如 `%TEMP%\es-cdp\`）。CDP 没有认证、能连上端口就能完全控制浏览器，所以别把日常主力 Profile 长期裸开调试端口，也不要指望防火墙隔离 loopback。
-
-实测好用的细节：新页面用 `PUT /json/new?<url>`（`/json/list` 里第一个 `type === 'page'` 可能是扩展安装页）；输入用 `Input.dispatchMouseEvent`（`mousePressed` → 多次 `mouseMoved` + `buttons: 1` → `mouseReleased`），先把 `Emulation.setDeviceMetricsOverride` 设成 1400×900 让坐标稳定；新 profile 里没有 Violentmonkey，所以直接访问 `region.html`（**不带** `?vm=1`）让页面自己注入 `dist/script.user.js`；`Page.addScriptToEvaluateOnNewDocument` 包的 `toBlob`/`drawImage`/`serializeToString` 会被原生快照当成「原生」实现，可以借此分阶段计时或取最后一帧做像素比对；`Page.captureScreenshot` 带 `clip` 能只截一小块。
+仅在 MCP 不可用时使用：用 `msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile> --window-size=1400,1000 about:blank` 起一个专用 profile，再通过 `http://127.0.0.1:9222/json/list` 连 page target 跑临时脚本（放仓库外，例如 `%TEMP%\es-cdp\`）。CDP 没有认证、能连上端口就能完全控制浏览器，所以别把日常主力 Profile 长期裸开调试端口，也不要指望防火墙隔离 loopback。新页面用 `PUT /json/new?<url>`（`/json/list` 里第一个 `type === 'page'` 可能是扩展安装页）；输入用 `Input.dispatchMouseEvent`（按下 → 多次移动 + `buttons: 1` → 抬起）；`Page.addScriptToEvaluateOnNewDocument` 包的 `toBlob`/`drawImage`/`serializeToString` 会被原生快照当成「原生」实现，可以借此分阶段计时或取最后一帧做像素比对；`Page.captureScreenshot` 带 `clip` 只截一小块。
 
 ## 发布流程
 
@@ -439,7 +438,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 订阅时序：帧的 `subscribe` 可能早于顶层 `mountUi()`（帧先加载完）。帧按 `[0, 250, 750, 2000, 5000, 10000]` 退避重试，收到 `hotkey` 就停；顶层在安装时也 `broadcast()` 一次（只发给**订阅过**的 window，不遍历 DOM，避免把 token 发给没有 helper 的帧）。设置变化时 `app.ts` 的 `watch(shortcut, () => bridge.broadcast())` 再推一遍。
 - 嵌套：帧里的帧向自己的父帧 `subscribe`；父帧把配置再往下推，并把子帧的 `trigger` 原样转给 `window.parent`。只有顶层会 `startPicker()`。
 - 帧内匹配到快捷键时 `preventDefault()` + `stopPropagation()`，和顶层一致；`isTriggerStroke()` 保留「输入框里裸键让给页面」的规则。顶层 `shouldIgnore`（设置面板打开 / 不在 idle）对上报的 press 同样生效——所以选择模式里再按一次快捷键仍然什么都不做。
-- **已知边界**：完全不运行本脚本的帧（`about:blank` / `srcdoc` / `sandbox` 无 `allow-scripts`）收不到任何按键，用户得点悬浮按钮或菜单。选择模式启动后焦点可能仍留在帧里，此时按 `Esc` 也到不了顶层（点一下页面让焦回到顶层即可；选框的透明层本来就挡在帧前面）。
+- **已知边界**：完全不运行本脚本的帧（`about:blank` / `srcdoc` / `sandbox` 无 `allow-scripts`）收不到任何按键，用户得点悬浮按钮或菜单。
+- 焦点（`ui/focus.ts`）：键按下时焦点在帧里，`Esc` / `+` / `-` / 层级键会全部落在帧文档里。`startPicker()` 现在调 `takeFocusFromFrame()`：只有当 `document.activeElement` 是 **iframe** 时才 `blur()` 它，焦点回到页面 `body`，和用户点一下页面等价（实测 Chromium：blur 后 `activeElement` = `BODY`，随后的 keydown 目标也是 `BODY`）。不要改成「往我们自己的 shadow host 里 focus」——`isMarkedUiNode` 会把 UI 里的目标当成 UI 事件，picker 反而会忽略按键。顶层输入框有焦点时不受影响（不是 iframe 就不动）。
 - 测试：`tests/hotkey-bridge.test.ts` 覆盖订阅/重试/收到即停、配置复用、错 token / 非父窗口的下发被忽略、按键上报、输入框裸键不报、子帧订阅与上报转发、顶层复核与 `shouldIgnore`；`hotkey.test.ts` 覆盖 `isTriggerStroke()` 的修饰键、`repeat`、`defaultPrevented`、可编辑目标。
 
 ### 已验证（真实浏览器，VM 实例 + playground，2026-11-11）
