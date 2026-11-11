@@ -45,6 +45,7 @@
 6. `71f05c0` 帧内选择器按键：**不动焦点**，帧把选择器用得上的键经桥上报（`ui` + `key`，协议 `/4`，`core/relay-key.ts`），顶层在 `document.body` 上重放给 picker；
 7. 穿透选取：picker 能选到 iframe 内部任意元素（`hover`/`stack` + `capture`/`captured`，协议 `/5`，`core/pick-target.ts`、`core/frame-pick.ts`），帧内元素由该帧自己渲染；
 8. 帧的字体与并行渲染：`native.fontSource` / `setFontSource()` 把字体嵌入指向帧自己的文档（`patchFontSourceBase`、`patchFontUsageScan`），`paintFrames()` 并行请求 helper、取消时逐个发 `cancel`。
+9. 选择器监听提前到 `document-start`（`installEarlyPickerListeners()`，13 个事件常驻 + `active` 门控），页面在 window 捕获阶段再也看不到、也拦不住拾取期间的点击；`wheel` 仍在开始拾取时才挂。设置反过来改成「鼠标穿透」（默认关）+ 旧值迁移（`config/migrate.ts`）。
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -175,7 +176,7 @@ Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = 
 
 ### 旧的 CDP 方案
 
-仅在 MCP 不可用时使用：`msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile>` 起专用 profile，再从 `http://127.0.0.1:9222/json/list` 连 page target（临时脚本放仓库外）。CDP 没有认证，别把主力 Profile 裸开调试端口。
+仅在 MCP 完全不可用时：`msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile>`，再连 `http://127.0.0.1:9222/json/list` 的 page target。CDP 无认证，别把主力 Profile 裸开调试端口。
 
 ## 发布流程
 
@@ -292,6 +293,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 框分两层：**实线**是 `getVisibleBox()`（屏幕上看到的 border box，根元素是视口），**虚线**是 `getTargetBox()`（展开滚动内容后的截图尺寸）。两者不一致时才画虚线，否则看起来像重影。
 - 徽标文案带轴向和数量（`可滚动 ↓2341px` / `→2400px` / `↕`），因为「这一层会不会变长、变多长」才是用户要判断的信息；单纯标「可滚动」和三格尺寸数字混在一起反而看不懂。
 - `Shift+滚轮` / `Shift+↑↓` 由 `picker.cycleScroll()` 直接跳到上/下一个滚动容器。滚轮已经占用普通层级切换，用 Shift 区分；部分平台按住 Shift 会把纵向滚轮挪到 `deltaX`，所以方向取 `deltaY || deltaX`。
+- **监听提前到 document-start**：`installEarlyPickerListeners()`（`main.ts` 调用，构造实例时幂等补一次）在页面脚本之前挂 13 个 window 捕获监听，转发给当前实例的 `handleEvent()`；每个 handler 第一行 `if (!this.active) return`，所以非拾取期页面行为完全不变。这样页面在 window 捕获阶段既看不到拾取期间的点击，也没法用 `stopImmediatePropagation()` 把拾取器搞哑。`wheel` 仍在 `start()`/`stop()` 里挂摘——常驻 `passive:false` 会让所有页面的滚动都等 JS；`mousemove`/`pointermove` 必须常驻，十字线僵住和点击失灵一样糟。
 - **测试陷阱**：picker 的监听挂在 `window` 的捕获阶段，并且会 `stopImmediatePropagation`。一个用例如果在断言失败处抛错、没走到 `picker.stop()`，就会留下一个仍然 active 的实例吞掉后续用例的事件，表现成一串无关用例失败（实测：两个新用例断言写错，导致 4 个拖拽用例全挂）。改断言时先确认 `stop()` 一定会执行。
 
 ### 设置面板的项目链接
@@ -433,7 +435,6 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - **已知边界**：完全不运行本脚本的帧（`about:blank` / `srcdoc` / `sandbox` 无 `allow-scripts`）收不到任何按键，用户得点悬浮按钮或菜单。
 - 选择器开着时（`ui`，`active = mode === 'picking'`）：帧**不动焦点**，把选择器用得上的键 `key` 报给父级并就地吞掉（空格只吞不报）。父级 `handleRelayedKey()` 用 `isPickerKey()` 复核，再 `dispatchCaptureUiKey()` 在 **`document.body`** 上合成 `keydown`，让 picker 走原来那条路径。约束：① 只放行选择器自己的键，字母/数字永不跨境（例外 Ctrl/Cmd+A）；② 目标必须是 body——落在我们 shadow host 上会被 `isMarkedUiNode` 当成 UI 事件忽略；③ 这些键会被 picker 的捕获监听 `stopImmediatePropagation`，页面监听收不到（实测页面 window 监听一条都没看到）。白名单在 `core/relay-key.ts`。
 - 不要改成 blur 焦点（会打断帧里正在输入的控件，旧方案已删）；预览也不需要——`handleSelect()` / `handleRegion()` 本来就会 `blur()` 当前焦点（避免截图带上焦点环）。
-- 测试：`tests/hotkey-bridge.test.ts` 覆盖订阅/重试/收到即停、配置复用、错 token / 非父窗口的下发被忽略、按键上报、输入框裸键不报、子帧订阅与上报转发、顶层复核与 `shouldIgnore`；`hotkey.test.ts` 覆盖 `isTriggerStroke()` 的修饰键、`repeat`、`defaultPrevented`、可编辑目标。
 
 ### 穿透选取帧内元素（`core/pick-target.ts` + `core/frame-pick.ts`）
 
@@ -442,7 +443,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - `elementId` 是 helper 侧的 `WeakMap<Element, number>` 编号（不复用、跨 hover 稳定、超 2000 条裁剪），父级**不传选择器**：跨域文档里的选择器既不可信也不可靠；capture 时再校验 `isConnected`。
 - 没有 helper 的帧不参与穿透：`hover` 250ms 超时 → 该帧进 `framePickRetry`（2 秒），期间悬停直接退回 `iframe` 图层，不会让光标卡住；`startPicker()` 清空这张表。
 - 只穿一层：帧的栈里最内层若又是 `<iframe>`，它就是「帧内的帧元素」，父级不再往下问（否则坐标要跨两级换算）。
-- 依赖默认的「隔离页面交互」：开着时全屏 pick-surface 接住指针，必须父级驱动；关掉后指针进入帧、页面的 mousemove 不到顶层，穿透失效。帧内滚轮被 picker 占用，所以只能选帧当前视口里的部分。
+- 依赖「鼠标穿透」关闭（默认）：pick-surface 接住指针，必须父级驱动；打开穿透后指针进入帧、顶层收不到 mousemove，穿透失效。帧内滚轮被 picker 占用，所以只能选帧当前视口里的部分。
 
 ### 帧的字体与并行渲染
 
@@ -458,8 +459,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 - 同源 `#frame-demo`（`?vm=1`）：864×726、`ratio 2`，1.4 秒；父级 `toBlob` +1、帧内 1 → 走 helper；表头 `#eef2ff` 52,811 像素、下沿露出 `Frame row 02` 半行 → `scrollY = 60` 平移正确。跨域（4176 嵌 4177）：1040×682、1.5 秒、表头 65,835 像素 → 只有 helper 能做到；兜底（`about:blank` + `document.write`）帧内 0 次、父级 2 次、720×360 正常。
 - 鉴权：页面伪造 `hello`/`render`（错 token 或空 token）→ 900ms 内无任何回复。截完页面和帧内都没有残留快照节点、iframe 行内样式未改、帧滚动仍是 60。
-- 选中帧本身 = 展开（帧 394×220、帧内 392×218、内容高 1110、DPR 2）：同源 + helper **788×2226**（`pageShots` +1、`helperShots` 1、表头 54,142）；同源兜底同样 788×2226；跨域 + helper **964×2226**、表头色 67,166。选中包含帧的祖先（`section#frame-demo`）**864×770**、帧只画 220px 视口、盒子没撑高。区域截图框住 394×220 的帧（拖 418×244）**836×488**、帧内表头 52,854 像素。
-- 帧内快捷键（VM 快捷键 `Alt+S`）：点进同源/跨域帧 → 顶层收到 `trigger`、选框出现，`document.activeElement` 全程是 `IFRAME`；`Alt+Shift+S` 无反应；方向键换层、`Esc` 关闭，页面自己的 window keydown 监听一条都没收到。设置面板：**触发** = 快捷键 + 悬浮按钮，**截图** = 选择交互 / 选框外观 / 输出。
+- 选中帧本身 = 展开：同源 + helper **788×2226**、跨域 + helper **964×2226**；同源兜底也一样。选中包含帧的祖先 **864×770**、帧只画 220px 视口、盒子没撑高。
+- 帧内快捷键（`Alt+S`）：点进同源/跨域帧后按快捷键 → 顶层收到 `trigger`、选框出现，`document.activeElement` 始终是 `IFRAME`；方向键换层、`Esc` 关闭，页面 window keydown 监听一条都没收到。
 
 穿透选取（同一环境）：
 

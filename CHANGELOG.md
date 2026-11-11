@@ -75,6 +75,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The pointer setting is now the positive **Mouse passthrough** switch (default off)
+  instead of “Isolate page interaction” (default on). The behaviour is unchanged —
+  off keeps the transparent layer that keeps hover effects out of the capture — but
+  a switch whose name matches the default no longer reads as a double negative. A
+  stored value from the old switch is migrated, so nobody's choice flips:
+  `isolation: false` becomes `passthrough: true` and the legacy key is dropped.
 - Frame renders are requested in parallel. Every frame renders in its own realm, so
   the parent no longer waits for one frame before asking the next: a page with
   several frames pays the slowest one instead of the sum. Frames that share a
@@ -88,6 +94,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The picker installs its window listeners at document-start instead of when
+  picking begins. `stopImmediatePropagation()` only stops listeners that run after
+  it, so a page listening on `window` (capture) used to see the clicks the picker
+  was meant to consume — and a page that swallowed them made picking silently do
+  nothing. With the listeners in place first, the page neither sees the pick-time
+  clicks nor can keep the picker from receiving them. `wheel` still joins only
+  while picking: a permanent non-passive wheel listener would make every page's
+  scrolling wait for JavaScript.
 - An iframe that the parent has to render itself (no helper: `about:blank`,
   `srcdoc`, a sandbox without scripts, or one that is still starting up) now uses
   the frame's own webfonts. The embedder always read the stylesheets of the
