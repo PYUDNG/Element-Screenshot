@@ -1,4 +1,6 @@
 import { native } from './native'
+import { scrollContainerInfo } from './scroll-axis'
+import type { ScrollAxis } from './scroll-axis'
 
 export interface TargetBox {
   left: number
@@ -9,7 +11,12 @@ export interface TargetBox {
 
 export interface TargetInfo {
   label: string
+  /** The element's border box on screen: what the user sees right now. */
+  rect: TargetBox
+  /** The capture box: `rect` grown to the element's own scrollable content. */
   box: TargetBox
+  scrollAxis: ScrollAxis | null
+  /** True when this element scrolls by itself, so the capture gets longer. */
   scrollable: boolean
   element: Element
 }
@@ -93,6 +100,30 @@ export function getTargetBox(element: Element): TargetBox {
   }
 }
 
+/**
+ * The element's border box as it is on screen. For the root element this is the
+ * viewport, because the document itself has no meaningful border box.
+ */
+export function getVisibleBox(element: Element): TargetBox {
+  const doc = element.ownerDocument
+  const rect = native.getBoundingClientRect(element)
+  if (element === doc.documentElement) {
+    const win = doc.defaultView
+    return {
+      left: 0,
+      top: 0,
+      width: Math.max(1, Math.round(win?.innerWidth ?? rect.width)),
+      height: Math.max(1, Math.round(win?.innerHeight ?? rect.height))
+    }
+  }
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: Math.max(1, Math.ceil(rect.width)),
+    height: Math.max(1, Math.ceil(rect.height))
+  }
+}
+
 export function elementLabel(element: Element): string {
   const tag = element.tagName.toLowerCase()
   const id = element.id ? `#${element.id}` : ''
@@ -109,13 +140,13 @@ export function elementLabel(element: Element): string {
 }
 
 export function describeTarget(element: Element): TargetInfo {
-  const box = getTargetBox(element)
+  const scroll = scrollContainerInfo(element)
   return {
     label: elementLabel(element),
-    box,
-    scrollable:
-      element.scrollHeight > element.clientHeight + 1 ||
-      element.scrollWidth > element.clientWidth + 1,
+    rect: getVisibleBox(element),
+    box: getTargetBox(element),
+    scrollAxis: scroll.axis,
+    scrollable: scroll.axis !== null,
     element
   }
 }

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const hoisted = vi.hoisted(() => ({
-  stack: [] as Element[]
+  stack: [] as Element[],
+  scrolls: new Set<Element>()
 }))
 
 vi.mock('../src/core/target', () => ({
@@ -10,10 +11,22 @@ vi.mock('../src/core/target', () => ({
     stack[Math.min(Math.max(index, 0), stack.length - 1)] ?? null
 }))
 
+vi.mock('../src/core/scroll-axis', () => ({
+  SCROLL_OVERFLOW: new Set(['auto', 'scroll', 'overlay']),
+  scrollContainerInfo: (element: Element) => ({
+    axis: hoisted.scrolls.has(element) ? 'y' : null,
+    contentWidth: 0,
+    contentHeight: 0,
+    overflowX: 0,
+    overflowY: 0
+  })
+}))
+
 import { ElementPicker } from '../src/core/picker'
 
 afterEach(() => {
   hoisted.stack = []
+  hoisted.scrolls = new Set()
   document.body.innerHTML = ''
 })
 
@@ -90,6 +103,56 @@ describe('element picker', () => {
     expect(onHover).toHaveBeenLastCalledWith(inner, 1, 2)
     window.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true }))
     expect(onHover).toHaveBeenLastCalledWith(outer, 0, 2)
+    picker.stop()
+  })
+
+  it('jumps between scroll containers with Shift', () => {
+    // getElementStack returns topmost first: icon < card < scroller < wrapper < body
+    const icon = document.createElement('i')
+    const card = document.createElement('div')
+    const scroller = document.createElement('div')
+    const wrapper = document.createElement('div')
+    const body = document.body
+    hoisted.stack = [icon, card, scroller, wrapper, body]
+    hoisted.scrolls = new Set([scroller])
+
+    const onHover = vi.fn()
+    const picker = new ElementPicker({ onHover, onSelect: vi.fn(), onCancel: vi.fn() })
+    picker.start()
+    expect(onHover).toHaveBeenLastCalledWith(icon, 4, 5)
+
+    picker.cycleScroll(-1)
+    expect(onHover).toHaveBeenLastCalledWith(scroller, 2, 5)
+
+    // No further scroll container above it, so the layer stays put.
+    picker.cycleScroll(-1)
+    expect(onHover).toHaveBeenLastCalledWith(scroller, 2, 5)
+
+    picker.cycleScroll(1)
+    expect(onHover).toHaveBeenLastCalledWith(scroller, 2, 5)
+    picker.stop()
+  })
+
+  it('jumps between scroll containers with Shift+wheel', () => {
+    const icon = document.createElement('i')
+    const scroller = document.createElement('div')
+    const body = document.body
+    hoisted.stack = [icon, scroller, body]
+    hoisted.scrolls = new Set([scroller])
+
+    const onHover = vi.fn()
+    const picker = new ElementPicker({ onHover, onSelect: vi.fn(), onCancel: vi.fn() })
+    picker.start()
+    expect(onHover).toHaveBeenLastCalledWith(icon, 2, 3)
+
+    // Shift moves the deltas onto the horizontal axis on some platforms.
+    window.dispatchEvent(
+      new WheelEvent('wheel', { deltaX: 120, shiftKey: true, cancelable: true })
+    )
+    expect(onHover).toHaveBeenLastCalledWith(icon, 2, 3)
+
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, shiftKey: true, cancelable: true }))
+    expect(onHover).toHaveBeenLastCalledWith(scroller, 1, 3)
     picker.stop()
   })
 

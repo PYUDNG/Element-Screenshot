@@ -1,5 +1,6 @@
 import { native } from './native'
 import { regionSamplePoints } from './region'
+import { SCROLL_OVERFLOW } from './scroll-axis'
 import { getElementStack } from './target'
 import type { TargetBox } from './target'
 
@@ -13,8 +14,6 @@ type ScrollableElement = Element & {
   clientHeight: number
 }
 
-/** `overflow` values that make an element a scroll container. */
-const SCROLL_OVERFLOW = new Set(['auto', 'scroll', 'overlay'])
 const BORDER_SIDES = ['top', 'right', 'bottom', 'left'] as const
 
 /** Guard rails: a screenshot never needs to rebuild an unbounded number of panels. */

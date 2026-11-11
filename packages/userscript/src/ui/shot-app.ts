@@ -223,6 +223,10 @@ export class ShotApp implements ShotAppApi {
     this.picker.cycle(delta)
   }
 
+  cycleScroll(delta: number): void {
+    this.picker.cycleScroll(delta)
+  }
+
   async copy(): Promise<void> {
     const blob = await this.ensureBlob()
     if (!blob) return
@@ -338,8 +342,12 @@ export class ShotApp implements ShotAppApi {
     const info = describeTarget(element)
     const hover: PickerHover = {
       label: info.label,
-      width: info.box.width,
-      height: info.box.height,
+      width: info.rect.width,
+      height: info.rect.height,
+      rect: info.rect,
+      contentWidth: info.box.width,
+      contentHeight: info.box.height,
+      scrollAxis: info.scrollAxis,
       scrollable: info.scrollable,
       depth: index + 1,
       total,

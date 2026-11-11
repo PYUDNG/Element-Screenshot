@@ -19,8 +19,16 @@ export interface PickerBox {
 
 export interface PickerHover {
   label: string
+  /** Visible size: what the user sees on screen right now. */
   width: number
   height: number
+  /** Visible box, drawn as a solid frame. */
+  rect: PickerBox
+  /** Size the capture will have: the visible box grown to the scroll content. */
+  contentWidth: number
+  contentHeight: number
+  /** Set when the element scrolls by itself, so the capture gets longer. */
+  scrollAxis: 'y' | 'x' | 'both' | null
   scrollable: boolean
   depth: number
   total: number
@@ -58,6 +66,8 @@ export interface ShotAppApi {
   startPicker(): void
   cancel(): void
   cycle(delta: number): void
+  /** Jump to the next/previous layer that scrolls by itself. */
+  cycleScroll(delta: number): void
   copy(): Promise<void>
   save(): Promise<void>
   /**

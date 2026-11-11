@@ -299,6 +299,15 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 平移：图片上的 pointer 拖动直接改 `translate3d`，并按 stage 尺寸把位移钳在 `±(显示尺寸 - stage)/2`，所以图不会整个拖出可视区；拖动超过 3px 视为平移、抬手不再触发缩放切换（点击和拖动共用左键）。
 - `<img>` 的鼠标滚轮和根节点的 `@wheel.prevent` 都要 `preventDefault`：交互守卫会放过 UI 事件，不拦的话滚轮会滚到底下的页面。透明截图垫棋盘格，否则透明区域在黑底上看不出边界。
 
+### 元素选择器（picker）
+
+- 层级栈来自 `getElementStack()`（topmost first），`picker.refresh()` 会 `reverse()` 成「外层在前」，所以 `index 0` 是最外层、默认选中最内层。单元测试里 mock 的 `getElementStack` 必须按**topmost first** 给，否则断言会全部错位。
+- 「可滚动」的判定统一在 `core/scroll-axis.ts` 的 `scrollContainerInfo()`：`overflow-x/y` 属于 `SCROLL_OVERFLOW`（`auto|scroll|overlay`）**且**该轴真的溢出 >1px。`overflow: hidden` 不算——它只是布局裁剪，用户没法滚过去看被裁的内容。picker 的徽标、`getTargetBox()` 的扩张、区域截图的切片收集都走同一个谓词，三处不能各写一套。历史坑：旧判定只看 `scrollHeight > clientHeight + 1`，30×30 的图标按钮因为行高多 1px 就被标成「含滚动内容」。
+- 框分两层：**实线**是 `getVisibleBox()`（屏幕上看到的 border box，根元素是视口），**虚线**是 `getTargetBox()`（展开滚动内容后的截图尺寸）。两者不一致时才画虚线，否则看起来像重影。
+- 徽标文案带轴向和数量（`可滚动 ↓2341px` / `→2400px` / `↕`），因为「这一层会不会变长、变多长」才是用户要判断的信息；单纯标「可滚动」和三格尺寸数字混在一起反而看不懂。
+- `Shift+滚轮` / `Shift+↑↓` 由 `picker.cycleScroll()` 直接跳到上/下一个滚动容器。滚轮已经占用普通层级切换，用 Shift 区分；部分平台按住 Shift 会把纵向滚轮挪到 `deltaX`，所以方向取 `deltaY || deltaX`。
+- **测试陷阱**：picker 的监听挂在 `window` 的捕获阶段，并且会 `stopImmediatePropagation`。一个用例如果在断言失败处抛错、没走到 `picker.stop()`，就会留下一个仍然 active 的实例吞掉后续用例的事件，表现成一串无关用例失败（实测：两个新用例断言写错，导致 4 个拖拽用例全挂）。改断言时先确认 `stop()` 一定会执行。
+
 ### 设置面板的项目链接
 
 - `createSettings({ links })` 接收 `{ id, label, href, icon }`，渲染在 footer 版本号后面，`target=_blank` + `rel="noopener noreferrer"`，`label` 同时用作 `title` 和 `aria-label`。

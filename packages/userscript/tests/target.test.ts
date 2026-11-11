@@ -89,15 +89,83 @@ describe('target helpers', () => {
       borderLeftWidth: '0px',
       borderRightWidth: '0px',
       borderTopWidth: '0px',
-      borderBottomWidth: '0px'
+      borderBottomWidth: '0px',
+      overflowX: 'visible',
+      overflowY: 'auto'
     } as CSSStyleDeclaration)
     Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 300 })
     Object.defineProperty(element, 'clientHeight', { configurable: true, value: 100 })
 
     const info = describeTarget(element)
+    expect(info.rect).toEqual({ left: 0, top: 0, width: 100, height: 100 })
     expect(info.box).toEqual({ left: 0, top: 0, width: 100, height: 300 })
+    expect(info.scrollAxis).toBe('y')
     expect(info.scrollable).toBe(true)
     expect(info.label).toBe('div')
+  })
+
+  it('does not call a clipped box scrollable', () => {
+    const element = document.createElement('div')
+    document.body.appendChild(element)
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      overflowX: 'visible',
+      overflowY: 'visible'
+    } as CSSStyleDeclaration)
+    // An icon button whose inline content is a pixel taller than its box: the
+    // old `scrollHeight > clientHeight + 1` rule flagged this as scrollable.
+    Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 31 })
+    Object.defineProperty(element, 'clientHeight', { configurable: true, value: 30 })
+
+    const info = describeTarget(element)
+    expect(info.scrollAxis).toBeNull()
+    expect(info.scrollable).toBe(false)
+  })
+
+  it('ignores overflow hidden, which gives the user no way to scroll', () => {
+    const element = document.createElement('div')
+    document.body.appendChild(element)
+    vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      overflowX: 'hidden',
+      overflowY: 'hidden'
+    } as CSSStyleDeclaration)
+    Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 900 })
+    Object.defineProperty(element, 'clientHeight', { configurable: true, value: 300 })
+
+    expect(describeTarget(element).scrollAxis).toBeNull()
+  })
+
+  it('reports the axis that actually scrolls', () => {
+    const element = document.createElement('div')
+    document.body.appendChild(element)
+    const style = vi.spyOn(native, 'getComputedStyle').mockReturnValue({
+      overflowX: 'auto',
+      overflowY: 'auto'
+    } as CSSStyleDeclaration)
+    Object.defineProperty(element, 'scrollWidth', { configurable: true, value: 2400 })
+    Object.defineProperty(element, 'clientWidth', { configurable: true, value: 600 })
+    Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 300 })
+    Object.defineProperty(element, 'clientHeight', { configurable: true, value: 300 })
+
+    expect(describeTarget(element).scrollAxis).toBe('x')
+
+    Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 900 })
+    expect(describeTarget(element).scrollAxis).toBe('both')
+
+    // A scrollport that is not actually overflowing stays quiet.
+    Object.defineProperty(element, 'scrollWidth', { configurable: true, value: 600 })
+    Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 300 })
+    style.mockReturnValue({ overflowX: 'auto', overflowY: 'auto' } as CSSStyleDeclaration)
+    expect(describeTarget(element).scrollAxis).toBeNull()
+  })
+
+  it('treats the viewport as the visible box of the root element', () => {
+    const info = describeTarget(document.documentElement)
+    expect(info.rect).toEqual({
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight
+    })
   })
 
   it('uses the document scroll size for the root element', () => {

@@ -61,7 +61,7 @@ const zhCN: LocaleDefinition = {
       },
       hint: {
         pickTitle: '选择元素',
-        pick: '滚轮或 + / − 切换层级 · 拖动框选区域 · Ctrl+A 整页 · Esc 退出',
+        pick: '滚轮或 + / − 切换层级 · Shift+滚轮 跳到可滚动层 · 拖动框选区域 · Ctrl+A 整页 · Esc 退出',
         region: '松开鼠标截取所选区域',
         selected: 'Ctrl+C 复制 · Ctrl+S 保存',
         zoom: '滚轮或 ± 缩放 · 拖动平移',
@@ -72,7 +72,7 @@ const zhCN: LocaleDefinition = {
         preview: '截图预览',
         previewUnavailable: '暂时无法预览，但仍可复制或保存',
         fullPage: '整页',
-        scrollable: '含滚动内容',
+        scrollable: '可滚动',
         shallower: '选择外层元素',
         deeper: '选择内层元素',
         esc: 'Esc 关闭'
@@ -165,7 +165,7 @@ const zhTW: LocaleDefinition = {
       },
       hint: {
         pickTitle: '選擇元素',
-        pick: '滾輪或 + / − 切換層級 · 拖曳框選區域 · Ctrl+A 整頁 · Esc 離開',
+        pick: '滾輪或 + / − 切換層級 · Shift+滾輪 跳到可捲動層 · 拖曳框選區域 · Ctrl+A 整頁 · Esc 離開',
         region: '放開滑鼠截取所選區域',
         selected: 'Ctrl+C 複製 · Ctrl+S 儲存',
         zoom: '滾輪或 ± 縮放 · 拖曳平移',
@@ -176,7 +176,7 @@ const zhTW: LocaleDefinition = {
         preview: '截圖預覽',
         previewUnavailable: '暫時無法預覽，但仍可複製或儲存',
         fullPage: '整頁',
-        scrollable: '含捲動內容',
+        scrollable: '可捲動',
         shallower: '選擇外層元素',
         deeper: '選擇內層元素',
         esc: 'Esc 關閉'
@@ -272,7 +272,7 @@ const en: LocaleDefinition = {
       },
       hint: {
         pickTitle: 'Pick an element',
-        pick: 'Wheel or + / − to change layer · Drag to select a region · Ctrl+A full page · Esc to exit',
+        pick: 'Wheel or + / − to change layer · Shift+wheel jumps to a scroll container · Drag to select a region · Ctrl+A full page · Esc to exit',
         region: 'Release to capture the selected region',
         selected: 'Ctrl+C to copy · Ctrl+S to save',
         zoom: 'Wheel or ± to zoom · Drag to pan',

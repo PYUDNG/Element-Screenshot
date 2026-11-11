@@ -28,7 +28,12 @@ const borderWidth = computed(() => {
 })
 const isolatePointer = computed(() => props.app.settings.get('capture.pointerIsolation') !== false)
 
-const boxStyle = computed<CSSProperties>(() => {
+/**
+ * The capture box can be taller (or wider) than what is on screen: that is the
+ * scroll content this element would add. Draw it dashed so the difference is
+ * visible, and keep the visible box solid.
+ */
+const contentBoxStyle = computed<CSSProperties>(() => {
   const box = state.box
   if (!box) return {}
   return {
@@ -37,10 +42,38 @@ const boxStyle = computed<CSSProperties>(() => {
     width: `${box.width}px`,
     height: `${box.height}px`,
     borderColor: borderColor.value,
+    borderWidth: `${Math.max(1, borderWidth.value - 1)}px`,
+    borderStyle: 'dashed',
+    boxSizing: 'border-box',
+    opacity: 0.75
+  }
+})
+
+const visibleStyle = computed<CSSProperties>(() => {
+  const rect = state.hover?.rect
+  if (!rect) return {}
+  return {
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+    borderColor: borderColor.value,
     borderWidth: `${borderWidth.value}px`,
     borderStyle: 'solid',
     boxSizing: 'border-box'
   }
+})
+
+const showsContentBox = computed(() => {
+  const box = state.box
+  const rect = state.hover?.rect
+  if (!box || !rect) return false
+  return (
+    box.width - rect.width > 0.5 ||
+    box.height - rect.height > 0.5 ||
+    Math.abs(box.left - rect.left) > 0.5 ||
+    Math.abs(box.top - rect.top) > 0.5
+  )
 })
 
 const marqueeStyle = computed<CSSProperties>(() => {
@@ -102,6 +135,16 @@ const dimensions = computed(() => {
   return ''
 })
 
+/** `可滚动 ↓2341px`: what this layer would add if it were captured. */
+const scrollBadge = computed(() => {
+  const hover = state.hover
+  if (!hover || !hover.scrollAxis) return ''
+  const label = t('app.hint.scrollable')
+  if (hover.scrollAxis === 'y') return `${label} ↓${hover.contentHeight}px`
+  if (hover.scrollAxis === 'x') return `${label} →${hover.contentWidth}px`
+  return `${label} ↕${hover.contentWidth}×${hover.contentHeight}`
+})
+
 const canGoShallower = computed(() => (state.hover?.depth ?? 1) > 1)
 const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.total ?? 1))
 </script>
@@ -135,7 +178,15 @@ const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.tot
       {{ marqueeSize }}
     </div>
 
-    <div v-if="state.box" class="fixed" :style="boxStyle" aria-hidden="true" />
+    <div
+      v-if="state.box && showsContentBox"
+      data-frame="content"
+      class="fixed"
+      :style="contentBoxStyle"
+      aria-hidden="true"
+    />
+
+    <div v-if="state.hover" data-frame="visible" class="fixed" :style="visibleStyle" aria-hidden="true" />
 
     <div
       v-if="state.hover && state.mode === 'picking'"
@@ -151,10 +202,10 @@ const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.tot
         {{ t('app.hint.fullPage') }}
       </span>
       <span
-        v-else-if="state.hover.scrollable"
+        v-else-if="scrollBadge"
         class="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
       >
-        {{ t('app.hint.scrollable') }}
+        {{ scrollBadge }}
       </span>
       <span class="shrink-0 font-mono text-[10px] text-zinc-400">
         {{ state.hover.depth }}/{{ state.hover.total }}

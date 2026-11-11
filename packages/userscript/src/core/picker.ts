@@ -1,6 +1,7 @@
 import { native } from './native'
 import { exceedsDragThreshold, isCaptureRegion, regionFromPoints } from './region'
 import type { Point } from './region'
+import { scrollContainerInfo } from './scroll-axis'
 import { getElementStack, resolveCandidate } from './target'
 import type { TargetBox } from './target'
 
@@ -130,6 +131,28 @@ export class ElementPicker {
     if (next === this.index) return
     this.index = next
     this.emitHover()
+  }
+
+  /**
+   * Jump straight to the next (or previous) layer that scrolls by itself.
+   * Walking a deep stack one layer at a time is the slow part of picking a
+   * scroll container that shares its box with an un-scrollable wrapper.
+   */
+  cycleScroll(delta: number): void {
+    if (!this.active || this.stack.length === 0) return
+    const step = delta >= 0 ? 1 : -1
+    for (
+      let index = this.index + step;
+      index >= 0 && index < this.stack.length;
+      index += step
+    ) {
+      const element = resolveCandidate(this.stack, index)
+      if (element && scrollContainerInfo(element).axis !== null) {
+        this.index = index
+        this.emitHover()
+        return
+      }
+    }
   }
 
   private emitHover(): void {
@@ -300,6 +323,13 @@ export class ElementPicker {
     event.preventDefault()
     event.stopImmediatePropagation()
     if (this.drag) return
+    // Shift turns the wheel into a jump between scroll containers; some
+    // platforms put a vertical wheel on the horizontal axis while Shift is held.
+    const direction = event.deltaY || event.deltaX
+    if (event.shiftKey) {
+      if (direction) this.cycleScroll(direction > 0 ? 1 : -1)
+      return
+    }
     if (event.deltaY > 0) this.cycle(1)
     else if (event.deltaY < 0) this.cycle(-1)
   }
@@ -328,6 +358,20 @@ export class ElementPicker {
       event.preventDefault()
       event.stopImmediatePropagation()
       this.cancel()
+      return
+    }
+
+    if (event.shiftKey && (key === 'ArrowDown' || key === 'PageDown' || key === '+' || key === '=')) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      this.cycleScroll(1)
+      return
+    }
+
+    if (event.shiftKey && (key === 'ArrowUp' || key === 'PageUp' || key === '-' || key === '_')) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      this.cycleScroll(-1)
       return
     }
 

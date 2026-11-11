@@ -147,6 +147,42 @@
         color: #a1a1aa;
         font-size: 12px;
       }
+      .pick-stage {
+        height: 360px;
+        margin-top: 12px;
+        border-radius: 10px;
+        background: #fafafa;
+        overflow: hidden;
+      }
+      /* Fills its parent exactly, so the two boxes coincide on screen. */
+      .pick-scroll {
+        height: 100%;
+        overflow: auto;
+        background: #fff;
+      }
+      .pick-row {
+        padding: 12px 16px;
+        border-bottom: 1px solid #f4f4f5;
+        font-size: 13px;
+      }
+      .icon-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .icon-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        border: 1px solid #d4d4d8;
+        border-radius: 8px;
+        background: #fff;
+        color: #52525b;
+      }
       .shadow-demo {
         display: grid;
         gap: 12px;
@@ -240,6 +276,48 @@
         <div class="shadow-demo">
           <shadow-card></shadow-card>
           <nested-shadow-card></nested-shadow-card>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Scroll container with a flush parent</h2>
+        <p class="muted">
+          <code>#pick-stage</code> 与里面的 <code>#pick-scroll</code> 矩形完全重合（无 padding、无间隙）。
+          hover 时实线框是可见区域，虚线框是「选中这一层会截到的高度」，徽标只有真正能滚的那一层才有。
+        </p>
+        <div class="pick-stage" id="pick-stage">
+          <div class="pick-scroll" id="pick-scroll">
+            <div class="pick-row">Pick row 01</div>
+            <div class="pick-row">Pick row 02</div>
+            <div class="pick-row">Pick row 03</div>
+            <div class="pick-row">Pick row 04</div>
+            <div class="pick-row">Pick row 05</div>
+            <div class="pick-row">Pick row 06</div>
+            <div class="pick-row">Pick row 07</div>
+            <div class="pick-row">Pick row 08</div>
+            <div class="pick-row">Pick row 09</div>
+            <div class="pick-row">Pick row 10</div>
+            <div class="pick-row">Pick row 11</div>
+            <div class="pick-row">Pick row 12</div>
+            <div class="pick-row">Pick row 13</div>
+            <div class="pick-row">Pick row 14</div>
+            <div class="pick-row">Pick row 15</div>
+            <div class="pick-row">Pick row 16</div>
+            <div class="pick-row">Pick row 17</div>
+            <div class="pick-row">Pick row 18</div>
+          </div>
+        </div>
+        <p class="muted" style="margin-top: 12px">
+          下面这个 30×30 图标按钮行高比盒子多 1px，但它是 <code>overflow: visible</code>，
+          不该再被标成可滚动。
+        </p>
+        <div class="icon-row">
+          <button class="icon-button" type="button" aria-label="icon probe">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
+          </button>
+          <span class="muted">30 × 30 图标按钮</span>
         </div>
       </section>
 
