@@ -37,19 +37,14 @@
 
 按顺序，都是 0.8.0 / 0.9.0 的组成部分。详细行为见 `CHANGELOG.md` 的 `[Unreleased]` 与本文件对应小节：
 
-1. `77831ea` picker：实线/虚线双层框、`可滚动 ↓Npx` 徽标、`Shift+滚轮` 跳滚动层、`scrollContainerInfo()` 统一判定；
-2. `4bc826e` 展开语义：默认只展开根 + `fitBoxToLayout()` 重测画布 + 自定义元素 shadow 去重；
-3. `8ad160d` playground：`#nested-demo` / `#frame-demo` 加 `align-self: start`；
-4. `d491bc8` + `cbb0ad0` iframe 记录（`FrameRecord`）与 `/frame.html` 夹具；
-5. `38b1696` 帧视口合成：`createSnapshot({ doc })`、帧图写回帧盒子背景、帧内 sticky、深度 2、单帧降级；
-6. `770e9be` 统一帧渲染：每帧装 helper、helper 优先 / 父级兜底、安装级 token、去掉 `@noframes`、`app.ts` 拆分；
-7. `f00cdad` 选中帧本身 = 展开：`core/frame-size.ts`、协议 `/2` 的 `measure`/`size`、`planFrameExpansion()`、iframe 根不做 font-size 补偿；
-8. `36bc973` 区域截图里的帧：`framesInRegion()` + `paintFrames()`，所见即所得不展开；
-9. `c5ec8a8` playground：`index.html` 也认 `?vm=1`（此前顶层同时跑 stub 与 VM 两份实例，谁先挂 UI 不确定）；
-10. `25b4443` 帧内快捷键：新增 `core/hotkey-bridge.ts`（`subscribe` / `hotkey` / `trigger`，协议 `/3`），帧内按键回到顶层再复核；
-11. `d02ba88` 设置项归位：`触发快捷键` 从「截图 → 触发方式」搬到「触发 → 快捷键」；`b17e4d5` 文档；
-12. `71f05c0` 帧内选择器按键：**不动焦点**，帧把选择器用得上的键经桥上报（`ui` + `key`，协议 `/4`，`core/relay-key.ts`），顶层在 `document.body` 上重放给 picker。（`bf0dbec` 里先试过「启动时 blur 焦点」，已删除。）
-13. 穿透选取：picker 能选到 iframe 内部任意元素（`hover`/`stack` + `capture`/`captured`，协议 `/5`，`core/pick-target.ts`、`core/frame-pick.ts`），帧内元素由该帧自己渲染。
+1. `77831ea` / `4bc826e` picker 双层框、`可滚动 ↓Npx` 徽标、`Shift+滚轮` 跳滚动层、`scrollContainerInfo()` 统一判定；默认只展开根 + `fitBoxToLayout()` 重测画布 + 自定义元素 shadow 去重；
+2. `8ad160d` playground：`#nested-demo` / `#frame-demo` 加 `align-self: start`；`d491bc8` + `cbb0ad0` iframe 记录（`FrameRecord`）与 `/frame.html` 夹具；`c5ec8a8` playground 的 `index.html` 也认 `?vm=1`；
+3. `38b1696` 帧视口合成：`createSnapshot({ doc })`、帧图写回帧盒子背景、帧内 sticky、深度 2、单帧降级；`770e9be` 统一帧渲染：每帧装 helper、helper 优先 / 父级兜底、安装级 token、去掉 `@noframes`、`app.ts` 拆分；`f00cdad` 选中帧本身 = 展开（`core/frame-size.ts`、`measure`/`size`、`planFrameExpansion()`）；`36bc973` 区域截图里的帧（`framesInRegion()` + `paintFrames()`）；
+4. `25b4443` 帧内快捷键：`core/hotkey-bridge.ts`（`subscribe` / `hotkey` / `trigger`，协议 `/3`），帧内按键回到顶层再复核；
+5. `d02ba88` 设置项归位：`触发快捷键` 从「截图 → 触发方式」搬到「触发 → 快捷键」；`b17e4d5` 文档；
+6. `71f05c0` 帧内选择器按键：**不动焦点**，帧把选择器用得上的键经桥上报（`ui` + `key`，协议 `/4`，`core/relay-key.ts`），顶层在 `document.body` 上重放给 picker；
+7. 穿透选取：picker 能选到 iframe 内部任意元素（`hover`/`stack` + `capture`/`captured`，协议 `/5`，`core/pick-target.ts`、`core/frame-pick.ts`），帧内元素由该帧自己渲染；
+8. 帧的字体与并行渲染：`native.fontSource` / `setFontSource()` 把字体嵌入指向帧自己的文档（`patchFontSourceBase`、`patchFontUsageScan`），`paintFrames()` 并行请求 helper、取消时逐个发 `cancel`。
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -180,7 +175,7 @@ Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = 
 
 ### 旧的 CDP 方案
 
-仅在 MCP 不可用时使用：用 `msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile> about:blank` 起专用 profile，再从 `http://127.0.0.1:9222/json/list` 连 page target（临时脚本放仓库外，例如 `%TEMP%\es-cdp\`）。CDP 没有认证，别把主力 Profile 长期裸开调试端口。
+仅在 MCP 不可用时使用：`msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile>` 起专用 profile，再从 `http://127.0.0.1:9222/json/list` 连 page target（临时脚本放仓库外）。CDP 没有认证，别把主力 Profile 裸开调试端口。
 
 ## 发布流程
 
@@ -406,7 +401,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - **必须钉住帧内 sticky**：克隆里没有滚动口，sticky 退化为 static；帧视口又是靠 `top: -scrollY` 平移出来的，文档顶部的 sticky 表头会直接跑到画布外消失（实测 `frame.html` 的表头会整条不见）。`pinFrameSticky()` 在**展开根之前**（副本还在帧的真实滚动位置时）量 `pinned - static` 差值，写成 `position: relative + top`，顺序不能颠倒——`expandForCapture()` 会把副本滚回 0。
 - 帧渲染的根样式与区域截图一致：`position: relative; inset: auto; top: -scrollY; left: -scrollX; transform: none`（`transform` 会把 `fixed` 后代变成相对克隆根定位）；渲染面 = 帧的 `innerWidth × innerHeight`，`pixelRatio` 取父级 `plan.ratio`。
 - 递归：`paintFrames()` 先给「帧里的帧」出图，深度上限 `MAX_FRAME_DEPTH = 2`，更深的留空盒；单帧失败只 `console.warn`，不影响整次截图；取消会向上抛。
-- 字体：helper 渲染用帧自己的样式表（正确）；父级兜底时用 `sharedFontEmbedCSS()` 解析一次顶层页面的字体 CSS 并共享给页面渲染，帧独有字体在**兜底路径**上仍会回退。
+- 字体：页面渲染共用一份 `sharedFontEmbedCSS()`；帧渲染各自从帧文档解析，不共用父级 CSS（`native.fontSource`）。
 - 测试：`snapshot.test.ts` 覆盖 `doc` 选项与 `FrameRecord`；`capture.test.ts` 的 `iframe compositing` 覆盖帧视口参数、背景层写法、根外帧不探测、跨域空盒、零尺寸、单帧失败、helper 优先 / 沉默回退；`frame-bridge.test.ts` / `frame-helper.test.ts` 覆盖协议、探测、请求、超时、取消、busy、无 token、非父窗口；穿透部分在 `pick-target` / `frame-pick` / `picker`（异步栈）和 `frame-*`（hover / capture）。
 - playground 夹具：`playground/frame.html`（自带样式、sticky 表头、30 行、初始 `scrollTo(0, 60)`）；`index.html` 的 `#frame-demo`（同源）与 `#cross-frame-demo`（`http://127.0.0.1:4177/frame.html`，跨域，需 `PLAYGROUND_PORT=4177 pnpm playground`）。
 
@@ -430,8 +425,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 - 问题：焦点在 iframe 里时，keydown 在**帧自己的 document** 里派发，顶层的 `window` 监听永远收不到。同源帧也不能靠「往 `contentDocument` 挂监听」解决——跨域挂不上，而且导航后 window 会换。
 - 链路：帧实例 `installFrameHotkey()` 启动 → `subscribe`（带 token，向 `window.parent` 要快捷键）→ 父级 `installHotkeyBridge()` 回 `hotkey`（当前快捷键字符串）→ 帧在**自己的** `window` 捕获阶段监听 keydown，用 `isTriggerStroke()`（和顶层**同一个**判定函数）匹配 → 发 `trigger{shortcut}` → 顶层用当前设置复核 `shortcut` 后才 `startPicker()`。
-- 为什么只回传「哪条快捷键」而不回传按键：`trigger` 消息落在顶层 realm，页面自己的 `message` 监听能看到。回传按键内容等于把帧内每一次按键暴露给外层页面（跨域键盘记录）。帧本来就只知道父级下发的快捷键，所以它只报「这条快捷键被按了」，顶层再和自己当前的值比一次；对不上的直接丢弃（设置刚改过而帧还没收到新值时的竞态）。
-- 反过来也必须鉴权：`hotkey` 只接受 `event.source === window.parent` **且** token 匹配的消息。否则外层页面可以随便给帧下发一个「快捷键 = 某个字母」，再读帧上报的 `trigger` 来记录按键。token 只在 GM 存储里，页面读不到。
+- 为什么只回传「哪条快捷键」而不回传按键：`trigger` 落在顶层 realm，页面自己的 `message` 监听能看到它；回传按键内容等于把帧内每次按键暴露给外层页面。帧只报「这条快捷键被按了」，顶层再和自己当前的值比一次（设置刚改过时的竞态靠这次复核丢弃）。
+- 反过来也必须鉴权：`hotkey` 只接受 `event.source === window.parent` **且** token 匹配的消息，否则外层页面可以给帧下发「快捷键 = 某个字母」，再读 `trigger` 记录按键。
 - 订阅时序：帧的 `subscribe` 可能早于顶层 `mountUi()`（帧先加载完）。帧按 `[0, 250, 750, 2000, 5000, 10000]` 退避重试，收到 `hotkey` 就停；顶层在安装时也 `broadcast()` 一次（只发给**订阅过**的 window，不遍历 DOM，避免把 token 发给没有 helper 的帧）。设置变化时 `app.ts` 的 `watch(shortcut, () => bridge.broadcast())` 再推一遍。
 - 嵌套：帧里的帧向自己的父帧 `subscribe`；父帧把配置再往下推，并把子帧的 `trigger` 原样转给 `window.parent`。只有顶层会 `startPicker()`。
 - 帧内匹配到快捷键时 `preventDefault()` + `stopPropagation()`，和顶层一致；`isTriggerStroke()` 保留「输入框里裸键让给页面」的规则。顶层 `shouldIgnore`（设置面板打开 / 不在 idle）对上报的 press 同样生效——所以选择模式里再按一次快捷键仍然什么都不做。
@@ -449,37 +444,39 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 只穿一层：帧的栈里最内层若又是 `<iframe>`，它就是「帧内的帧元素」，父级不再往下问（否则坐标要跨两级换算）。
 - 依赖默认的「隔离页面交互」：开着时全屏 pick-surface 接住指针，必须父级驱动；关掉后指针进入帧、页面的 mousemove 不到顶层，穿透失效。帧内滚轮被 picker 占用，所以只能选帧当前视口里的部分。
 
+### 帧的字体与并行渲染
+
+- `native.fontSource`（`setFontSource()`）是「下一次渲染从哪个 document 读 `@font-face`」：默认当前 realm 的 document，`renderFrameViewport()` 在渲染期间切到帧的 document，`finally` 里切回去（嵌套帧各切一层再各自恢复）。不恢复的话后面的页面渲染会读到帧的样式表。
+- 两处 patch 配合：`toArray(__elementScreenshotNative.fontSource.styleSheets)`（原来写死 `native.document.styleSheets`）、`getWebFontCSS()` 的 `baseUrl` 回退到 `fontSource.baseURL`（内联 `<style>` 的 `parentStyleSheet.href` 是 null，原来把相对 `src` 直接丢给 `fetch`，按**调用方 realm** 的 base 解析——顶层对、帧错；`about:` 开头返回 null，保持旧行为）。helper 路径本来就对，这两处只影响父级兜底。
+- `patchFontUsageScan` 抓到的是个**老 bug**，不只影响帧：html-to-image 用 `child instanceof HTMLElement` 遍历子树收集 used fonts，而每条链路渲染的都是**另一个 realm** 的副本，`instanceof` 对所有节点都是 false → 只有根自己的字体被嵌入，任何自带字体的后代都掉回系统字体。改成 `child.nodeType === 1`。
+- `paintFrames()` 先 `Promise.all` 发所有 helper 请求，再串行处理本地兜底（同一个 realm 的字体源切换、canvas、内存都不该并发）；每张图仍逐个 `blobToDataUrl` + 写回背景。取消时 `requestFrameImage()` 也发 `cancel`（以前只有 `capture` 会）。helper 的「同时只渲染一个」不变，只是**各个帧的 helper** 现在同时开工。
+- 同站帧共享一个渲染进程/线程，并行只省掉「排队等」；实测本机 2 帧 2.2～3.0 秒、1 帧 1.55 秒（两个 loopback origin 也在同一进程）。真正跨站的帧才拿得到 max 而不是 sum。
+
 ### 已验证（真实浏览器，VM 实例 + playground，2026-11-11）
 
 验证手法：`page.addInitScript` 把 `HTMLCanvasElement.prototype.toBlob` 包一层统计每个 realm 的调用次数（`window.__shotCount`），再用 `frame.contentWindow.__shotCount` 区分「帧自己渲染」和「父级渲染」。
 
-- 同源 `#frame-demo`（`?vm=1`）：864×726、`ratio 2`，1.4 秒；**父级 +1、帧内 = 1** → 走 helper；帧内 sticky 表头 `#eef2ff` 52,811 像素、表头下沿露出被盖住的 `Frame row 02` 半行 → `scrollY = 60` 平移正确。同源走父级兜底时输出完全一致。
-- 跨域 `#cross-frame-demo`（4176 嵌 4177）：1040×682（520×341 @2），1.5 秒；`topCalls = 1`、表头色 65,835 像素 → 只有 helper 能做到。兜底（`about:blank` + `document.write`，VM 不注入）：`frameCalls = 0`、`topCalls = 2`，720×360 正常。
-- 鉴权：页面直接伪造 `hello`/`render`（错 token 或空 token）→ 900ms 内无任何回复。截完页面和帧内都没有残留快照节点、iframe 行内样式未改、帧滚动仍是 60。
+- 同源 `#frame-demo`（`?vm=1`）：864×726、`ratio 2`，1.4 秒；父级 `toBlob` +1、帧内 1 → 走 helper；表头 `#eef2ff` 52,811 像素、下沿露出 `Frame row 02` 半行 → `scrollY = 60` 平移正确。跨域（4176 嵌 4177）：1040×682、1.5 秒、表头 65,835 像素 → 只有 helper 能做到；兜底（`about:blank` + `document.write`）帧内 0 次、父级 2 次、720×360 正常。
+- 鉴权：页面伪造 `hello`/`render`（错 token 或空 token）→ 900ms 内无任何回复。截完页面和帧内都没有残留快照节点、iframe 行内样式未改、帧滚动仍是 60。
 - 选中帧本身 = 展开（帧 394×220、帧内 392×218、内容高 1110、DPR 2）：同源 + helper **788×2226**（`pageShots` +1、`helperShots` 1、表头 54,142）；同源兜底同样 788×2226；跨域 + helper **964×2226**、表头色 67,166。选中包含帧的祖先（`section#frame-demo`）**864×770**、帧只画 220px 视口、盒子没撑高。区域截图框住 394×220 的帧（拖 418×244）**836×488**、帧内表头 52,854 像素。
-- 帧内快捷键与选择器（VM 快捷键 `Alt+S`）：点进同源/跨域帧 → `Alt+S` 顶层收到 `trigger`、选框出现，`document.activeElement` 全程是 `IFRAME`；`Alt+Shift+S` 无反应；`ArrowUp` 把 `5/5` 换成 `4/5`；`Esc` 关闭且页面自己的 window keydown 监听一条都没收到。帧早于 `mountUi()` 发的第一条 `subscribe` 没人回，250ms 重试拿到 `hotkey`。设置面板：**触发** = 快捷键 + 悬浮按钮，**截图** = 选择交互 / 选框外观 / 输出。
+- 帧内快捷键（VM 快捷键 `Alt+S`）：点进同源/跨域帧 → 顶层收到 `trigger`、选框出现，`document.activeElement` 全程是 `IFRAME`；`Alt+Shift+S` 无反应；方向键换层、`Esc` 关闭，页面自己的 window keydown 监听一条都没收到。设置面板：**触发** = 快捷键 + 悬浮按钮，**截图** = 选择交互 / 选框外观 / 输出。
 
 穿透选取（同一环境）：
 
-- 悬停同源帧（394×220）→ 标签 `div.row帧内377 × 369/9`，可见框 `784.5,389.7 377×36`（帧在 783.5,300.7，1px 边框）→ 帧坐标换算正确。层级 1/9→9/9 依次是 `html → body → main → section#frame-demo → iframe → html帧内 392×218 整页 → body帧内 → div#frame-list 帧内 → div.row 帧内`，跨帧边界的顺序正确。
-- 点那个 `div.row` → **754×72**（377×36 @2），白底 + 800 个深色文字像素；跨域帧点 `div.row` → **930×72**、同样 800 深色像素 → 两次都是帧自己在渲染（父级拿不到这些元素）。
-- 没有回归：选中 `iframe` 层（5/9）→ 仍然 **788×2226**（整帧展开）。
-- 无 helper 的帧（`about:blank` + `document.write`，fixed 300×150）：悬停退回 `iframe#dead-frame`，~120ms 内更新、不卡后续移动（2 秒内重进直接命中缓存）。
+- 悬停同源帧（394×220）→ 标签 `div.row帧内377 × 369/9`、可见框 `784.5,389.7 377×36`（帧在 783.5,300.7，1px 边框）；层级 1/9→9/9 = `html → body → main → section#frame-demo → iframe → html帧内 → body帧内 → div#frame-list 帧内 → div.row 帧内`。点它 → **754×72**、跨域帧同样 → **930×72**（父级拿不到这些元素）；选中 `iframe` 层仍是 **788×2226**；无 helper 的帧（`about:blank` + `document.write`）悬停 ~120ms 退回 `iframe`，2 秒内重进直接命中缓存。
 
 > 自动化坑：`hidden` 标签页里 `requestAnimationFrame` 完全不跑，而 picker 的 hover 是 rAF 节流的 → 先 `mouse.move`（同步更新 `picker.cursor`）再 `dispatchEvent(new Event('resize'))`（`handleResize()` 同步 `refresh()`）。FAB 贴右边时坐标用 `innerWidth`（含滚动条），`elementsFromPoint()` 在滚动条区域返回空数组，点击要落在 `clientWidth` 内。注意 `native` 在 document-start 快照了 `toBlob`，运行期再包原型统计不到（要统计得用 `addInitScript`）。
 
 ### 下一步（按顺序）
 
-1. **兜底路径的帧内字体**：给 `native` 加一个「字体源文档」钩子，把 `gm-fetch-plugin.ts` 里 `toArray(node.ownerDocument.styleSheets)` 的替换改成可切换的 document，让本地兜底渲染也能用帧自己的 `@font-face`（helper 路径已经正确）。
-2. 多帧并行：现在 `paintFrames()` 串行请求，整页有 N 个帧就是 N 次串行渲染；帧之间互不依赖，可以并行发请求（注意 helper 是 busy 队列）。
-3. `expandNested` 打开时，让**被捕获祖先内部的帧**也参与撑高？现在明确不参与（会重排用户正在看的页面结构），要做得先想清楚「撑高后祖先的布局、兄弟节点位置」怎么处理。
-4. 帧在**被替换的滚动容器内部**时，区域截图里那一格仍然是空的：切片渲染时容器的子元素被隐藏了，帧图也就被藏掉了。真要支持，得在切片渲染前把帧图写进容器内的帧盒子。
-5. 穿透选取的缺口：隔离关闭时帧收不到指针（需要帧在 `ui` 期间上报 pointer、父级换算坐标）；帧内滚动发现不了（得把滚轮临时让给帧或让帧上报可滚动层）。
+1. `expandNested` 打开时，让**被捕获祖先内部的帧**也参与撑高？现在明确不参与（会重排用户正在看的页面结构），要做得先想清楚「撑高后祖先的布局、兄弟节点位置」怎么处理。
+2. 帧在**被替换的滚动容器内部**时，区域截图里那一格仍然是空的：切片渲染时容器的子元素被隐藏了，帧图也就被藏掉了。真要支持，得在切片渲染前把帧图写进容器内的帧盒子。
+3. 穿透选取的缺口：隔离关闭时帧收不到指针（要帧在 `ui` 期间上报 pointer、父级换算坐标并接管点击）；只穿一层（递归要一层一次坐标换算 + `via` 链路才能让 deepen 的 capture 找到元素）。
 
 ### 关键约束（别踩）
 
 - html-to-image 克隆 `<iframe>` 时**不带浏览上下文**：`cloneIFrameElement()` 会退化成「克隆 `contentDocument.body` 并把 iframe 的 computed style 扣到那个 `<body>` 上」。所以副本里的空 iframe 仍会保留正确尺寸/边框/圆角/背景——我们的帧图正是作为它的 `background-image` 画出来的。
-- 帧渲染用的是**帧自己的文档**：背景、`color-scheme` 跟帧走；`getFontEmbedCSS` 在构建时被 patch 成读「当前 realm 的 `native.document`」，所以 helper（帧 realm）自动正确，父级兜底只能读顶层。
+- 帧渲染用的是**帧自己的文档**：背景、`color-scheme`、`@font-face` 都跟帧走（兜底路径也靠 `native.fontSource` 切过去，见「帧的字体与并行渲染」）。
 - 帧内滚动语义（已实现，见上一节）：**直接选中 iframe** 时它相当于「根」，整页展开并让父级把盒子撑高；**选中包含 iframe 的祖先**时只画帧的当前可见视口，祖先内部的帧一律不撑高（`expandNested` 也不改这一点）。
 - 每个帧都是一次独立 html-to-image 渲染：整页截图里有 N 个帧就多 N 次渲染（实测小帧 1～1.5 秒/个）；没有 helper 的帧只多等一次 400ms 探测窗口。日志里出现 `[element-screenshot] frame render failed:` / `frame helper failed:` 表示该帧降级成空盒。
 - 去掉了 `@noframes`：脚本会在**每个** iframe 里执行一遍（解析 520KB bundle、读一次 token），但帧实例不挂 UI、不注册菜单、不建设置，开销只在这个量级。不要给它加「顺手」的初始化逻辑。
