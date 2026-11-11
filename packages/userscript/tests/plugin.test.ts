@@ -6,6 +6,8 @@ import {
   patchCloneYield,
   patchCreateImage,
   patchFontEmbedding,
+  patchFontSourceBase,
+  patchFontUsageScan,
   patchImageEmbedding,
   patchNativeCalls,
   patchSvgSerialization,
@@ -86,6 +88,62 @@ function getWebFontRules(cssRules) {
     expect(result.code).toContain('function getWebFontRules')
   })
 
+  it('resolves relative font URLs against the document the fonts come from', () => {
+    const source = `
+export async function getWebFontCSS(node, options) {
+    const rules = await parseWebFontRules(node, options);
+    const cssTexts = await Promise.all(rules.map((rule) => {
+        const baseUrl = rule.parentStyleSheet
+            ? rule.parentStyleSheet.href
+            : null;
+        return embedResources(rule.cssText, baseUrl, options);
+    }));
+    return cssTexts.join('\\n');
+}
+`
+    const result = patchFontSourceBase(source)
+    expect(result.changed).toBe(true)
+    // An inline `<style>` has no sheet URL, so the frame's own base URL is used.
+    expect(result.code).toContain('__elementScreenshotNative.fontSource.baseURL')
+    expect(result.code).not.toContain(': null;')
+    expect(result.code).toContain('return embedResources(rule.cssText, baseUrl, options);')
+  })
+
+  it('leaves source without a font base URL alone', () => {
+    expect(patchFontSourceBase('const baseUrl = url;').changed).toBe(false)
+  })
+
+  it('walks the whole clone when collecting used fonts', () => {
+    const source = `
+function getUsedFonts(node) {
+    const fonts = new Set();
+    function traverse(node) {
+        const fontFamily = node.style.fontFamily || getComputedStyle(node).fontFamily;
+        fontFamily.split(',').forEach((font) => {
+            fonts.add(normalizeFontFamily(font));
+        });
+        Array.from(node.children).forEach((child) => {
+            if (child instanceof HTMLElement) {
+                traverse(child);
+            }
+        });
+    }
+    traverse(node);
+    return fonts;
+}
+`
+    const result = patchFontUsageScan(source)
+    expect(result.changed).toBe(true)
+    // A snapshot copy lives in another realm, so `instanceof` is always false.
+    expect(result.code).toContain('if (child.nodeType === 1) {')
+    expect(result.code).not.toContain('instanceof HTMLElement')
+    expect(result.code).toContain('traverse(child);')
+  })
+
+  it('leaves source without a font walk alone', () => {
+    expect(patchFontUsageScan('const fonts = new Set();').changed).toBe(false)
+  })
+
   it('resolves SVG use hrefs without treating them as CSS selectors', () => {
     const source = `
 async function ensureSVGSymbols(clone, options) {
@@ -144,6 +202,13 @@ export async function cloneNode(node, options, isRoot) {
     expect(result.code).toContain('__elementScreenshotNative.canvas.drawImage(context, ')
     expect(result.code).toContain('__elementScreenshotNative.cloneNode(node, isSVGElement(node))')
     expect(result.code).toContain('canvas fill handles the backdrop')
+  })
+
+  it('reads webfont stylesheets through the font source', () => {
+    const source = 'const styleSheets = toArray(node.ownerDocument.styleSheets);'
+    const result = patchNativeCalls(source)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain('toArray(__elementScreenshotNative.fontSource.styleSheets)')
   })
 
   it('yields to the event loop between chunks of DOM cloning', () => {

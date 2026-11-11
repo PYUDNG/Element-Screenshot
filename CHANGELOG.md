@@ -75,6 +75,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Frame renders are requested in parallel. Every frame renders in its own realm, so
+  the parent no longer waits for one frame before asking the next: a page with
+  several frames pays the slowest one instead of the sum. Frames that share a
+  renderer process still share its thread, so the gain is largest across origins.
+  Cancelling a capture now also tells every frame that was asked to stop, instead
+  of leaving those renders running for a picture nobody will look at.
 - The capture canvas is measured after expansion (`fitBoxToLayout()`), so growing
   a descendant can no longer crop the extra content away.
 - `createSnapshot()` accepts a `doc` option and copies that document instead of
@@ -82,6 +88,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An iframe that the parent has to render itself (no helper: `about:blank`,
+  `srcdoc`, a sandbox without scripts, or one that is still starting up) now uses
+  the frame's own webfonts. The embedder always read the stylesheets of the
+  rendering realm, so a locally rendered frame got the top page's `@font-face`
+  rules and its text fell back to a system face. The render now points the
+  embedder at the frame's document (`native.fontSource`) and resolves relative
+  `src` URLs against that document's base URL.
+- Elements whose own webfont differs from the capture root's no longer lose it.
+  html-to-image collects the font families its `@font-face` scan has to keep by
+  walking element children with `instanceof HTMLElement`, and every capture
+  renders a copy that lives in another realm, where that test is false for every
+  node: the walk stopped at the root, so only the root's family was ever embedded
+  and any descendant with its own font was rendered in a fallback face.
 - `Esc` and the picker's other keys work when the picker was started from inside an
   iframe. A click inside a frame leaves the keyboard focus in that document, so
   every key press — including `Esc` — was dispatched there and the top window,

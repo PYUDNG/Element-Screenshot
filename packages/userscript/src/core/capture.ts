@@ -536,6 +536,21 @@ async function compositeScene(
 }
 
 /**
+ * Resolve the webfont CSS for a render of `root`.
+ *
+ * The fonts are read from `native.fontSource`, which is the document this realm
+ * renders with its own stylesheets unless a frame render points it elsewhere.
+ */
+async function resolveFontEmbedCSS(root: HTMLElement): Promise<string | undefined> {
+  try {
+    return await getFontEmbedCSS(root, { cacheBust: false })
+  } catch (error) {
+    console.warn('[element-screenshot] font embedding failed:', describeCaptureError(error))
+    return undefined
+  }
+}
+
+/**
  * Resolve the page webfont CSS once so every render of one capture reuses it.
  * html-to-image would otherwise walk all stylesheets and re-inline the same
  * fonts for each slice.
@@ -545,12 +560,7 @@ async function sharedFontEmbedCSS(
   options: CaptureOptions
 ): Promise<string | undefined> {
   if (options.fontEmbedCSS) return options.fontEmbedCSS
-  try {
-    return await getFontEmbedCSS(root, { cacheBust: false })
-  } catch (error) {
-    console.warn('[element-screenshot] font embedding failed:', describeCaptureError(error))
-    return undefined
-  }
+  return resolveFontEmbedCSS(root)
 }
 /**
  * Decide how the backdrop behind an element is painted.
@@ -690,6 +700,11 @@ export async function renderFrameViewport(
     doc,
     skip: options.filter ? (node) => !options.filter?.(node as HTMLElement) : undefined
   })
+  // Fonts come from the frame's own document for the whole render, including the
+  // frames nested inside it (each of those switches again and restores this one),
+  // and the previous source is put back even when the render fails.
+  const previousFontSource = native.fontSource.document
+  native.setFontSource(doc)
   try {
     const root = snapshot.doc.documentElement
     if (!root) return null
@@ -702,6 +717,10 @@ export async function renderFrameViewport(
     await paintFrames(root, snapshot.frames, ratio, options, depth + 1)
     await nextFrame()
 
+    // The frame's own webfonts, not the ones the parent page happens to have:
+    // reusing the parent's CSS names fonts this document does not use and misses
+    // the ones it does, so its text would be rendered in a fallback face.
+    const fontEmbedCSS = await resolveFontEmbedCSS(root as HTMLElement)
     return await toBlob(root as HTMLElement, {
       width: surface.width,
       height: surface.height,
@@ -713,9 +732,10 @@ export async function renderFrameViewport(
       onImageErrorHandler: handleImageError,
       style: frameRootStyle(scroll),
       filter: options.filter,
-      fontEmbedCSS: options.fontEmbedCSS
+      fontEmbedCSS
     })
   } finally {
+    native.setFontSource(previousFontSource)
     snapshot.dispose()
   }
 }
@@ -816,6 +836,9 @@ async function planFrameExpansion(frame: FrameRecord): Promise<FrameExpansion | 
  * cannot be rendered keeps its empty box: a missing picture is not a reason to
  * lose the whole capture.
  *
+ * Helper renders run concurrently because each one happens in its own frame;
+ * local fallbacks run one at a time because they share this realm.
+ *
  * `expansion` only applies to the root itself, i.e. when the picked element is the
  * frame: that frame is rendered expanded on the surface reserved for it, while the
  * frames inside it keep their current viewport.
@@ -834,16 +857,50 @@ async function paintFrames(
 
   const helpers =
     expansion?.helpers ?? (await probeFrameHelpers(targets.map((frame) => frame.live)))
-  for (const frame of targets) {
+  const planned = targets.map((frame) => ({
+    frame,
+    expand: frame.copy === root ? expansion?.size : undefined
+  }))
+
+  /*
+   * A helper renders inside its own frame, so those requests do not depend on
+   * each other or on this realm: ask every frame at once instead of paying each
+   * frame's render time one after the other. (Sibling frames of one site usually
+   * share a renderer process, so the gain is largest across origins; the total
+   * work is the same either way.)
+   */
+  const remote = new Map<HTMLIFrameElement, Blob>()
+  await Promise.all(
+    planned
+      .filter((entry) => helpers.has(entry.frame.live))
+      .map(async (entry) => {
+        try {
+          const image = await requestFrameImage(entry.frame.live, {
+            ratio,
+            depth,
+            ...(entry.expand ? { expand: entry.expand } : {})
+          })
+          if (image) remote.set(entry.frame.live, image)
+        } catch (error) {
+          if (native.capture.aborted) throw error
+          console.warn('[element-screenshot] frame render failed:', describeCaptureError(error))
+        }
+      })
+  )
+
+  /*
+   * Whatever is left is rendered here when its document is readable. Those
+   * renders share this realm — the main thread, the canvas and the font-source
+   * switch — so they stay strictly one at a time.
+   */
+  for (const entry of planned) {
     assertNotCancelled()
-    const expand = frame.copy === root ? expansion?.size : undefined
     try {
-      const remote = helpers.has(frame.live)
-        ? await requestFrameImage(frame.live, { ratio, depth, ...(expand ? { expand } : {}) })
-        : null
-      const image = remote ?? (await renderFrameViewport(frame.doc, ratio, options, depth, expand))
+      const image =
+        remote.get(entry.frame.live) ??
+        (await renderFrameViewport(entry.frame.doc, ratio, options, depth, entry.expand))
       if (!image) continue
-      paintFrameBackground(frame.copy, await blobToDataUrl(image))
+      paintFrameBackground(entry.frame.copy, await blobToDataUrl(image))
     } catch (error) {
       if (native.capture.aborted) throw error
       console.warn('[element-screenshot] frame render failed:', describeCaptureError(error))

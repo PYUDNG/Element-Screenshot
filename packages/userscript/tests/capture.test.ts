@@ -83,6 +83,8 @@ beforeEach(() => {
   cropBlobMock.mockResolvedValue(new Blob(['crop'], { type: 'image/png' }))
   probeMock.mockReset()
   probeMock.mockResolvedValue(new Set<HTMLIFrameElement>())
+  fontEmbedMock.mockReset()
+  fontEmbedMock.mockResolvedValue('/* page fonts */')
   frameImageMock.mockReset()
   frameImageMock.mockResolvedValue(null)
   frameSizeMock.mockReset()
@@ -844,8 +846,80 @@ describe('iframe compositing', () => {
     expect(copy.style.getPropertyValue('background-origin').startsWith('content-box')).toBe(true)
     expect(pageCall?.options.fontEmbedCSS).toBe('/* page fonts */')
     expect(frameCall?.options.fontEmbedCSS).toBe('/* page fonts */')
-    // Resolved once for the page and every frame it contains.
-    expect(fontEmbedMock).toHaveBeenCalledTimes(1)
+    // The page and the frame each resolve their own webfonts.
+    expect(fontEmbedMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reads the fonts of the frame document, not of the page', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    root.append(copy)
+    // A frame with its own browsing context, so it has a document of its own to
+    // resolve fonts from (the fixture above renders the page document itself).
+    const live = document.createElement('iframe')
+    document.body.append(live)
+    const frameDoc = live.contentDocument
+    expect(frameDoc).not.toBeNull()
+    const record: FrameRecord = { live, copy, doc: frameDoc }
+    mockSnapshots([record])
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? rectOf(300, 200) : rectOf(0, 0)
+    )
+    const sources: Document[] = []
+    fontEmbedMock.mockImplementation(async () => {
+      sources.push(native.fontSource.document)
+      return '/* fonts */'
+    })
+    observeCalls()
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 400, height: 300 },
+      pixelRatio: 2,
+      background: { mode: 'transparent' }
+    })
+
+    // Page first, then the frame — each from its own document.
+    expect(sources).toEqual([document, frameDoc])
+    // The switch is undone, so the next capture starts from this realm again.
+    expect(native.fontSource.document).toBe(document)
+  })
+
+  it('asks every frame helper at once instead of one after another', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const records = [0, 1].map(() => {
+      const copy = document.createElement('iframe')
+      root.append(copy)
+      // Cross-origin: both pictures can only come from the helpers.
+      return frameRecord(copy, null)
+    })
+    mockSnapshots(records)
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element.tagName === 'IFRAME' ? rectOf(120, 90) : rectOf(0, 0)
+    )
+    probeMock.mockResolvedValue(new Set(records.map((record) => record.live)))
+    const started: HTMLIFrameElement[] = []
+    const answer: Array<(blob: Blob) => void> = []
+    frameImageMock.mockImplementation((frame: HTMLIFrameElement) => {
+      started.push(frame)
+      return new Promise<Blob>((resolve) => answer.push(resolve))
+    })
+    observeCalls()
+
+    const pending = captureElement(root, {
+      box: { left: 0, top: 0, width: 400, height: 300 },
+      pixelRatio: 2
+    })
+    // Both requests are in flight before either frame answers.
+    await vi.waitFor(() => expect(started).toHaveLength(2))
+    expect(started).toEqual([records[0]?.live, records[1]?.live])
+    for (const resolve of answer) resolve(new Blob(['helper'], { type: 'image/png' }))
+    await pending
+
+    for (const record of records) {
+      expect(record.copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
+    }
   })
 
   it('paints the picture the frame helper sends back', async () => {
@@ -1314,8 +1388,8 @@ describe('region capture with frames', () => {
     expect(calls[0]).toMatchObject({ width: window.innerWidth, height: window.innerHeight })
     expect(calls[1]).toMatchObject({ width: window.innerWidth, height: window.innerHeight })
     expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
-    // The frame picture and the page share one webfont pass.
-    expect(fontEmbedMock).toHaveBeenCalledTimes(1)
+    // The frame resolves its own webfonts before the page resolves the shared one.
+    expect(fontEmbedMock).toHaveBeenCalledTimes(2)
     expect(result).toMatchObject({ width: 520, height: 400 })
   })
 

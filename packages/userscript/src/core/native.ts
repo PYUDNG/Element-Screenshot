@@ -68,9 +68,29 @@ export interface NativeCanvas {
   ): ImageData
 }
 
+/**
+ * Where html-to-image should read the `@font-face` rules of the next render.
+ *
+ * It normally reads the stylesheets of the document it renders, but a frame
+ * rendered from the parent realm has to be read from the frame's own document:
+ * that is where its `@font-face` rules and its base URL live. The snapshot keeps
+ * the getters captured at document-start, so switching the source does not hand
+ * the page a way to intercept the capture.
+ */
+export interface NativeFontSource {
+  /** Document the next render takes its fonts from. */
+  readonly document: Document
+  readonly styleSheets: StyleSheetList
+  /** Base for relative font URLs, or null when that document has none. */
+  readonly baseURL: string | null
+}
+
 export interface NativeSnapshot {
   readonly window: NativeWindow
   readonly document: NativeDocument
+  readonly fontSource: NativeFontSource
+  /** Point the font embedder at another document; pass back the previous one. */
+  readonly setFontSource: (document: Document) => void
   readonly getComputedStyle: NativeWindow['getComputedStyle']
   readonly getBoundingClientRect: (element: Element) => DOMRect
   readonly elementsFromPoint: (root: Document | ShadowRoot, x: number, y: number) => Element[]
@@ -362,6 +382,30 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
     atob: win.atob.bind(win)
   }
 
+  let fontSourceDocument: Document = doc
+  const readStyleSheets = (source: Document): StyleSheetList =>
+    documentStyleSheets
+      ? (documentStyleSheets.call(source) as StyleSheetList)
+      : source.styleSheets
+  const readBaseURI = (source: Document): string =>
+    documentBaseURI ? (documentBaseURI.call(source) as string) : source.baseURI
+
+  const fontSource: NativeFontSource = {
+    get document() {
+      return fontSourceDocument
+    },
+    get styleSheets() {
+      return readStyleSheets(fontSourceDocument)
+    },
+    get baseURL() {
+      const base = readBaseURI(fontSourceDocument)
+      // `about:blank` and `about:srcdoc` cannot resolve a relative URL at all;
+      // the caller falls back to the realm's own resolution instead.
+      if (!base || base.startsWith('about:')) return null
+      return base
+    }
+  }
+
   const nativeCanvas: NativeCanvas = {
     getContext: (canvas) => {
       if (!canvasGetContext) return null
@@ -389,6 +433,10 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
   return {
     window: nativeWindow,
     document: nativeDocument,
+    fontSource,
+    setFontSource: (source) => {
+      fontSourceDocument = source
+    },
     getComputedStyle,
     getBoundingClientRect: (element) => getBoundingClientRect.call(element),
     elementsFromPoint: (root, x, y) => {

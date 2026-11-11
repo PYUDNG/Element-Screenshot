@@ -226,6 +226,8 @@ describe('frame render request', () => {
     native.capture.aborted = true
     expect(await pending).toBeNull()
     expect(Date.now() - started).toBeLessThan(1_000)
+    // Frames render in parallel now, so every one of them has to be told to stop.
+    expect(frame.posts.map((post) => post.type)).toEqual(['render', 'cancel'])
   })
 
   it('refuses to talk without a token', async () => {

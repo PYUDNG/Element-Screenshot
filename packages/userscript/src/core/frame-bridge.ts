@@ -448,6 +448,11 @@ export async function requestFrameImage(
 
   await waitForMessages({
     timeout: request.timeout ?? FRAME_RESULT_TIMEOUT,
+    // Frames render in parallel, so a cancelled capture has to stop them all
+    // instead of leaving them working on pictures nobody will look at.
+    onCancel: () => {
+      postFrameCancel(win)
+    },
     onMessage: (message, event) => {
       if (message.type !== 'result') return false
       if (message.nonce !== nonce || event.source !== win) return false

@@ -45,6 +45,41 @@ describe('native API snapshot', () => {
     expect(element.tagName).toBe('DIV')
   })
 
+  it('moves the font source to another document and back', () => {
+    const native = createNativeSnapshot(window)
+    const frame = document.implementation.createHTMLDocument('frame')
+    const base = frame.createElement('base')
+    base.href = 'https://example.com/frame/'
+    frame.head.append(base)
+
+    // A frame rendered from this realm has to be read from its own stylesheets.
+    expect(native.fontSource.document).toBe(document)
+    native.setFontSource(frame)
+    expect(native.fontSource.document).toBe(frame)
+    expect(native.fontSource.styleSheets).toBe(frame.styleSheets)
+    expect(native.fontSource.styleSheets).not.toBe(document.styleSheets)
+    expect(native.fontSource.baseURL).toBe('https://example.com/frame/')
+
+    native.setFontSource(document)
+    expect(native.fontSource.document).toBe(document)
+    expect(native.fontSource.baseURL).toBe(document.baseURI)
+  })
+
+  it('has no font base URL for a document that cannot resolve one', () => {
+    const native = createNativeSnapshot(window)
+    native.setFontSource(document.implementation.createHTMLDocument('blank'))
+    expect(native.fontSource.baseURL).toBeNull()
+  })
+
+  it('keeps reading stylesheets through the captured getter', () => {
+    const native = createNativeSnapshot(window)
+    vi.spyOn(Document.prototype, 'styleSheets', 'get').mockImplementation(() => {
+      throw new Error('hooked styleSheets')
+    })
+
+    expect(native.fontSource.styleSheets).toBe(native.document.styleSheets)
+  })
+
   it('strips HTML-only attribute names before SVG serialization', () => {
     const native = createNativeSnapshot(window)
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')

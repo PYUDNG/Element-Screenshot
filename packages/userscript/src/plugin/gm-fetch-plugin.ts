@@ -413,6 +413,49 @@ export function patchFontEmbedding(code: string): { code: string; changed: boole
 }
 
 /**
+ * Resolve a `@font-face` `src` that lives in an inline `<style>`.
+ *
+ * html-to-image uses `rule.parentStyleSheet.href` as the base URL, which is null
+ * for an embedded sheet, so the URL is handed to `fetch` unresolved — it then
+ * resolves against whichever document happens to run the code. That is right by
+ * accident for the top page and wrong for a frame rendered from the parent, whose
+ * relative font URL belongs to the frame's base URL. Fall back to the base URL of
+ * the document the fonts are read from (`native.fontSource`).
+ */
+export function patchFontSourceBase(code: string): { code: string; changed: boolean } {
+  const start = code.indexOf('const baseUrl = rule.parentStyleSheet')
+  if (start < 0) return { code, changed: false }
+  const end = code.indexOf(': null;', start)
+  if (end < 0) return { code, changed: false }
+
+  const replacement = `const baseUrl = (rule.parentStyleSheet && rule.parentStyleSheet.href) ||
+            __elementScreenshotNative.fontSource.baseURL;`
+  return {
+    code: `${code.slice(0, start)}${replacement}${code.slice(end + ': null;'.length)}`,
+    changed: true
+  }
+}
+
+/**
+ * Make the "which fonts does this subtree use" walk work on a snapshot copy.
+ *
+ * html-to-image collects the used font families by walking element children with
+ * `child instanceof HTMLElement`. Every capture renders a copy that lives in an
+ * off-screen iframe, i.e. in another realm, where that test is false for every
+ * node — so the walk stopped at the root and only the root's own family was ever
+ * embedded. Every descendant with its own webfont silently fell back. `nodeType`
+ * is realm-independent.
+ */
+export function patchFontUsageScan(code: string): { code: string; changed: boolean } {
+  const from = 'if (child instanceof HTMLElement) {'
+  if (!code.includes(from)) return { code, changed: false }
+  return {
+    code: code.split(from).join('if (child.nodeType === 1) {'),
+    changed: true
+  }
+}
+
+/**
  * html-to-image 1.11 treats an SVG `<use xlink:href>` value as a CSS selector:
  * `clone.querySelector('/sprite.svg#icon')` throws a SyntaxError. Resolve the
  * fragment id safely, reuse an in-document symbol when one exists, and fetch an
@@ -626,9 +669,14 @@ export function patchNativeCalls(code: string): { code: string; changed: boolean
     '__elementScreenshotNative.serializeSvg(svg)'
   )
   replace('win.getComputedStyle(node)', '__elementScreenshotNative.getComputedStyle(node)')
+  /*
+   * The font embedder reads the stylesheets of the document it is rendering. The
+   * capture path can point that at another document (`native.fontSource`), which
+   * is how a frame rendered from the parent realm still gets its own fonts.
+   */
   replace(
     'toArray(node.ownerDocument.styleSheets)',
-    'toArray(__elementScreenshotNative.document.styleSheets)'
+    'toArray(__elementScreenshotNative.fontSource.styleSheets)'
   )
 
   return { code: next, changed }
@@ -683,6 +731,8 @@ export function gmFetchPlugin(options: GmFetchPluginOptions = {}): Plugin {
 
       const patches = [
         patchFontEmbedding,
+        patchFontSourceBase,
+        patchFontUsageScan,
         patchSvgSymbols,
         // Like the SVG serialization patch below, this needs the native prelude.
         ...(nativeAdapter ? [patchCloneYield] : []),
