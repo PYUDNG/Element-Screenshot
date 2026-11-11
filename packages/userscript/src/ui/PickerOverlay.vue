@@ -194,6 +194,12 @@ const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.tot
       :style="labelStyle"
     >
       <span class="truncate font-mono text-[11px] font-medium">{{ state.hover.label }}</span>
+      <span
+        v-if="state.hover.inFrame"
+        class="shrink-0 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
+      >
+        {{ t('app.hint.inFrame') }}
+      </span>
       <span class="shrink-0 tabular-nums text-zinc-500 dark:text-zinc-400">{{ dimensions }}</span>
       <span
         v-if="state.hover.fullPage"

@@ -1,14 +1,21 @@
 import { native } from './native'
+import type { PickTarget } from './pick-target'
 import { exceedsDragThreshold, isCaptureRegion, regionFromPoints } from './region'
 import type { Point } from './region'
-import { scrollContainerInfo } from './scroll-axis'
-import { getElementStack, resolveCandidate } from './target'
 import type { TargetBox } from './target'
 
 export interface ElementPickerOptions {
-  onHover: (element: Element | null, index: number, total: number) => void
-  onSelect: (element: Element) => void
+  onHover: (target: PickTarget | null, index: number, total: number) => void
+  onSelect: (target: PickTarget) => void
   onCancel: () => void
+  /**
+   * Layers under a point, outermost first. A frame has to be asked over the
+   * bridge, so this may answer later; the picker keeps showing the previous
+   * stack until it does.
+   */
+  resolve: (x: number, y: number) => PickTarget[] | Promise<PickTarget[]>
+  /** The whole document, for Ctrl+A. */
+  resolveDocument: () => PickTarget
   onCursor?: (x: number, y: number) => void
   isUiEvent?: (event: Event) => boolean
   /** A drag passed the click threshold and became a rectangle. */
@@ -32,8 +39,10 @@ interface DragSession {
  */
 export class ElementPicker {
   private active = false
-  private stack: Element[] = []
+  private stack: PickTarget[] = []
   private index = 0
+  /** Identifies the newest resolution; older answers are dropped. */
+  private resolution = 0
   private cursor = { x: 0, y: 0 }
   private rafId = 0
   private drag: DragSession | null = null
@@ -146,8 +155,8 @@ export class ElementPicker {
       index >= 0 && index < this.stack.length;
       index += step
     ) {
-      const element = resolveCandidate(this.stack, index)
-      if (element && scrollContainerInfo(element).axis !== null) {
+      const target = this.stack[index]
+      if (target && target.scrollAxis !== null) {
         this.index = index
         this.emitHover()
         return
@@ -156,14 +165,35 @@ export class ElementPicker {
   }
 
   private emitHover(): void {
-    const element = resolveCandidate(this.stack, this.index)
-    this.options.onHover(element, this.index, this.stack.length)
+    this.options.onHover(this.stack[this.index] ?? null, this.index, this.stack.length)
   }
 
   private refresh(): void {
-    // getElementStack returns topmost first; reverse so index 0 is the
-    // outermost layer and the innermost element is selected initially.
-    this.stack = getElementStack(this.cursor.x, this.cursor.y).reverse()
+    const resolution = (this.resolution += 1)
+    let layers: PickTarget[] | Promise<PickTarget[]>
+    try {
+      layers = this.options.resolve(this.cursor.x, this.cursor.y)
+    } catch (_error) {
+      return
+    }
+    if (Array.isArray(layers)) {
+      this.applyStack(layers)
+      return
+    }
+    void layers
+      .then((stack) => {
+        // A newer move (or a selection) has already taken over.
+        if (resolution !== this.resolution || !this.active) return
+        this.applyStack(stack)
+      })
+      .catch(() => {
+        // Keep the previous stack; a frame that cannot answer is not an error.
+      })
+  }
+
+  private applyStack(stack: PickTarget[]): void {
+    // `resolve` answers outermost first, so the innermost layer is selected.
+    this.stack = stack
     // A running drag owns the box, so keep the layer index stable until it ends.
     if (this.drag) return
     this.index = Math.max(0, this.stack.length - 1)
@@ -252,16 +282,15 @@ export class ElementPicker {
   }
 
   private selectAll(): void {
-    const root = document.documentElement
     this.stop()
-    this.options.onSelect(root)
+    this.options.onSelect(this.options.resolveDocument())
   }
 
   private selectCurrent(): void {
-    const element = resolveCandidate(this.stack, this.index)
-    if (!element) return
+    const target = this.stack[this.index]
+    if (!target) return
     this.stop()
-    this.options.onSelect(element)
+    this.options.onSelect(target)
   }
 
   private cancel(): void {

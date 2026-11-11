@@ -1,28 +1,51 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { PickTarget } from '../src/core/pick-target'
+import { ElementPicker } from '../src/core/picker'
+import type { ElementPickerOptions } from '../src/core/picker'
 
 const hoisted = vi.hoisted(() => ({
+  /** Topmost first, like `getElementStack`. */
   stack: [] as Element[],
   scrolls: new Set<Element>()
 }))
 
-vi.mock('../src/core/target', () => ({
-  getElementStack: () => hoisted.stack,
-  resolveCandidate: (stack: Element[], index: number) =>
-    stack[Math.min(Math.max(index, 0), stack.length - 1)] ?? null
-}))
+function layer(element: Element): PickTarget {
+  return {
+    element,
+    frame: null,
+    frameElementId: null,
+    label: element.tagName.toLowerCase(),
+    rect: { left: 0, top: 0, width: 10, height: 10 },
+    box: { left: 0, top: 0, width: 10, height: 10 },
+    scrollAxis: hoisted.scrolls.has(element) ? 'y' : null,
+    fullPage: element === document.documentElement
+  }
+}
 
-vi.mock('../src/core/scroll-axis', () => ({
-  SCROLL_OVERFLOW: new Set(['auto', 'scroll', 'overlay']),
-  scrollContainerInfo: (element: Element) => ({
-    axis: hoisted.scrolls.has(element) ? 'y' : null,
-    contentWidth: 0,
-    contentHeight: 0,
-    overflowX: 0,
-    overflowY: 0
+function createPicker(overrides: Partial<ElementPickerOptions> = {}): ElementPicker {
+  return new ElementPicker({
+    onHover: vi.fn(),
+    onSelect: vi.fn(),
+    onCancel: vi.fn(),
+    // The picker wants outermost first; the fixtures are topmost first.
+    resolve: () => hoisted.stack.map(layer).reverse(),
+    resolveDocument: () => layer(document.documentElement),
+    ...overrides
   })
-}))
+}
 
-import { ElementPicker } from '../src/core/picker'
+interface Hover {
+  element: Element | null
+  index: number
+  total: number
+}
+
+/** What the picker last reported, in a shape that reads well in assertions. */
+function lastHover(onHover: ReturnType<typeof vi.fn>): Hover {
+  const call = onHover.mock.calls.at(-1) ?? []
+  const target = (call[0] ?? null) as PickTarget | null
+  return { element: target?.element ?? null, index: Number(call[1]), total: Number(call[2]) }
+}
 
 afterEach(() => {
   hoisted.stack = []
@@ -37,18 +60,14 @@ describe('element picker', () => {
     hoisted.stack = [inner, outer]
 
     const onHover = vi.fn()
-    const picker = new ElementPicker({
-      onHover,
-      onSelect: vi.fn(),
-      onCancel: vi.fn()
-    })
+    const picker = createPicker({ onHover })
 
     picker.start()
-    expect(onHover).toHaveBeenLastCalledWith(inner, 1, 2)
+    expect(lastHover(onHover)).toEqual({ element: inner, index: 1, total: 2 })
     picker.cycle(1)
-    expect(onHover).toHaveBeenLastCalledWith(inner, 1, 2)
+    expect(lastHover(onHover)).toEqual({ element: inner, index: 1, total: 2 })
     picker.cycle(-1)
-    expect(onHover).toHaveBeenLastCalledWith(outer, 0, 2)
+    expect(lastHover(onHover)).toEqual({ element: outer, index: 0, total: 2 })
     picker.stop()
   })
 
@@ -56,15 +75,11 @@ describe('element picker', () => {
     const inner = document.createElement('div')
     hoisted.stack = [inner]
     const onSelect = vi.fn()
-    const picker = new ElementPicker({
-      onHover: vi.fn(),
-      onSelect,
-      onCancel: vi.fn()
-    })
+    const picker = createPicker({ onSelect })
 
     picker.start()
     window.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }))
-    expect(onSelect).toHaveBeenCalledWith(inner)
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ element: inner }))
     expect(picker.isActive).toBe(false)
   })
 
@@ -73,18 +88,16 @@ describe('element picker', () => {
     hoisted.stack = [element]
     const onSelect = vi.fn()
     const onCancel = vi.fn()
-    const picker = new ElementPicker({
-      onHover: vi.fn(),
-      onSelect,
-      onCancel
-    })
+    const picker = createPicker({ onSelect, onCancel })
 
     picker.start()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true }))
-    expect(onSelect).toHaveBeenCalledWith(document.documentElement)
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ element: document.documentElement })
+    )
     expect(picker.isActive).toBe(false)
 
-    const second = new ElementPicker({ onHover: vi.fn(), onSelect, onCancel })
+    const second = createPicker({ onSelect, onCancel })
     second.start()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(onCancel).toHaveBeenCalled()
@@ -96,13 +109,13 @@ describe('element picker', () => {
     const outer = document.createElement('section')
     hoisted.stack = [inner, outer]
     const onHover = vi.fn()
-    const picker = new ElementPicker({ onHover, onSelect: vi.fn(), onCancel: vi.fn() })
+    const picker = createPicker({ onHover })
 
     picker.start()
     window.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true }))
-    expect(onHover).toHaveBeenLastCalledWith(inner, 1, 2)
+    expect(lastHover(onHover)).toEqual({ element: inner, index: 1, total: 2 })
     window.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true }))
-    expect(onHover).toHaveBeenLastCalledWith(outer, 0, 2)
+    expect(lastHover(onHover)).toEqual({ element: outer, index: 0, total: 2 })
     picker.stop()
   })
 
@@ -117,19 +130,19 @@ describe('element picker', () => {
     hoisted.scrolls = new Set([scroller])
 
     const onHover = vi.fn()
-    const picker = new ElementPicker({ onHover, onSelect: vi.fn(), onCancel: vi.fn() })
+    const picker = createPicker({ onHover })
     picker.start()
-    expect(onHover).toHaveBeenLastCalledWith(icon, 4, 5)
+    expect(lastHover(onHover)).toEqual({ element: icon, index: 4, total: 5 })
 
     picker.cycleScroll(-1)
-    expect(onHover).toHaveBeenLastCalledWith(scroller, 2, 5)
+    expect(lastHover(onHover)).toEqual({ element: scroller, index: 2, total: 5 })
 
     // No further scroll container above it, so the layer stays put.
     picker.cycleScroll(-1)
-    expect(onHover).toHaveBeenLastCalledWith(scroller, 2, 5)
+    expect(lastHover(onHover)).toEqual({ element: scroller, index: 2, total: 5 })
 
     picker.cycleScroll(1)
-    expect(onHover).toHaveBeenLastCalledWith(scroller, 2, 5)
+    expect(lastHover(onHover)).toEqual({ element: scroller, index: 2, total: 5 })
     picker.stop()
   })
 
@@ -141,18 +154,49 @@ describe('element picker', () => {
     hoisted.scrolls = new Set([scroller])
 
     const onHover = vi.fn()
-    const picker = new ElementPicker({ onHover, onSelect: vi.fn(), onCancel: vi.fn() })
+    const picker = createPicker({ onHover })
     picker.start()
-    expect(onHover).toHaveBeenLastCalledWith(icon, 2, 3)
+    expect(lastHover(onHover)).toEqual({ element: icon, index: 2, total: 3 })
 
     // Shift moves the deltas onto the horizontal axis on some platforms.
     window.dispatchEvent(
       new WheelEvent('wheel', { deltaX: 120, shiftKey: true, cancelable: true })
     )
-    expect(onHover).toHaveBeenLastCalledWith(icon, 2, 3)
+    expect(lastHover(onHover)).toEqual({ element: icon, index: 2, total: 3 })
 
     window.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, shiftKey: true, cancelable: true }))
-    expect(onHover).toHaveBeenLastCalledWith(scroller, 1, 3)
+    expect(lastHover(onHover)).toEqual({ element: scroller, index: 1, total: 3 })
+    picker.stop()
+  })
+
+  it('waits for a slow layer and drops the answer a newer move replaced', async () => {
+    const outer = document.createElement('section')
+    const inner = document.createElement('div')
+    hoisted.stack = [inner, outer]
+
+    const pending: Array<(stack: PickTarget[]) => void> = []
+    const onHover = vi.fn()
+    const picker = createPicker({
+      onHover,
+      // A frame answers over the bridge, so the picker may get a promise.
+      resolve: () => new Promise<PickTarget[]>((resolve) => pending.push(resolve))
+    })
+
+    picker.start()
+    expect(onHover).not.toHaveBeenCalled()
+
+    // A second move starts a new question before the first one is answered.
+    window.dispatchEvent(
+      new MouseEvent('mousemove', { bubbles: true, clientX: 40, clientY: 40 })
+    )
+    await vi.waitFor(() => expect(pending).toHaveLength(2))
+
+    pending[0]?.([layer(inner)])
+    expect(onHover).not.toHaveBeenCalled()
+
+    pending[1]?.([layer(outer), layer(inner)])
+    await vi.waitFor(() => expect(onHover).toHaveBeenCalledTimes(1))
+    expect(lastHover(onHover)).toEqual({ element: inner, index: 1, total: 2 })
     picker.stop()
   })
 
@@ -164,14 +208,7 @@ describe('element picker', () => {
     const onRegionChange = vi.fn()
     const onRegionEnd = vi.fn()
 
-    const picker = new ElementPicker({
-      onHover: vi.fn(),
-      onSelect,
-      onCancel: vi.fn(),
-      onRegionStart,
-      onRegionChange,
-      onRegionEnd
-    })
+    const picker = createPicker({ onSelect, onRegionStart, onRegionChange, onRegionEnd })
 
     picker.start()
     window.dispatchEvent(
@@ -197,12 +234,7 @@ describe('element picker', () => {
     const inner = document.createElement('div')
     hoisted.stack = [inner]
     const onRegionEnd = vi.fn()
-    const picker = new ElementPicker({
-      onHover: vi.fn(),
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-      onRegionEnd
-    })
+    const picker = createPicker({ onRegionEnd })
 
     picker.start()
     window.dispatchEvent(
@@ -228,12 +260,7 @@ describe('element picker', () => {
     hoisted.stack = [inner]
     const onSelect = vi.fn()
     const onRegionEnd = vi.fn()
-    const picker = new ElementPicker({
-      onHover: vi.fn(),
-      onSelect,
-      onCancel: vi.fn(),
-      onRegionEnd
-    })
+    const picker = createPicker({ onSelect, onRegionEnd })
 
     picker.start()
     window.dispatchEvent(
@@ -250,7 +277,7 @@ describe('element picker', () => {
     )
 
     expect(onRegionEnd).not.toHaveBeenCalled()
-    expect(onSelect).toHaveBeenCalledWith(inner)
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ element: inner }))
   })
 
   it('cancels only the drag on the first Escape', () => {
@@ -259,13 +286,7 @@ describe('element picker', () => {
     const onCancel = vi.fn()
     const onRegionCancel = vi.fn()
     const onRegionEnd = vi.fn()
-    const picker = new ElementPicker({
-      onHover: vi.fn(),
-      onSelect: vi.fn(),
-      onCancel,
-      onRegionCancel,
-      onRegionEnd
-    })
+    const picker = createPicker({ onCancel, onRegionCancel, onRegionEnd })
 
     picker.start()
     window.dispatchEvent(

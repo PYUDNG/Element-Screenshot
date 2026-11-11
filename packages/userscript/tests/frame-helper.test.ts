@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { native } from '../src/core/native'
 import { createFrameHelper } from '../src/core/frame-helper'
 import { FRAME_PROTOCOL, setFrameToken } from '../src/core/frame-bridge'
 
@@ -38,6 +39,8 @@ beforeEach(() => {
 
 afterEach(() => {
   setFrameToken('')
+  native.capture.aborted = false
+  document.body.innerHTML = ''
   vi.restoreAllMocks()
 })
 
@@ -207,5 +210,240 @@ describe('frame helper', () => {
       expect.objectContaining({ type: 'result', nonce: 'x1', blob: BLOB }),
       '*'
     )
+  })
+})
+
+function hoverRequest(token = 'test-token', nonce = 'h1', x = 10, y = 20): MessageEvent {
+  return messageEvent({ protocol: FRAME_PROTOCOL, type: 'hover', token, nonce, x, y })
+}
+
+function captureRequest(elementId = 1, nonce = 'c1'): MessageEvent {
+  return messageEvent({
+    protocol: FRAME_PROTOCOL,
+    type: 'capture',
+    token: 'test-token',
+    nonce,
+    elementId,
+    ratio: 2,
+    expandNested: true,
+    background: { mode: 'color', color: '#fafafa' }
+  })
+}
+
+function pickItem(label = 'div.card') {
+  return {
+    id: 0,
+    label,
+    left: 1,
+    top: 2,
+    width: 30,
+    height: 40,
+    contentWidth: 30,
+    contentHeight: 400,
+    scrollAxis: 'y' as const,
+    fullPage: false
+  }
+}
+
+describe('frame pick answers', () => {
+  it('answers a hover with ids the capture can name', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const element = document.createElement('div')
+    const pick = vi.fn(() => [{ element, item: pickItem() }])
+    const helper = createFrameHelper({ pick })
+
+    helper.handleMessage(hoverRequest('test-token', 'h1', 12, 34))
+    await settle()
+
+    expect(pick).toHaveBeenCalledWith(document, 12, 34)
+    expect(post).toHaveBeenCalledWith(
+      {
+        protocol: FRAME_PROTOCOL,
+        type: 'stack',
+        nonce: 'h1',
+        items: [{ ...pickItem(), id: 1 }]
+      },
+      '*'
+    )
+
+    // The same node keeps its id, a new one gets the next number.
+    const other = document.createElement('div')
+    pick.mockReturnValue([
+      { element, item: pickItem() },
+      { element: other, item: pickItem('span.tick') }
+    ])
+    helper.handleMessage(hoverRequest('test-token', 'h3'))
+    await settle()
+
+    expect(post).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({ id: 1 }),
+          expect.objectContaining({ id: 2, label: 'span.tick' })
+        ]
+      }),
+      '*'
+    )
+  })
+
+  it('answers a hover while a render is running', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const pending: { release?: (blob: Blob | null) => void } = {}
+    const helper = createFrameHelper({
+      render: () =>
+        new Promise<Blob | null>((resolve) => {
+          pending.release = resolve
+        }),
+      pick: () => [{ element: document.body, item: pickItem('body') }]
+    })
+
+    helper.handleMessage(renderRequest('test-token', 'busy-render'))
+    helper.handleMessage(hoverRequest('test-token', 'busy-hover'))
+    await settle()
+
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'stack', nonce: 'busy-hover' }),
+      '*'
+    )
+    pending.release?.(null)
+    await settle()
+  })
+
+  it('keeps quiet while the document is still parsing', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const doc = { readyState: 'loading', addEventListener: vi.fn() } as unknown as Document
+    const helper = createFrameHelper({ doc, pick: () => [] })
+
+    helper.handleMessage(hoverRequest())
+    await settle()
+
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('reports what the pick failed on instead of going silent', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const helper = createFrameHelper({
+      pick: () => {
+        throw new Error('hit test broke')
+      }
+    })
+
+    helper.handleMessage(hoverRequest('test-token', 'h4'))
+    await settle()
+
+    expect(post).toHaveBeenCalledWith(
+      { protocol: FRAME_PROTOCOL, type: 'stack', nonce: 'h4', items: [], error: 'hit test broke' },
+      '*'
+    )
+  })
+
+  it('ignores a hover with a wrong token', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const helper = createFrameHelper({ pick: () => [] })
+
+    helper.handleMessage(hoverRequest('wrong-token'))
+    await settle()
+
+    expect(post).not.toHaveBeenCalled()
+  })
+})
+
+describe('frame element capture', () => {
+  it('captures the element the id names, in the frame realm', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const element = document.createElement('div')
+    document.body.append(element)
+    const blob = new Blob(['png'], { type: 'image/png' })
+    const capture = vi.fn(async () => ({ blob, width: 60, height: 80, limited: true }))
+    const helper = createFrameHelper({
+      pick: () => [{ element, item: pickItem() }],
+      capture
+    })
+
+    helper.handleMessage(hoverRequest('test-token', 'pick-1'))
+    await settle()
+    helper.handleMessage(captureRequest(1, 'c1'))
+    await settle()
+
+    expect(capture).toHaveBeenCalledWith({
+      element,
+      ratio: 2,
+      expandNested: true,
+      background: { mode: 'color', color: '#fafafa' }
+    })
+    expect(post).toHaveBeenCalledWith(
+      {
+        protocol: FRAME_PROTOCOL,
+        type: 'captured',
+        nonce: 'c1',
+        blob,
+        width: 60,
+        height: 80,
+        limited: true
+      },
+      '*'
+    )
+  })
+
+  it('refuses an id it never reported', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const helper = createFrameHelper({ capture: vi.fn() })
+
+    helper.handleMessage(captureRequest(99, 'c2'))
+    await settle()
+
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'captured',
+        nonce: 'c2',
+        blob: null,
+        error: 'The picked element is gone'
+      }),
+      '*'
+    )
+  })
+
+  it('reports a capture failure', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const element = document.createElement('div')
+    document.body.append(element)
+    const helper = createFrameHelper({
+      pick: () => [{ element, item: pickItem() }],
+      capture: async () => {
+        throw new Error('render broke')
+      }
+    })
+
+    helper.handleMessage(hoverRequest('test-token', 'pick-2'))
+    await settle()
+    helper.handleMessage(captureRequest(1, 'c3'))
+    await settle()
+
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'captured', nonce: 'c3', blob: null, error: 'render broke' }),
+      '*'
+    )
+  })
+
+  it('stops rendering when the parent cancels', async () => {
+    vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const helper = createFrameHelper({ render: async () => new Blob(['png']) })
+
+    helper.handleMessage(
+      messageEvent({ protocol: FRAME_PROTOCOL, type: 'cancel', token: 'test-token', nonce: 'x' })
+    )
+
+    expect(native.capture.aborted).toBe(true)
+  })
+
+  it('refuses a capture without a usable token', async () => {
+    setFrameToken('')
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const helper = createFrameHelper({ capture: vi.fn() })
+
+    helper.handleMessage(captureRequest())
+    await settle()
+
+    expect(post).not.toHaveBeenCalled()
   })
 })

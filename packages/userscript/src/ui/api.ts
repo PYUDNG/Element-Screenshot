@@ -34,6 +34,8 @@ export interface PickerHover {
   depth: number
   total: number
   fullPage: boolean
+  /** True when the layer lives inside an iframe rather than this document. */
+  inFrame: boolean
 }
 
 export interface CaptureSize {

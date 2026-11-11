@@ -4,10 +4,14 @@ import {
   FRAME_PROTOCOL,
   frameWindow,
   getFrameToken,
+  postFrameCancel,
   postFrameMessage,
   probeFrameHelpers,
   readFrameMessage,
+  readPickItems,
+  requestFrameCapture,
   requestFrameImage,
+  requestFramePick,
   requestFrameSize,
   setFrameToken
 } from '../src/core/frame-bridge'
@@ -75,6 +79,11 @@ describe('frame messages', () => {
     expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'size', nonce: 'n', width: 1, height: 2 })).not.toBeNull()
     expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'measure', nonce: 'n', token: 't' })).not.toBeNull()
     expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'subscribe', nonce: 'n', token: 't' })).not.toBeNull()
+    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'hover', nonce: 'n', token: 't', x: 1, y: 2 })).not.toBeNull()
+    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'stack', nonce: 'n', items: [] })).not.toBeNull()
+    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'capture', nonce: 'n', token: 't', elementId: 1 })).not.toBeNull()
+    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'captured', nonce: 'n', blob: null, width: 0, height: 0 })).not.toBeNull()
+    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'cancel', nonce: 'n', token: 't' })).not.toBeNull()
     expect(
       readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'hotkey', nonce: 'n', token: 't', shortcut: 'Alt+S' })
     ).not.toBeNull()
@@ -292,5 +301,162 @@ describe('frame measurement request', () => {
     const frame = fakeFrame()
     expect(await requestFrameSize(frame.element)).toBeNull()
     expect(frame.posts).toHaveLength(0)
+  })
+})
+
+describe('frame layer probing', () => {
+  const layer = {
+    id: 3,
+    label: 'div.card',
+    left: 10,
+    top: 20,
+    width: 100,
+    height: 50,
+    contentWidth: 100,
+    contentHeight: 400,
+    scrollAxis: 'y',
+    fullPage: false
+  }
+
+  it('asks for the layers under a point and returns them', async () => {
+    const frame = fakeFrame((message, frame) => {
+      answer(message, frame.window, { type: 'stack', items: [layer] })
+    })
+
+    const items = await requestFramePick(frame.element, { x: 12, y: 34, timeout: 500 })
+
+    expect(frame.posts[0]).toMatchObject({ type: 'hover', token: 'test-token-1234', x: 12, y: 34 })
+    expect(items).toEqual([layer])
+  })
+
+  it('answers an empty list when a frame reports no layer', async () => {
+    const frame = fakeFrame((message, frame) => {
+      answer(message, frame.window, { type: 'stack', items: [] })
+    })
+
+    expect(await requestFramePick(frame.element, { x: 1, y: 1, timeout: 500 })).toEqual([])
+  })
+
+  it('drops malformed layers', async () => {
+    const frame = fakeFrame((message, frame) => {
+      answer(message, frame.window, {
+        type: 'stack',
+        items: [layer, { id: 0, label: 'no id' }, null, { ...layer, id: 4, width: 'wide' }]
+      })
+    })
+
+    const items = await requestFramePick(frame.element, { x: 1, y: 1, timeout: 500 })
+    expect(items).toEqual([layer])
+  })
+
+  it('returns null when the frame does not answer', async () => {
+    const frame = fakeFrame()
+    expect(await requestFramePick(frame.element, { x: 1, y: 1, timeout: 60 })).toBeNull()
+  })
+
+  it('ignores an answer from another window', async () => {
+    const frame = fakeFrame((message) => {
+      answer(message, { other: 'window' }, { type: 'stack', items: [layer] })
+    })
+    expect(await requestFramePick(frame.element, { x: 1, y: 1, timeout: 60 })).toBeNull()
+  })
+
+  it('refuses to ask without a token', async () => {
+    setFrameToken('')
+    const frame = fakeFrame()
+    expect(await requestFramePick(frame.element, { x: 1, y: 1 })).toBeNull()
+    expect(frame.posts).toHaveLength(0)
+  })
+
+  it('caps a layer list', () => {
+    const many = Array.from({ length: 200 }, (_value, index) => ({ ...layer, id: index + 1 }))
+    expect(readPickItems(many)).toHaveLength(64)
+    expect(readPickItems('nope')).toEqual([])
+  })
+})
+
+describe('frame element capture', () => {
+  const blob = new Blob(['png'], { type: 'image/png' })
+
+  it('names the element and returns the picture', async () => {
+    const frame = fakeFrame((message, frame) => {
+      answer(message, frame.window, {
+        type: 'captured',
+        blob,
+        width: 320,
+        height: 480,
+        limited: false
+      })
+    })
+
+    const result = await requestFrameCapture(frame.element, {
+      elementId: 7,
+      ratio: 2,
+      expandNested: true,
+      background: { mode: 'page' },
+      timeout: 500
+    })
+
+    expect(frame.posts[0]).toMatchObject({
+      type: 'capture',
+      token: 'test-token-1234',
+      elementId: 7,
+      ratio: 2,
+      expandNested: true,
+      background: { mode: 'page' }
+    })
+    expect(result).toEqual({ blob, width: 320, height: 480, limited: false })
+  })
+
+  it('reports a helper failure and returns nothing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const frame = fakeFrame((message, frame) => {
+      answer(message, frame.window, { type: 'captured', blob: null, width: 0, height: 0, limited: false, error: 'gone' })
+    })
+
+    expect(
+      await requestFrameCapture(frame.element, {
+        elementId: 1,
+        ratio: 1,
+        expandNested: false,
+        background: { mode: 'transparent' },
+        timeout: 500
+      })
+    ).toBeNull()
+    expect(warn).toHaveBeenCalledWith('[element-screenshot] frame helper failed:', 'gone')
+  })
+
+  it('tells the frame to stop when the capture is cancelled', async () => {
+    const frame = fakeFrame()
+    const pending = requestFrameCapture(frame.element, {
+      elementId: 1,
+      ratio: 1,
+      expandNested: false,
+      background: { mode: 'page' },
+      timeout: 5_000
+    })
+    native.capture.aborted = true
+
+    expect(await pending).toBeNull()
+    expect(frame.posts.map((post) => post.type)).toEqual(['capture', 'cancel'])
+  })
+
+  it('refuses to ask without a token', async () => {
+    setFrameToken('')
+    const frame = fakeFrame()
+    expect(
+      await requestFrameCapture(frame.element, {
+        elementId: 1,
+        ratio: 1,
+        expandNested: false,
+        background: { mode: 'page' }
+      })
+    ).toBeNull()
+    expect(frame.posts).toHaveLength(0)
+  })
+
+  it('never cancels without a token', () => {
+    setFrameToken('')
+    expect(postFrameCancel({ postMessage: vi.fn() } as unknown as Window)).toBe(false)
   })
 })

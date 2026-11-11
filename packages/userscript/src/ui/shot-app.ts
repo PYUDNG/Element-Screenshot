@@ -12,15 +12,20 @@ import {
 import type { CaptureBackground } from '../core/capture'
 import { resolvePageBackground } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
+import { requestFrameCapture, requestFramePick } from '../core/frame-bridge'
+import type { FramePickItem } from '../core/frame-bridge'
+import { frameContentBox } from '../core/frame-size'
 import { native } from '../core/native'
 import { ElementPicker } from '../core/picker'
+import { elementTarget, frameTargets } from '../core/pick-target'
+import type { PickTarget } from '../core/pick-target'
 import { dispatchCaptureUiKey, isPickerKey } from '../core/relay-key'
 import type { RelayedKey } from '../core/relay-key'
 import { clampRegion } from '../core/region'
-import { describeTarget, getTargetBox } from '../core/target'
+import { getElementStack, getTargetBox } from '../core/target'
 import type { TargetBox } from '../core/target'
 import InPageApp from './InPageApp.vue'
-import type { PickerHover, ShotAppApi, ShotState, ToastTone } from './api'
+import type { ShotAppApi, ShotState, ToastTone } from './api'
 import { freeRatio, placeStored, readDock, resolveDrop, clampToViewport } from './fab-position'
 import type { FabViewport } from './fab-position'
 
@@ -50,6 +55,8 @@ type SavePickerWindow = Window & {
 
 /** Marks the shadow host; also used to keep a second script copy from mounting. */
 export const UI_ROOT_ATTRIBUTE = 'data-element-screenshot-root'
+/** How long a frame that failed a hover is left alone before it is asked again. */
+const FRAME_PICK_RETRY = 2_000
 const UI_MARKERS = [
   UI_ROOT_ATTRIBUTE,
   'data-element-screenshot-settings',
@@ -114,6 +121,12 @@ export class ShotApp implements ShotAppApi {
   private guardsInstalled = false
   private cancelKeyInstalled = false
   private stopSettingsWatch: (() => void) | null = null
+  /**
+   * Frames that just failed to answer a hover. Every mouse move would otherwise
+   * pay another timeout; the frame gets asked again once the deadline passes,
+   * because a helper may still be starting up when the picker opens.
+   */
+  private readonly framePickRetry = new Map<HTMLIFrameElement, number>()
 
   constructor(
     readonly settings: SettingsController,
@@ -121,9 +134,11 @@ export class ShotApp implements ShotAppApi {
     private readonly styles: string
   ) {
     this.picker = new ElementPicker({
-      onHover: (element, index, total) => this.handleHover(element, index, total),
-      onSelect: (element) => this.handleSelect(element),
+      onHover: (target, index, total) => this.handleHover(target, index, total),
+      onSelect: (target) => this.handleSelect(target),
       onCancel: () => this.reset(),
+      resolve: (x, y) => this.resolveTargets(x, y),
+      resolveDocument: () => this.documentTarget(),
       onCursor: (x, y) => {
         this.state.cursor = { x, y }
       },
@@ -191,6 +206,9 @@ export class ShotApp implements ShotAppApi {
   startPicker(): void {
     if (this.settings.isOpen.value || this.state.mode !== 'idle') return
     this.clearSelection()
+    // A frame that was unresponsive last time gets a fresh chance: its helper may
+    // have finished loading since.
+    this.framePickRetry.clear()
     this.state.mode = 'picking'
     this.picker.start()
   }
@@ -349,39 +367,107 @@ export class ShotApp implements ShotAppApi {
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback
   }
 
-  private handleHover(element: Element | null, index: number, total: number): void {
-    if (!element) {
+  private documentTarget(): PickTarget {
+    const root = native.document.documentElement ?? document.documentElement
+    return elementTarget(root)
+  }
+
+  /**
+   * Every layer under the point, outermost first.
+   *
+   * When the innermost layer of this document is a frame, the frame is asked for
+   * its own layers so the picker can walk into it. That question travels over the
+   * bridge — the only channel into a cross-origin frame — and answers a moment
+   * later, which is why the picker accepts a promise here.
+   */
+  private resolveTargets(x: number, y: number): PickTarget[] | Promise<PickTarget[]> {
+    // getElementStack returns topmost first; the picker wants outermost first.
+    const layers = getElementStack(x, y).map(elementTarget)
+    const frame = layers[0]?.element
+    if (!frame || frame.tagName !== 'IFRAME') return layers.reverse()
+    return this.pierceFrame(frame as HTMLIFrameElement, x, y, layers)
+  }
+
+  private async pierceFrame(
+    frame: HTMLIFrameElement,
+    x: number,
+    y: number,
+    layers: readonly PickTarget[]
+  ): Promise<PickTarget[]> {
+    const outer = layers.slice().reverse()
+    const items = await this.probeFramePick(frame, x, y)
+    if (!items || items.length === 0) return outer
+    return [...outer, ...frameTargets(frame, items).reverse()]
+  }
+
+  /**
+   * Ask one frame what sits under the pointer.
+   *
+   * The point only counts inside the frame's viewport: on its border or padding
+   * the frame's own coordinates would describe something else entirely. A frame
+   * that does not answer (no helper, still starting up, busy) is skipped for a
+   * while instead of making every mouse move wait for another timeout.
+   */
+  private async probeFramePick(
+    frame: HTMLIFrameElement,
+    x: number,
+    y: number
+  ): Promise<FramePickItem[] | null> {
+    const retryAt = this.framePickRetry.get(frame)
+    if (retryAt !== undefined && Date.now() < retryAt) return null
+
+    const view = frameContentBox(frame)
+    if (!view) return null
+    if (
+      x < view.left ||
+      x >= view.left + view.width ||
+      y < view.top ||
+      y >= view.top + view.height
+    ) {
+      return null
+    }
+
+    const items = await requestFramePick(frame, { x: x - view.left, y: y - view.top })
+    if (!items) {
+      this.framePickRetry.set(frame, Date.now() + FRAME_PICK_RETRY)
+      return null
+    }
+    this.framePickRetry.delete(frame)
+    return items
+  }
+
+  private handleHover(target: PickTarget | null, index: number, total: number): void {
+    if (!target) {
       this.state.hover = null
       this.state.box = null
       return
     }
 
-    const info = describeTarget(element)
-    const hover: PickerHover = {
-      label: info.label,
-      width: info.rect.width,
-      height: info.rect.height,
-      rect: info.rect,
-      contentWidth: info.box.width,
-      contentHeight: info.box.height,
-      scrollAxis: info.scrollAxis,
-      scrollable: info.scrollable,
+    this.state.hover = {
+      label: target.label,
+      width: target.rect.width,
+      height: target.rect.height,
+      rect: target.rect,
+      contentWidth: target.box.width,
+      contentHeight: target.box.height,
+      scrollAxis: target.scrollAxis,
+      scrollable: target.scrollAxis !== null,
       depth: index + 1,
       total,
-      fullPage: element === document.documentElement
+      fullPage: target.fullPage,
+      inFrame: target.frame !== null
     }
-    this.state.hover = hover
-    this.state.box = info.box
+    this.state.box = target.box
   }
 
-  private handleSelect(element: Element): void {
+  private handleSelect(target: PickTarget): void {
     // Measured on the live element: this is the frame the picker drew and the
-    // frame the capture has to reproduce.
-    const box = getTargetBox(element)
+    // frame the capture has to reproduce. A layer inside a frame is measured by
+    // that frame instead, so its box only feeds the overlay.
     this.state.mode = 'selected'
     this.state.hover = null
     this.state.marquee = null
-    this.state.box = box
+    this.state.box = target.box
     this.state.capturing = true
     this.state.ready = false
     this.state.error = null
@@ -392,7 +478,18 @@ export class ShotApp implements ShotAppApi {
 
     this.beginRender()
     const token = (this.captureToken += 1)
-    this.pending = this.renderCapture(element, box, token)
+
+    if (target.element) {
+      this.pending = this.renderCapture(target.element, getTargetBox(target.element), token)
+      return
+    }
+    if (target.frame && target.frameElementId !== null) {
+      this.pending = this.renderFrameCapture(target.frame, target.frameElementId, token)
+      return
+    }
+
+    this.state.error = 'The picked element is no longer on the page'
+    this.finishRender()
   }
 
   private handleRegionStart(): void {
@@ -481,6 +578,48 @@ export class ShotApp implements ShotAppApi {
       if (token !== this.captureToken) return
       const reason = describeCaptureError(error)
       console.error('[element-screenshot] capture failed', reason, error)
+      this.state.error = reason
+      this.toast('app.toast.captureFailedDetail', 'error', { reason })
+    } finally {
+      if (token === this.captureToken) this.finishRender()
+    }
+  }
+
+  /**
+   * Capture one layer inside a frame.
+   *
+   * The frame renders in its own realm: its fonts and pixel ratio are its own,
+   * and for a cross-origin frame it is the only realm that can read the document
+   * at all. Cancelling stops the frame's render too, so a discarded capture does
+   * not keep a foreign page busy.
+   */
+  private async renderFrameCapture(
+    frame: HTMLIFrameElement,
+    elementId: number,
+    token: number
+  ): Promise<void> {
+    try {
+      // A previous cancel leaves the flag set; this capture is a new request.
+      native.capture.aborted = false
+      const result = await requestFrameCapture(frame, {
+        elementId,
+        ratio: this.pixelRatio(),
+        expandNested: Boolean(this.settings.get('capture.expandNested')),
+        background: this.captureBackground()
+      })
+
+      if (token !== this.captureToken) return
+      if (!result) throw new Error('The frame returned no picture')
+
+      this.blob = result.blob
+      this.state.captureSize = { width: result.width, height: result.height }
+      this.setPreview(result.blob)
+      this.state.ready = true
+      if (result.limited) this.toast('app.toast.downscaled', 'info')
+    } catch (error) {
+      if (token !== this.captureToken) return
+      const reason = describeCaptureError(error)
+      console.error('[element-screenshot] frame element capture failed', reason, error)
       this.state.error = reason
       this.toast('app.toast.captureFailedDetail', 'error', { reason })
     } finally {

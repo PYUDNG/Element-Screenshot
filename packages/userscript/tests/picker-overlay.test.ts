@@ -58,6 +58,7 @@ function hover(overrides: Partial<PickerHover> = {}): PickerHover {
     depth: 9,
     total: 10,
     fullPage: false,
+    inFrame: false,
     ...overrides
   }
 }
@@ -126,5 +127,23 @@ describe('picker overlay frames', () => {
 
     expect(wrapper.text()).toContain('→2400px')
     expect(frame(wrapper, 'content').exists()).toBe(true)
+  })
+
+  it('marks a layer that lives inside a frame', () => {
+    const app = createApi({
+      hover: hover({ label: 'div.card', inFrame: true, scrollAxis: null, scrollable: false }),
+      box: { left: 0, top: 0, width: 768, height: 800 }
+    })
+    const wrapper = mount(PickerOverlay, { props: { app } })
+
+    expect(wrapper.text()).toContain('app.hint.inFrame')
+    expect(wrapper.text()).toContain('div.card')
+  })
+
+  it('does not mark a layer of this document', () => {
+    const app = createApi({ hover: hover(), box: { left: 0, top: 0, width: 768, height: 1321 } })
+    const wrapper = mount(PickerOverlay, { props: { app } })
+
+    expect(wrapper.text()).not.toContain('app.hint.inFrame')
   })
 })
