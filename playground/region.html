@@ -111,6 +111,20 @@
         color: #2563eb;
         font-weight: 600;
       }
+      /* Scrolled panels whose content includes an iframe. */
+      #panel-d,
+      #panel-e {
+        flex-basis: 380px;
+      }
+      .panel iframe {
+        display: block;
+        width: calc(100% - 28px);
+        height: 220px;
+        margin: 10px 14px;
+        border: 1px solid #6366f1;
+        border-radius: 8px;
+        background: #fff;
+      }
       /* DOM child of #panel-b, but anchored to the viewport. */
       #panel-fixed {
         position: fixed;
@@ -179,6 +193,16 @@
           </div>
         </div>
       </div>
+      <div class="panels" style="margin-top: 20px">
+        <div class="panel" id="panel-d">
+          <div class="panel-head">Panel D · same-origin frame</div>
+          <iframe src="/frame.html" title="same-origin frame"></iframe>
+        </div>
+        <div class="panel" id="panel-e">
+          <div class="panel-head">Panel E · cross-origin frame</div>
+          <iframe src="http://127.0.0.1:4177/frame.html" title="cross-origin frame"></iframe>
+        </div>
+      </div>
       <div class="filler">page filler — scroll the window and drag a region over the panels</div>
     </main>
     <div id="fixedbar">fixed toolbar</div>
@@ -221,7 +245,22 @@
         panelC.scrollTop = 40
         nested.scrollTop = 150
 
-        window.__playground = { panel, panelB, panelC, nested }
+        // A scrolled panel that contains an iframe: the panel is replaced by a
+        // slice, and the frame inside it has to survive that replacement.
+        const framePanels = ['panel-d', 'panel-e'].map((id) => {
+          const host = document.getElementById(id)
+          const frame = host.querySelector('iframe')
+          for (let index = 1; index <= 3; index += 1) {
+            host.insertBefore(createRow(`${id} pre ${index}`, 'pre'), frame)
+          }
+          for (let index = 1; index <= 20; index += 1) {
+            host.append(createRow(`${id} post ${index}`, 'post'))
+          }
+          host.scrollTop = 70
+          return host
+        })
+
+        window.__playground = { panel, panelB, panelC, nested, framePanels }
 
         const originalToBlob = HTMLCanvasElement.prototype.toBlob
         HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {

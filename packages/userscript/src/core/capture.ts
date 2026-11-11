@@ -1337,15 +1337,17 @@ async function renderRegion(
       : options
 
   try {
+    // Frames are painted before any panel is replaced. Turning a scrolled panel
+    // into a picture renders it with its children still in place, and only then
+    // hides them, so a frame whose picture is painted afterwards would sit on an
+    // invisible box and the slice would show an empty rectangle.
+    await paintFrames(root, regionFrames, plan.ratio, shared, 1)
+    assertNotCancelled()
     for (const target of targets) {
       assertNotCancelled()
       const replacement = await replaceScrollContainer(target, plan.ratio, shared)
       if (replacement) replacements.push(replacement)
     }
-    assertNotCancelled()
-    // Frames are painted into their own box before the page render, so the
-    // rectangle contains what the frames showed instead of empty boxes.
-    await paintFrames(root, regionFrames, plan.ratio, shared, 1)
     assertNotCancelled()
     for (const replacement of replacements) replacement.revealFixed()
     return await renderViewport({ region, plan, options: shared, shift: pageScroll(root), doc })

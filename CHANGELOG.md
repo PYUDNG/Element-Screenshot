@@ -18,8 +18,8 @@ All notable changes to this project are documented here. The format follows
   ordinary picture of the element at its own size. A frame that cannot answer (no
   helper, still starting up, busy) is skipped for two seconds instead of making
   every mouse move wait, and the picker falls back to the frame itself. Piercing
-  needs the default “isolate page interaction”: with the overlay off the pointer
-  enters the frame and the page's own `mousemove` never reaches the picker.
+  needs mouse passthrough off (the default): with the transparent layer gone the
+  pointer enters the frame and the page's own `mousemove` never reaches the picker.
 - The trigger shortcut works while the pointer focus is inside an iframe. A keydown
   fired in a frame never reaches the top document, so every frame now asks its
   parent for the shortcut over the bridge (`subscribe`), watches its own keys and
@@ -34,8 +34,12 @@ All notable changes to this project are documented here. The format follows
   to the floating button). It used to sit in a “Trigger” group inside the
   **Capture** tab, next to an identically named tab.
 - Region captures include iframes: frames that intersect the dragged rectangle
-  are rendered and painted into their own box before the viewport render, so the
-  rectangle no longer contains empty frame boxes. A region capture stays
+  are rendered and painted into their own box before the panels are rebuilt and
+  before the viewport render, so the rectangle no longer contains empty frame
+  boxes. Painting them first also covers a frame that sits inside a scrolled panel:
+  a rebuilt panel is turned into a picture with its children still in place and
+  only then hides them, so a frame painted afterwards would end up on an invisible
+  box and the picture would show an empty rectangle. A region capture stays
   what-you-see-is-what-you-get — the frames keep their current viewport and are
   never expanded — and cross-origin frames go through their helper as usual.
 - Picking an iframe captures the whole frame, not the slice that happened to be

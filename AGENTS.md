@@ -115,9 +115,9 @@ scripts/serve-playground.mjs      本地 playground 服务器
 拖拽出矩形
 → createSnapshot() 把整页复制进离屏 iframe
 → collectScrollSlices() 在副本里找出与选区相交的滚动容器（含容器内部的嵌套面板，深的在前）
+→ framesInRegion() 找出与矩形相交的帧 → paintFrames() 把帧视口图写进帧盒子背景（必须在切片之前）
 → 对每个容器：采集 sticky / 隐藏 fixed 后代 → 以其为根渲染「当前滚动视图」切片
               → blob 转 data URL → 作为该容器第一个 background 图层写回 + 隐藏子内容
-→ framesInRegion() 找出与矩形相交的帧 → paintFrames() 把帧视口图写进帧盒子背景
 → 整页渲染一次（根节点只按窗口滚动做 relative 偏移）
 → planCrop() + cropBlob() 按矩形裁剪
 → 丢弃快照
@@ -353,8 +353,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 裁剪用 `core/crop.ts` 的 `planCrop()` 把 CSS 像素映射到设备像素：只做一次 `round`，再夹到位图范围内；
 - 交互：拖拽超过 4px 进入框选，区域小于 8×8 视为点击；`Esc` 先取消拖拽再退出；`window.blur` 取消拖拽；区域模式强制 `expandNested=false`（要的是所见即所得）；`suppressClick` 用来吃掉拖拽后浏览器补发的 `click`；
 - 已知边界：只在视口内框选；容器自身的伪元素覆盖层会被切片和整页各画一次（位置差一个滚动量）；容器内 `mix-blend-mode` 与「包含块在容器外、逃出裁剪」的后代可能与实际有差异；
-- 区域截图里的 iframe（`36bc973`）：`framesInRegion()` 挑出与选区相交的帧，`paintFrames()` 在整页渲染前把帧视口图写进帧盒子背景，所以框选里能看到帧内容。区域截图是所见即所得，**不展开**帧；只渲染相交的帧（每个帧都是一次完整渲染）。被替换的滚动容器内部的帧仍会被切片的 `visibility: hidden` 藏掉；
-- 验证页：`playground/region.html`（三个独立面板 + 嵌套面板 + 渐变/圆角 + 面板内 fixed 元素 + 吸顶表头 + 页面滚动），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；页面把初始滚动位置写死，方便反复对比；
+- 区域截图里的 iframe（`36bc973`）：`framesInRegion()` 挑出与选区相交的帧，`paintFrames()` 把帧视口图写进帧盒子背景，**顺序必须在切片替换之前**：切片以容器为根渲染时子元素还在（渲染完才 `hideSliceContent()`），帧图只有先写进去才会出现在切片里；放在之后就会被藏在 `visibility: hidden` 的盒子上，那一格是空的。区域截图是所见即所得，**不展开**帧；只渲染相交的帧（每个帧都是一次完整渲染）；
+- 验证页：`playground/region.html`（三个独立面板 + 嵌套面板 + 渐变/圆角 + 面板内 fixed 元素 + 吸顶表头 + 页面滚动 + 滚动面板里的同源/跨域帧），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；页面把初始滚动位置写死，方便反复对比；
 - 调试顺序：内容错位先核对「滚动口尺寸 + border 并入 padding + 根偏移 = 滚动量 + 边框」；边框/圆角残影先看是不是只清了颜色没清 `border-width`/`border-radius`；出现假滚动条先看 `scrollbar-width: none` 是否生效；样式没恢复先看 `replaceScrollContainer()` 的 `restore` 是否按逆序执行。
 
 ## iframe 视口合成（0.9.0，同源 + 跨域都已实现）
@@ -466,15 +466,14 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 下一步（按顺序）
 
-1. `expandNested` 打开时让**被捕获祖先内部的帧**也参与撑高？现在明确不参与（会重排用户正在看的页面），要做先想清「撑高后祖先布局、兄弟位置」怎么处理。
-2. 帧在**被替换的滚动容器内部**时，区域截图里那一格仍是空的：切片渲染时容器子元素被隐藏，帧图也被藏掉。要支持得在切片渲染前把帧图写进容器内的帧盒子。
-3. 穿透选取的缺口：鼠标穿透开着时帧收不到指针（要帧上报 pointer、父级换算坐标并接管点击）；只穿一层（递归要一层一次坐标换算 + `via` 链路）。
+1. 穿透选取的缺口：鼠标穿透开着时帧收不到指针（要帧上报 pointer、父级换算坐标并接管点击）；只穿一层（递归要一层一次坐标换算 + `via` 链路）；`MAX_FRAME_DEPTH = 2` 之外的帧留空盒。用户想支持多层，但要先看到代价评估再决定。
+2. 区域截图里「帧在被替换的滚动容器内」已修（见上），目前只有 jsdom 用例锁顺序，真实页面还没验证。
 
 ### 关键约束（别踩）
 
 - html-to-image 克隆 `<iframe>` 时**不带浏览上下文**：`cloneIFrameElement()` 会退化成「克隆 `contentDocument.body` 并把 iframe 的 computed style 扣到那个 `<body>` 上」。所以副本里的空 iframe 仍会保留正确尺寸/边框/圆角/背景——我们的帧图正是作为它的 `background-image` 画出来的。
 - 帧渲染用的是**帧自己的文档**：背景、`color-scheme`、`@font-face` 都跟帧走（兜底路径也靠 `native.fontSource` 切过去，见「帧的字体与并行渲染」）。
-- 帧内滚动语义（已实现，见上一节）：**直接选中 iframe** 时它相当于「根」，整页展开并让父级把盒子撑高；**选中包含 iframe 的祖先**时只画帧的当前可见视口，祖先内部的帧一律不撑高（`expandNested` 也不改这一点）。
+- 展开语义（2026-11-12 用户确认，是设计不是缺口）：只有**被选中的截图根元素**被展开撑高；子元素默认不展开，除非用户打开「递归展开子元素」。iframe 同理——只有 iframe 自己是根时才展开、撑高、整页渲染，否则只画当前可见视口。
 - 每个帧都是一次独立 html-to-image 渲染：整页截图里有 N 个帧就多 N 次渲染（实测小帧 1～1.5 秒/个）；没有 helper 的帧只多等一次 400ms 探测窗口。日志里出现 `[element-screenshot] frame render failed:` / `frame helper failed:` 表示该帧降级成空盒。
 - 去掉了 `@noframes`：脚本会在**每个** iframe 里执行一遍（解析 520KB bundle、读一次 token），但帧实例不挂 UI、不注册菜单、不建设置，开销只在这个量级。不要给它加「顺手」的初始化逻辑。
 - playground 的坑：`/frame.html` 只有在帧里也装了这个脚本时才有 helper。用 **VM 安装**（`?vm=1` 或不带参数都行，VM 会注入每个帧）时跨域那格也能出图；完全不装 VM 时 playground 的 stub 只注入顶层页面，`/frame.html` 没有实例 → 同源帧走兜底、跨域帧只能空白。
@@ -484,6 +483,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 同源：`http://127.0.0.1:4176/?vm=1` 的 `#frame-demo`。
 - 跨域：先 `PLAYGROUND_PORT=4177 pnpm playground`，再访问 4176 页面的 `#cross-frame-demo`。
 - 兜底：`about:blank` + `document.write` 的临时 iframe（VM 不注入这种帧）。
+- 区域 + 帧：`region.html` 的 `#panel-d`（同源）/`#panel-e`（跨域 4177），面板自身滚动 70px、帧内滚动 60px；这一格出图才说明「帧图先于切片写回」生效（jsdom 侧由 `capture.test.ts` 的顺序用例锁定）。
 - 还缺：「帧内再嵌帧」的两层用例、「帧在可滚动祖先里、祖先展开后帧位置是否跟得上」的用例。
 
 ## 验证建议

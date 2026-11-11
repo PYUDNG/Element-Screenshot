@@ -1416,6 +1416,69 @@ describe('region capture with frames', () => {
     expect(calls).toHaveLength(1)
     expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
   })
+
+  it('paints a frame inside a replaced scroll container before that container is rendered', async () => {
+    const panel = document.createElement('div')
+    document.body.append(panel)
+    setMetrics(panel, { clientWidth: 200, clientHeight: 100, scrollWidth: 200, scrollHeight: 900 })
+    panel.scrollTop = 40
+    const real = native.getComputedStyle
+    vi.spyOn(native, 'getComputedStyle').mockImplementation((element, pseudo) =>
+      element === panel ? scrollPanel('none') : real(element, pseudo)
+    )
+
+    const copy = document.createElement('iframe')
+    panel.append(copy)
+    const live = document.createElement('iframe')
+    document.body.append(live)
+    vi.mocked(createSnapshot).mockImplementation(async (options = {}) => {
+      // A snapshot of the frame document must not report the frame again.
+      if (options.doc) {
+        return {
+          doc: document.implementation.createHTMLDocument('frame copy'),
+          win: window,
+          target: null,
+          frames: [],
+          dispose: () => undefined
+        }
+      }
+      return {
+        doc: document,
+        win: window,
+        target: options.target ?? null,
+        frames: [{ live, copy, doc: document }],
+        dispose: () => undefined
+      }
+    })
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? box(20, 20, 120, 60) : box(0, 0, 0, 0)
+    )
+
+    const order: Array<{ level: string; frame: string; childVisibility: string }> = []
+    toBlobMock.mockImplementation((target: Element) => {
+      order.push({
+        level: target === panel ? 'slice' : target === document.documentElement ? 'page' : 'frame',
+        frame: copy.style.getPropertyValue('background-image'),
+        childVisibility: copy.style.getPropertyValue('visibility')
+      })
+      return Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+    })
+
+    await captureRegion(
+      { left: 0, top: 0, width: 300, height: 200 },
+      { pixelRatio: 1, slices: [panel] }
+    )
+
+    // The frame has to be painted before the panel is turned into a picture:
+    // the panel's slice is rendered with its children already hidden, so a frame
+    // that is painted afterwards would sit on an invisible box and the picture
+    // would show an empty rectangle instead.
+    expect(order.map((call) => call.level)).toEqual(['frame', 'slice', 'page'])
+    expect(order[1]?.frame).toContain('url("data:image/png')
+    // The copy's own child is still hidden at page-render time; only the slice
+    // carries the frame picture now.
+    expect(order[2]?.childVisibility).toBe('hidden')
+  })
 })
 
 interface ObservedCall {
