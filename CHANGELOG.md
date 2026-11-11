@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The picker reaches inside iframes. Hovering a frame asks it over the bridge which
+  layers sit under the pointer, and those layers are appended to the page's own
+  stack with their boxes shifted into the page viewport (the visible box clipped to
+  the frame) and marked `帧内`. Wheel, arrow and `Shift` layer switching therefore
+  keep walking out of the frame, and picking one captures that element alone: the
+  frame renders it in its own realm, which is the only realm that can read a
+  cross-origin document and the one that has the right fonts. The result is an
+  ordinary picture of the element at its own size. A frame that cannot answer (no
+  helper, still starting up, busy) is skipped for two seconds instead of making
+  every mouse move wait, and the picker falls back to the frame itself. Piercing
+  needs the default “isolate page interaction”: with the overlay off the pointer
+  enters the frame and the page's own `mousemove` never reaches the picker.
 - The trigger shortcut works while the pointer focus is inside an iframe. A keydown
   fired in a frame never reaches the top document, so every frame now asks its
   parent for the shortcut over the bridge (`subscribe`), watches its own keys and
