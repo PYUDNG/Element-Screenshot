@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Picking an iframe captures the whole frame, not the slice that happened to be
+  visible: the frame document is treated as the root, so the copied frame box
+  grows to its content size (the parent's layout reflows around it in the copy
+  only) and the frame is rendered from the top at that size. A cross-origin
+  frame's content size is reported by its helper (`measure` / `size` messages,
+  protocol version 2) because the parent cannot read that document. Picking an
+  element that *contains* a frame keeps the frame's current viewport. The picker's
+  capture box for an iframe now covers the frame's content too, so the dashed box
+  already shows the size the capture will have.
 - Cross-origin iframes are captured too. Every frame now runs a small copy of the
   script that renders its own document when the top page asks over
   `postMessage` (protocol version, per-request nonce, and a per-install token
