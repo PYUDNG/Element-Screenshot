@@ -44,7 +44,10 @@
 5. `38b1696` iframe 视口合成：`createSnapshot({ doc })`、帧视口出图写回帧盒子背景、帧内 sticky 钉住、递归深度 2、单帧失败降级；
 6. `770e9be` 统一帧渲染：每个帧装 helper（`main.ts` 分流 + `frame-bridge`/`frame-helper`）、helper 优先 / 父级兜底、安装级 token 鉴权、去掉 `@noframes`、`app.ts` 拆分、`#cross-frame-demo` 夹具；
 7. `f00cdad` 选中帧本身 = 展开：新增 `core/frame-size.ts`，桥协议升到 `/2` 并加 `measure` / `size`（跨域帧的高度只能由 helper 回报），`planFrameExpansion()` 先把副本里的 iframe 盒子撑到帧内容尺寸再量画布，`renderFrameViewport()` 增加「展开」模式（不从帧滚动位置平移、不钉 sticky），`getTargetBox()` 对 iframe 也算上帧文档的内容尺寸，iframe 作为克隆根时不再套行内盒的 font-size 补偿；
-8. `36bc973` 区域截图里的 iframe：`framesInRegion()` 挑出与拖拽矩形相交的帧，在整页渲染前用同一套 `paintFrames()` 把帧视口图写进帧盒子背景；区域截图保持所见即所得，不展开帧。
+8. `36bc973` 区域截图里的 iframe：`framesInRegion()` 挑出与拖拽矩形相交的帧，在整页渲染前用同一套 `paintFrames()` 把帧视口图写进帧盒子背景；区域截图保持所见即所得，不展开帧；
+9. `c5ec8a8` playground：`index.html` 也认 `?vm=1`（此前无条件注入本地构建，顶层会同时跑 stub 与 VM 两份实例，谁先挂 UI 不确定）；
+10. `25b4443` 帧内快捷键：键按下时焦点在 iframe 里 → `window` 的 keydown 到不了顶层。新增 `core/hotkey-bridge.ts`：帧侧 `subscribe`（向父级要快捷键，带退避重试）→ 父级 `hotkey` 下发 → 帧本地按 `isTriggerStroke()` 匹配 → 发 `trigger`（只带「按下的是哪条快捷键」，不带按键内容）→ 父级用当前设置复核后才开始选择；桥协议升到 `/3`；
+11. `d02ba88` 设置项归位：`触发快捷键` 从「截图 → 触发方式」搬到「触发 → 快捷键」；`b17e4d5` 文档。
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -161,7 +164,7 @@ scripts/serve-playground.mjs      本地 playground 服务器
 3. 用 Playwright 重新导航/刷新目标页面，让 Violentmonkey 重新注入。
 4. 用 Playwright 执行 DOM 检查、点击、截图、控制台验证。
 
-`?vm=1`：playground 页面的这个参数会跳过注入 `dist/script.user.js`，只用 Violentmonkey 里那份。VM 里装了同名脚本时务必带上它，否则两份实例会同时挂 UI/抢事件。
+`?vm=1`：playground 页面的这个参数会跳过注入 `dist/script.user.js`，只用 Violentmonkey 里那份。VM 里装了同名脚本时务必带上它，否则两份实例会同时挂 UI/抢事件。`index.html` 与 `region.html` 都认这个参数（`index.html` 以前无条件注入，导致顶层同时跑 stub 与 VM 两份、且谁先挂 UI 不确定，2026-11-11 一并修正——写验证脚本前先确认页面里只有一个 `[data-element-screenshot-root]`）。
 
 Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = ... })` 能早于 VM 的快照生效，所以 `window.__lastShot` 在 VM 实例下同样可用，便于取出截图做像素比对。
 
@@ -179,35 +182,9 @@ Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = 
 
 ### 旧的 CDP 方案
 
-仅在 MCP 不可用时使用：
+仅在 MCP 不可用时使用：用 `msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile> --window-size=1400,1000 about:blank` 起一个专用 profile，再通过 `http://127.0.0.1:9222/json/list` 连 page target 跑临时脚本（放仓库外，例如 `%TEMP%\es-cdp\`）。CDP 没有认证、能连上端口就能完全控制浏览器，所以别把日常主力 Profile 长期裸开调试端口，也不要指望防火墙隔离 loopback。
 
-```powershell
-msedge.exe `
-  --headless=new `
-  --remote-debugging-port=9222 `
-  --user-data-dir=D:\bin\edge-profile-xhs `
-  --no-first-run `
-  --no-default-browser-check `
-  --disable-gpu `
-  --window-size=1400,1000 `
-  about:blank
-```
-
-然后通过 `http://127.0.0.1:9222/json/list` 连接 page target，使用临时 CDP 脚本做导航、`Runtime.evaluate`、`Page.captureScreenshot`。注意：
-
-- CDP 没有认证，能连上端口就能完全控制浏览器；
-- 不要把日常主力 Profile 长期裸开调试端口；
-- 更适合用专用自动化 Profile，并只绑定 `127.0.0.1`；
-- 本机进程仍可访问 loopback 端口，防火墙不能真正隔离。
-
-实测好用的几个细节（临时脚本放仓库外，例如 `%TEMP%\es-cdp\`，不要污染工作区）：
-
-- 新开页面用 `PUT http://127.0.0.1:9222/json/new?<url>`，直接连返回的 `webSocketDebuggerUrl`；**不要**在 `/json/list` 里按 `type === 'page'` 取第一个，可能拿到扩展安装页。
-- 输入用 `Input.dispatchMouseEvent`（`mousePressed` → 多次 `mouseMoved` + `buttons: 1` → `mouseReleased`），会正常产出 pointer 事件；`Emulation.setDeviceMetricsOverride` 先设成 1400×900 让坐标稳定。
-- 新 profile 里没有 Violentmonkey，所以直接访问 `http://127.0.0.1:4176/region.html`（**不带** `?vm=1`），页面自己注入 `dist/script.user.js`；`pnpm build` 后重新导航即可换版本，也可以把不同构建产物互相覆盖到 `dist/` 做 A/B。
-- 想要早于用户脚本的原生快照打点，用 `Page.addScriptToEvaluateOnNewDocument` 包一层 `HTMLCanvasElement.prototype.toBlob` / `CanvasRenderingContext2D.prototype.drawImage` / `XMLSerializer.prototype.serializeToString` / `window.encodeURIComponent`：快照会把这些包装函数当成「原生」实现，所以截图链路会走你的包装（页面里后来自己 hook 是无效的）。借此既能分阶段计时，也能在最后一帧 `toDataURL` 取出 PNG 做像素比对。
-- 页面里的 GM 存储（playground stub）在 `localStorage` 的 `gm:*` 下，`window.__resetPlayground()` 会清空并 reload；`__resetPlayground` 之后要重新轮询 FAB 是否挂载。
-- `Page.captureScreenshot` 带 `clip`（CSS 像素）可以只截某个小区域，便于直接看 FAB 的半隐藏状态。
+实测好用的细节：新页面用 `PUT /json/new?<url>`（`/json/list` 里第一个 `type === 'page'` 可能是扩展安装页）；输入用 `Input.dispatchMouseEvent`（`mousePressed` → 多次 `mouseMoved` + `buttons: 1` → `mouseReleased`），先把 `Emulation.setDeviceMetricsOverride` 设成 1400×900 让坐标稳定；新 profile 里没有 Violentmonkey，所以直接访问 `region.html`（**不带** `?vm=1`）让页面自己注入 `dist/script.user.js`；`Page.addScriptToEvaluateOnNewDocument` 包的 `toBlob`/`drawImage`/`serializeToString` 会被原生快照当成「原生」实现，可以借此分阶段计时或取最后一帧做像素比对；`Page.captureScreenshot` 带 `clip` 能只截一小块。
 
 ## 发布流程
 
@@ -406,7 +383,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 桥协议（`core/frame-bridge.ts` + `core/frame-helper.ts`）
 
-- `FRAME_PROTOCOL = 'element-screenshot:frame/2'`，消息 `hello/ready/measure/size/render/result`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`。）
+- `FRAME_PROTOCOL = 'element-screenshot:frame/3'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键的三条消息。）
 - 探测：`probeFrameHelpers(frames)` 一次向所有帧发 `hello`，在**同一个 400ms 窗口**里收 `ready`，所以一页有 N 个没有 helper 的帧也只等一次；返回的集合里没有的帧就走兜底。
 - 测量：`requestFrameSize(frame)` 发 `measure`，等 `size`（默认 3 秒）。helper 回的是「根展开后文档有多大」（`frameContentSize()` 读 `scrollWidth` / `scrollHeight`，只读、不建快照）。0×0 或 `error` 都算失败。
 - 渲染：`requestFrameImage(frame, { ratio, depth, expand? })` 发 `render`，等 `result`（默认 10 秒），期间每 100ms 检查 `native.capture.aborted`，用户取消时立即放弃等待。失败/超时/`busy`/`error` 都返回 `null` → 走兜底（可读时）或空盒。
@@ -453,6 +430,18 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 顺手的坑：iframe 作为克隆根时**不能**套 `display: inline` 的 font-size 补偿（`box.height += fontSize`）——iframe 是替换元素，它本来就按 border box 渲染，补偿会白加 16px 空白。现在 iframe 根直接当 `display: block` 处理。
 - 已知边界：帧内容比其视口**窄**时不会缩窄（`max(视口, 内容)`），横向展开只在帧文档真的有横向溢出时发生；跨域帧的 picker 虚线框拿不到内容尺寸，只有选中后才会撑高。
 
+### 帧内快捷键（`core/hotkey-bridge.ts`）
+
+- 问题：焦点在 iframe 里时，keydown 在**帧自己的 document** 里派发，顶层的 `window` 监听永远收不到。同源帧也不能靠「往 `contentDocument` 挂监听」解决——跨域挂不上，而且导航后 window 会换。
+- 链路：帧实例 `installFrameHotkey()` 启动 → `subscribe`（带 token，向 `window.parent` 要快捷键）→ 父级 `installHotkeyBridge()` 回 `hotkey`（当前快捷键字符串）→ 帧在**自己的** `window` 捕获阶段监听 keydown，用 `isTriggerStroke()`（和顶层**同一个**判定函数）匹配 → 发 `trigger{shortcut}` → 顶层用当前设置复核 `shortcut` 后才 `startPicker()`。
+- 为什么只回传「哪条快捷键」而不回传按键：`trigger` 消息落在顶层 realm，页面自己的 `message` 监听能看到。回传按键内容等于把帧内每一次按键暴露给外层页面（跨域键盘记录）。帧本来就只知道父级下发的快捷键，所以它只报「这条快捷键被按了」，顶层再和自己当前的值比一次；对不上的直接丢弃（设置刚改过而帧还没收到新值时的竞态）。
+- 反过来也必须鉴权：`hotkey` 只接受 `event.source === window.parent` **且** token 匹配的消息。否则外层页面可以随便给帧下发一个「快捷键 = 某个字母」，再读帧上报的 `trigger` 来记录按键。token 只在 GM 存储里，页面读不到。
+- 订阅时序：帧的 `subscribe` 可能早于顶层 `mountUi()`（帧先加载完）。帧按 `[0, 250, 750, 2000, 5000, 10000]` 退避重试，收到 `hotkey` 就停；顶层在安装时也 `broadcast()` 一次（只发给**订阅过**的 window，不遍历 DOM，避免把 token 发给没有 helper 的帧）。设置变化时 `app.ts` 的 `watch(shortcut, () => bridge.broadcast())` 再推一遍。
+- 嵌套：帧里的帧向自己的父帧 `subscribe`；父帧把配置再往下推，并把子帧的 `trigger` 原样转给 `window.parent`。只有顶层会 `startPicker()`。
+- 帧内匹配到快捷键时 `preventDefault()` + `stopPropagation()`，和顶层一致；`isTriggerStroke()` 保留「输入框里裸键让给页面」的规则。顶层 `shouldIgnore`（设置面板打开 / 不在 idle）对上报的 press 同样生效——所以选择模式里再按一次快捷键仍然什么都不做。
+- **已知边界**：完全不运行本脚本的帧（`about:blank` / `srcdoc` / `sandbox` 无 `allow-scripts`）收不到任何按键，用户得点悬浮按钮或菜单。选择模式启动后焦点可能仍留在帧里，此时按 `Esc` 也到不了顶层（点一下页面让焦回到顶层即可；选框的透明层本来就挡在帧前面）。
+- 测试：`tests/hotkey-bridge.test.ts` 覆盖订阅/重试/收到即停、配置复用、错 token / 非父窗口的下发被忽略、按键上报、输入框裸键不报、子帧订阅与上报转发、顶层复核与 `shouldIgnore`；`hotkey.test.ts` 覆盖 `isTriggerStroke()` 的修饰键、`repeat`、`defaultPrevented`、可编辑目标。
+
 ### 已验证（真实浏览器，VM 实例 + playground，2026-11-11）
 
 验证手法：`page.addInitScript` 把 `HTMLCanvasElement.prototype.toBlob` 包一层统计每个 realm 的调用次数（`window.__shotCount`），再用 `frame.contentWindow.__shotCount` 区分「帧自己渲染」和「父级渲染」。
@@ -472,6 +461,14 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 选中包含帧的祖先（`section#frame-demo`）：**864×770**（432×385 @2），帧只画当前 220px 视口（表头 52,854 像素），帧盒子没被撑高、滚动仍是 60 → 祖先语义没有回退。
 - 区域截图框住帧（拖 418×244 的矩形覆盖 `#frame-demo` 的 394×220 帧，`?vm=1`）：**836×488**（418×244 @2），帧内表头色 52,854 像素、tag 文字 774 像素 → 框选里是帧内容而不是空盒。
 - 截完无残留快照节点、iframe 行内样式未改。
+
+帧内快捷键（同一环境，VM 存储里的快捷键是 `Alt+S`，帧 394×220 / 482×220）：
+
+- 同源 `#frame-demo`：用 Playwright 真点进帧里（`document.activeElement` = `IFRAME`）→ 按 `Alt+S` → 顶层 `message` 记录到一条 `{type:'trigger', shortcut:'Alt+S'}`，`[data-element-screenshot-pick-surface]` 出现；按 `Alt+Shift+S`（不匹配）→ 没有消息、没有选框。
+- 跨域 `#cross-frame-demo`（4176 嵌 4177）：同样点进帧 → `Alt+S` → 顶层收到 `trigger`、选框出现 → 跨域帧的按键也能回到顶层。
+- 焦点在顶层时（`document.body` 被点过）`Alt+S` 照旧打开选择模式 → 普通快捷键没有回归。
+- 订阅时序：帧在顶层 `mountUi()` 之前发的第一条 `subscribe` 没人回，250ms 的重试拿到了 `hotkey`（顶层只看到 2 条 subscribe、帧里只有 1 条 hotkey）→ 重试确实兜住了「帧先加载完」。
+- 设置面板（stub 实例，`window.__menuCommands` 里的「设置」）：**触发** tab = 快捷键（`Alt+Shift+S` 录制框 + 提示）+ 悬浮按钮；**截图** tab = 选择交互 / 选框外观 / 输出，不再有「触发方式」。
 
 > 顺带记一下这次自动化踩到的坑：`hidden` 标签页里 `requestAnimationFrame` 完全不跑，而 picker 的 hover 命中是 rAF 节流的 → 鼠标移动不会刷新选框，读数会一直停在 `start()` 那一刻的元素上。绕法是先 `mouse.move`（它同步更新 `picker.cursor`），再 `window.dispatchEvent(new Event('resize'))`（`handleResize()` 会同步 `refresh()`），最后按 `Enter` 选中。另外 FAB 贴右边时坐标用的是 `innerWidth`（含滚动条），`document.elementsFromPoint()` 在滚动条区域返回空数组，点击要落在 `clientWidth` 内。
 

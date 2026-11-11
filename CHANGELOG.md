@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The trigger shortcut works while the pointer focus is inside an iframe. A keydown
+  fired in a frame never reaches the top document, so every frame now asks its
+  parent for the shortcut over the bridge (`subscribe`), watches its own keys and
+  reports a press (`trigger`) that the parent verifies against its current setting
+  — a press matched against a shortcut that changed in the meantime is dropped.
+  The frame is told the shortcut and nothing else, and the parent is told only that
+  the shortcut was pressed, so neither side turns into a keylogger for the other.
+  Frames nested inside a frame relay the press upward. Frames that never run the
+  script (`about:blank`, `srcdoc`, a sandbox without scripts) still cannot report
+  a key, and a shortcut pressed while the capture UI is open is still ignored.
+- The shortcut setting moved to the **Trigger** tab (its own “Shortcut” group next
+  to the floating button). It used to sit in a “Trigger” group inside the
+  **Capture** tab, next to an identically named tab.
 - Region captures include iframes: frames that intersect the dragged rectangle
   are rendered and painted into their own box before the viewport render, so the
   rectangle no longer contains empty frame boxes. A region capture stays
@@ -17,11 +30,11 @@ All notable changes to this project are documented here. The format follows
   visible: the frame document is treated as the root, so the copied frame box
   grows to its content size (the parent's layout reflows around it in the copy
   only) and the frame is rendered from the top at that size. A cross-origin
-  frame's content size is reported by its helper (`measure` / `size` messages,
-  protocol version 2) because the parent cannot read that document. Picking an
-  element that *contains* a frame keeps the frame's current viewport. The picker's
-  capture box for an iframe now covers the frame's content too, so the dashed box
-  already shows the size the capture will have.
+  frame's content size is reported by its helper (`measure` / `size` messages)
+  because the parent cannot read that document. Picking an element that *contains*
+  a frame keeps the frame's current viewport. The picker's capture box for an
+  iframe now covers the frame's content too, so the dashed box already shows the
+  size the capture will have.
 - Cross-origin iframes are captured too. Every frame now runs a small copy of the
   script that renders its own document when the top page asks over
   `postMessage` (protocol version, per-request nonce, and a per-install token
