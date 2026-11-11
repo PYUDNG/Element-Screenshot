@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Region captures include iframes: frames that intersect the dragged rectangle
+  are rendered and painted into their own box before the viewport render, so the
+  rectangle no longer contains empty frame boxes. A region capture stays
+  what-you-see-is-what-you-get — the frames keep their current viewport and are
+  never expanded — and cross-origin frames go through their helper as usual.
 - Picking an iframe captures the whole frame, not the slice that happened to be
   visible: the frame document is treated as the root, so the copied frame box
   grows to its content size (the parent's layout reflows around it in the copy

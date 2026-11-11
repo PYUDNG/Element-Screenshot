@@ -43,7 +43,8 @@
 4. `d491bc8` + `cbb0ad0` iframe：`FrameRecord` 记录、跳过快照自身 iframe、`/frame.html` 夹具与路由；
 5. `38b1696` iframe 视口合成：`createSnapshot({ doc })`、帧视口出图写回帧盒子背景、帧内 sticky 钉住、递归深度 2、单帧失败降级；
 6. `770e9be` 统一帧渲染：每个帧装 helper（`main.ts` 分流 + `frame-bridge`/`frame-helper`）、helper 优先 / 父级兜底、安装级 token 鉴权、去掉 `@noframes`、`app.ts` 拆分、`#cross-frame-demo` 夹具；
-7. `f00cdad` 选中帧本身 = 展开：新增 `core/frame-size.ts`，桥协议升到 `/2` 并加 `measure` / `size`（跨域帧的高度只能由 helper 回报），`planFrameExpansion()` 先把副本里的 iframe 盒子撑到帧内容尺寸再量画布，`renderFrameViewport()` 增加「展开」模式（不从帧滚动位置平移、不钉 sticky），`getTargetBox()` 对 iframe 也算上帧文档的内容尺寸，iframe 作为克隆根时不再套行内盒的 font-size 补偿。
+7. `f00cdad` 选中帧本身 = 展开：新增 `core/frame-size.ts`，桥协议升到 `/2` 并加 `measure` / `size`（跨域帧的高度只能由 helper 回报），`planFrameExpansion()` 先把副本里的 iframe 盒子撑到帧内容尺寸再量画布，`renderFrameViewport()` 增加「展开」模式（不从帧滚动位置平移、不钉 sticky），`getTargetBox()` 对 iframe 也算上帧文档的内容尺寸，iframe 作为克隆根时不再套行内盒的 font-size 补偿；
+8. `36bc973` 区域截图里的 iframe：`framesInRegion()` 挑出与拖拽矩形相交的帧，在整页渲染前用同一套 `paintFrames()` 把帧视口图写进帧盒子背景；区域截图保持所见即所得，不展开帧。
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -115,6 +116,7 @@ scripts/serve-playground.mjs      本地 playground 服务器
 → collectScrollSlices() 在副本里找出与选区相交的滚动容器（含容器内部的嵌套面板，深的在前）
 → 对每个容器：采集 sticky / 隐藏 fixed 后代 → 以其为根渲染「当前滚动视图」切片
               → blob 转 data URL → 作为该容器第一个 background 图层写回 + 隐藏子内容
+→ framesInRegion() 找出与矩形相交的帧 → paintFrames() 把帧视口图写进帧盒子背景
 → 整页渲染一次（根节点只按窗口滚动做 relative 偏移）
 → planCrop() + cropBlob() 按矩形裁剪
 → 丢弃快照
@@ -384,7 +386,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 渲染面必须等于视口而不是拖拽矩形：`position: fixed` 元素以 `foreignObject` 为包含块，只有渲染面=视口时它的坐标才和屏幕上一致；
 - 裁剪用 `core/crop.ts` 的 `planCrop()` 把 CSS 像素映射到设备像素：只做一次 `round`，再夹到位图范围内；
 - 交互：拖拽超过 4px 进入框选，区域小于 8×8 视为点击；`Esc` 先取消拖拽再退出；`window.blur` 取消拖拽；区域模式强制 `expandNested=false`（要的是所见即所得）；`suppressClick` 用来吃掉拖拽后浏览器补发的 `click`；
-- 已知边界：只在视口内框选；iframe 内部不处理；容器自身的伪元素覆盖层会被切片和整页各画一次（位置差一个滚动量）；容器内 `mix-blend-mode` 与「包含块在容器外、逃出裁剪」的后代可能与实际有差异；
+- 已知边界：只在视口内框选；容器自身的伪元素覆盖层会被切片和整页各画一次（位置差一个滚动量）；容器内 `mix-blend-mode` 与「包含块在容器外、逃出裁剪」的后代可能与实际有差异；
+- 区域截图里的 iframe（`36bc973`）：`framesInRegion()` 挑出与选区相交的帧，`paintFrames()` 在整页渲染前把帧视口图写进帧盒子背景，所以框选里能看到帧内容。区域截图是所见即所得，**不展开**帧；只渲染相交的帧（每个帧都是一次完整渲染）。被替换的滚动容器内部的帧仍会被切片的 `visibility: hidden` 藏掉；
 - 验证页：`playground/region.html`（三个独立面板 + 嵌套面板 + 渐变/圆角 + 面板内 fixed 元素 + 吸顶表头 + 页面滚动），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；页面把初始滚动位置写死，方便反复对比；
 - 调试顺序：内容错位先核对「滚动口尺寸 + border 并入 padding + 根偏移 = 滚动量 + 边框」；边框/圆角残影先看是不是只清了颜色没清 `border-width`/`border-radius`；出现假滚动条先看 `scrollbar-width: none` 是否生效；样式没恢复先看 `replaceScrollContainer()` 的 `restore` 是否按逆序执行。
 
@@ -467,17 +470,18 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 同源 + 父级兜底（不带 `?vm=1` 的 stub，帧里没有 helper）：同样 **788×2226**、表头 54,142 → 两条宿主路径输出一致。
 - 跨域 + helper（4176 嵌 4177）：**964×2226**（482×1113 @2），父级只渲染了一次页面（`pageShots` 1），表头色 67,166 像素 → 帧内容来自 helper；`frame.contentWindow.__shots` 读不到（跨域），用尺寸 + 像素分布判断。
 - 选中包含帧的祖先（`section#frame-demo`）：**864×770**（432×385 @2），帧只画当前 220px 视口（表头 52,854 像素），帧盒子没被撑高、滚动仍是 60 → 祖先语义没有回退。
+- 区域截图框住帧（拖 418×244 的矩形覆盖 `#frame-demo` 的 394×220 帧，`?vm=1`）：**836×488**（418×244 @2），帧内表头色 52,854 像素、tag 文字 774 像素 → 框选里是帧内容而不是空盒。
 - 截完无残留快照节点、iframe 行内样式未改。
 
 > 顺带记一下这次自动化踩到的坑：`hidden` 标签页里 `requestAnimationFrame` 完全不跑，而 picker 的 hover 命中是 rAF 节流的 → 鼠标移动不会刷新选框，读数会一直停在 `start()` 那一刻的元素上。绕法是先 `mouse.move`（它同步更新 `picker.cursor`），再 `window.dispatchEvent(new Event('resize'))`（`handleResize()` 会同步 `refresh()`），最后按 `Enter` 选中。另外 FAB 贴右边时坐标用的是 `innerWidth`（含滚动条），`document.elementsFromPoint()` 在滚动条区域返回空数组，点击要落在 `clientWidth` 内。
 
 ### 下一步（按顺序）
 
-1. **区域截图里的 iframe**：暂不处理，写进已知限制（`captureRegion()` 现在不读 `snapshot.frames`）。
-2. **兜底路径的帧内字体**：给 `native` 加一个「字体源文档」钩子，把 `gm-fetch-plugin.ts` 里 `toArray(node.ownerDocument.styleSheets)` 的替换改成可切换的 document，让本地兜底渲染也能用帧自己的 `@font-face`（helper 路径已经正确）。
-3. 分布式 picker（穿透任意 iframe）：有了 helper 通道后，picker 可以让帧内实例回报「指针下最内层元素」，再把整条层级栈拼起来（跨域只拿得到帧自身，除非 helper 回传标签）。
-4. 多帧并行：现在 `paintFrames()` 串行请求，整页有 N 个帧就是 N 次串行渲染；帧之间互不依赖，可以并行发请求（注意 helper 是 busy 队列）。
-5. `expandNested` 打开时，让**被捕获祖先内部的帧**也参与撑高？现在明确不参与（会重排用户正在看的页面结构），要做得先想清楚「撑高后祖先的布局、兄弟节点位置」怎么处理。
+1. **兜底路径的帧内字体**：给 `native` 加一个「字体源文档」钩子，把 `gm-fetch-plugin.ts` 里 `toArray(node.ownerDocument.styleSheets)` 的替换改成可切换的 document，让本地兜底渲染也能用帧自己的 `@font-face`（helper 路径已经正确）。
+2. 分布式 picker（穿透任意 iframe）：有了 helper 通道后，picker 可以让帧内实例回报「指针下最内层元素」，再把整条层级栈拼起来（跨域只拿得到帧自身，除非 helper 回传标签）。
+3. 多帧并行：现在 `paintFrames()` 串行请求，整页有 N 个帧就是 N 次串行渲染；帧之间互不依赖，可以并行发请求（注意 helper 是 busy 队列）。
+4. `expandNested` 打开时，让**被捕获祖先内部的帧**也参与撑高？现在明确不参与（会重排用户正在看的页面结构），要做得先想清楚「撑高后祖先的布局、兄弟节点位置」怎么处理。
+5. 帧在**被替换的滚动容器内部**时，区域截图里那一格仍然是空的：切片渲染时容器的子元素被隐藏了，帧图也就被藏掉了。真要支持，得在切片渲染前把帧图写进容器内的帧盒子。
 
 ### 关键约束（别踩）
 
