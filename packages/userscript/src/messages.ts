@@ -16,10 +16,10 @@ const zhCN: LocaleDefinition = {
         sites: '站点'
       },
       group: {
-        trigger: '触发方式',
         picker: '选择交互',
         frame: '选框外观',
         output: '输出',
+        shortcut: '快捷键',
         fab: '悬浮按钮',
         rules: '加载策略'
       },
@@ -121,10 +121,10 @@ const zhTW: LocaleDefinition = {
         sites: '站點'
       },
       group: {
-        trigger: '觸發方式',
         picker: '選擇互動',
         frame: '選框外觀',
         output: '輸出',
+        shortcut: '快速鍵',
         fab: '懸浮按鈕',
         rules: '載入策略'
       },
@@ -226,10 +226,10 @@ const en: LocaleDefinition = {
         sites: 'Sites'
       },
       group: {
-        trigger: 'Trigger',
         picker: 'Picker interaction',
         frame: 'Selection frame',
         output: 'Output',
+        shortcut: 'Shortcut',
         fab: 'Floating button',
         rules: 'Loading policy'
       },

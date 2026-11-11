@@ -13,22 +13,9 @@ export function createSettingsTabs(): SettingsTab[] {
       icon: 'camera',
       groups: [
         {
-          id: 'trigger',
-          title: 'app.group.trigger',
-          defaultOpen: true,
-          fields: [
-            {
-              type: 'shortcut',
-              key: 'capture.shortcut',
-              label: 'app.field.shortcut',
-              description: 'app.field.shortcutDesc',
-              default: DEFAULT_SHORTCUT
-            }
-          ]
-        },
-        {
           id: 'picker',
           title: 'app.group.picker',
+          defaultOpen: true,
           fields: [
             {
               type: 'switch',
@@ -121,6 +108,20 @@ export function createSettingsTabs(): SettingsTab[] {
       title: 'app.tab.trigger',
       icon: 'keyboard',
       groups: [
+        {
+          id: 'shortcut',
+          title: 'app.group.shortcut',
+          defaultOpen: true,
+          fields: [
+            {
+              type: 'shortcut',
+              key: 'capture.shortcut',
+              label: 'app.field.shortcut',
+              description: 'app.field.shortcutDesc',
+              default: DEFAULT_SHORTCUT
+            }
+          ]
+        },
         {
           id: 'fab',
           title: 'app.group.fab',
