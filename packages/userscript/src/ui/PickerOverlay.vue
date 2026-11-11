@@ -26,7 +26,7 @@ const borderWidth = computed(() => {
   const value = props.app.settings.get('capture.borderWidth')
   return typeof value === 'number' && Number.isFinite(value) ? value : 2
 })
-const isolatePointer = computed(() => props.app.settings.get('capture.pointerIsolation') !== false)
+const pointerPassthrough = computed(() => props.app.settings.get('capture.pointerPassthrough') === true)
 
 /**
  * The capture box can be taller (or wider) than what is on screen: that is the
@@ -152,7 +152,7 @@ const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.tot
 <template>
   <div class="pointer-events-none fixed inset-0">
     <div
-      v-if="isolatePointer"
+      v-if="!pointerPassthrough"
       data-element-screenshot-pick-surface
       class="pointer-events-auto fixed inset-0 z-0 cursor-crosshair"
       aria-hidden="true"

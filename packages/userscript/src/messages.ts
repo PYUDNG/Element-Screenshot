@@ -26,9 +26,9 @@ const zhCN: LocaleDefinition = {
       field: {
         shortcut: '触发快捷键',
         shortcutDesc: '在任意页面按下该组合键即可进入元素选择模式。',
-        pointerIsolation: '隔离页面交互',
-        pointerIsolationDesc:
-          '选择元素时用透明层拦截鼠标事件，避免页面 hover 或点击效果进入截图。关闭后可截取 hover 状态。',
+        pointerPassthrough: '鼠标穿透',
+        pointerPassthroughDesc:
+          '默认关闭：选择时用透明层拦住指针，页面 hover 与点击效果不会进入截图。打开后指针直接落在页面上，可以截取 hover 展开的菜单/浮层；但此时无法选取 iframe 内部的元素，纯 CSS :hover 样式也不会被复制进截图。',
         borderColor: '边框颜色',
         borderColorDesc: '预选元素时边框的颜色。',
         borderWidth: '边框粗细',
@@ -132,9 +132,9 @@ const zhTW: LocaleDefinition = {
       field: {
         shortcut: '觸發快速鍵',
         shortcutDesc: '在任何頁面按下此組合鍵即可進入元素選擇模式。',
-        pointerIsolation: '隔離頁面互動',
-        pointerIsolationDesc:
-          '選擇元素時用透明層攔截滑鼠事件，避免頁面 hover 或點擊效果進入截圖。關閉後可截取 hover 狀態。',
+        pointerPassthrough: '滑鼠穿透',
+        pointerPassthroughDesc:
+          '預設關閉：選擇時用透明層攔住指標，頁面 hover 與點擊效果不會進入截圖。打開後指標直接落在頁面上，可以截取 hover 展開的選單/浮層；但此時無法選取 iframe 內部的元素，純 CSS :hover 樣式也不會被複製進截圖。',
         borderColor: '邊框顏色',
         borderColorDesc: '預選元素時邊框的顏色。',
         borderWidth: '邊框粗細',
@@ -238,9 +238,9 @@ const en: LocaleDefinition = {
       field: {
         shortcut: 'Trigger shortcut',
         shortcutDesc: 'Press this combination on any page to start picking an element.',
-        pointerIsolation: 'Isolate page interaction',
-        pointerIsolationDesc:
-          'Intercept pointer events with a transparent layer while picking, so hover and click effects do not leak into the capture. Turn off to capture hover states.',
+        pointerPassthrough: 'Mouse passthrough',
+        pointerPassthroughDesc:
+          'Off by default: a transparent layer swallows the pointer, so page hover and click effects stay out of the capture. Turn it on to let the pointer reach the page and pick hover-opened menus — elements inside iframes can no longer be picked, and pure CSS :hover styling is still not copied into the picture.',
         borderColor: 'Border color',
         borderColorDesc: 'Color of the frame shown while picking.',
         borderWidth: 'Border width',

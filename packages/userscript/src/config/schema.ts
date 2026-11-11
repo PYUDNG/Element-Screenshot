@@ -19,10 +19,10 @@ export function createSettingsTabs(): SettingsTab[] {
           fields: [
             {
               type: 'switch',
-              key: 'capture.pointerIsolation',
-              label: 'app.field.pointerIsolation',
-              description: 'app.field.pointerIsolationDesc',
-              default: true
+              key: 'capture.pointerPassthrough',
+              label: 'app.field.pointerPassthrough',
+              description: 'app.field.pointerPassthroughDesc',
+              default: false
             }
           ]
         },

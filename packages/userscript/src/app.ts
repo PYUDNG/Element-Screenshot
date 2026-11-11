@@ -17,6 +17,7 @@ import cssText from './styles.css?inline'
 import { appMessages } from './messages'
 import { projectLinks } from './config/links'
 import { createSettingsTabs } from './config/schema'
+import { migratePointerSetting } from './config/migrate'
 import { native } from './core/native'
 import { installHotkey } from './core/hotkey'
 import { installHotkeyBridge } from './core/hotkey-bridge'
@@ -40,6 +41,15 @@ export function startApp(): void {
     },
     'element-screenshot:'
   )
+
+  // Older versions stored the opposite switch; translate it before the settings
+  // are hydrated, so the user's choice survives the rename.
+  try {
+    const migrated = migratePointerSetting(storage.getItem('settings'))
+    if (migrated) storage.setItem('settings', migrated)
+  } catch {
+    // A storage that cannot be read leaves the defaults in place.
+  }
 
   const settings = createSettings({
     i18n,
