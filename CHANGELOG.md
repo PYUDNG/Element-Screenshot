@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Same-origin iframes are captured: the frame's current viewport is rendered from
+  a snapshot of the frame's own document (so its styles, scroll position and
+  scrollbar layout are the frame's) and painted into the frame's box as a
+  background layer. The page render still draws the frame's border, rounded
+  corners and anything stacked on top of it, so the picture composites in the
+  right order. Sticky elements inside the frame are pinned first — a clone has no
+  scrollport, so a sticky header would otherwise be rasterized above the shifted
+  viewport and disappear. Nested frames are painted recursively (two levels), a
+  frame that fails to render keeps its empty box, and cross-origin frames still
+  wait for the in-frame helper.
+- The picker shows which layer scrolls: the solid frame is the element as seen on
+  screen, a dashed frame appears when the capture will be larger, and a badge
+  reads `可滚动 ↓Npx` / `→Npx` / `↕` for the active layer. `Shift`+wheel and
+  `Shift`+`↑`/`↓` jump straight to the next scroll container.
+- `capture.expandNested` (off by default): only the selected element's own
+  scrollable content is expanded unless the setting is on.
+
+### Changed
+
+- The capture canvas is measured after expansion (`fitBoxToLayout()`), so growing
+  a descendant can no longer crop the extra content away.
+- `createSnapshot()` accepts a `doc` option and copies that document instead of
+  the top page, which is what lets a frame be rendered on its own.
+
+### Fixed
+
+- A cloned custom element no longer duplicates the shadow tree its constructor
+  builds; the collected tree replaces it.
+
 ## [0.7.1] - 2026-11-10
 
 ### Fixed

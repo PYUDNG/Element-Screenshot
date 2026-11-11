@@ -40,9 +40,10 @@
 1. `77831ea` picker：实线/虚线双层框、`可滚动 ↓Npx` 徽标、`Shift+滚轮` 跳到滚动层、`scrollContainerInfo()` 统一判定；
 2. `4bc826e` 展开语义：默认只展开根 + `fitBoxToLayout()` 重测画布 + 自定义元素 shadow 去重；
 3. `8ad160d` playground：`#nested-demo` / `#frame-demo` 加 `align-self: start`；
-4. `d491bc8` + `cbb0ad0` iframe：`FrameRecord` 记录、跳过快照自身 iframe、`/frame.html` 夹具与路由。
+4. `d491bc8` + `cbb0ad0` iframe：`FrameRecord` 记录、跳过快照自身 iframe、`/frame.html` 夹具与路由；
+5. `38b1696` iframe 视口合成：`createSnapshot({ doc })`、帧视口出图写回帧盒子背景、帧内 sticky 钉住、递归深度 2、单帧失败降级。
 
-发版前需要：补 CHANGELOG、README 的 iframe 说明（同源支持后再写）、三个 `package.json` 版本号、真实页面回归。
+发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
 ## 文档同步规则
 
@@ -272,7 +273,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
   - 剥掉 `SCRIPT`/`NOSCRIPT`（`importNode` 过来的 `<script>` 一旦插入文档仍会执行，页面 JS 会跑第二遍）；
   - 把 `<canvas>` / `<video>` 换成同尺寸 `<img src=toDataURL()>`（DOM 克隆不携带位图，实测像素 `239,68,68,255` → `0,0,0,0`）；污染画布退回原元素（空盒子，尺寸仍对）；
   - 对 open shadow root 用 `attachShadow` + 克隆子节点重建（**不要**指望 declarative shadow DOM：`<template shadowrootmode>` 只在 HTML 解析器里生效，`appendChild` 不认）；
-  - iframe 只留一个同尺寸的空盒子（清掉 `src` / `srcdoc`，不重复请求），并把 `FrameRecord`（内容盒、圆角、同源 `contentDocument`）记到 `snapshot.frames`；帧内容由渲染层单独出图再合成，因为 html-to-image 克隆 `<iframe>` 时**不会带浏览上下文**。克隆时跳过带 `data-element-screenshot-snapshot` / `-ignore` 的节点，否则快照自己的离屏 iframe 会被拷进副本（它会作为 `<iframe>` 出现在 `snapshot.frames` 里）；
+  - iframe 只留一个同尺寸的空盒子（清掉 `src` / `srcdoc`，不重复请求），并把 `FrameRecord`（活元素、副本里的空盒、同源 `contentDocument`）记到 `snapshot.frames`；帧内容由渲染层单独出图、再写回那个空盒的 `background-image`，因为 html-to-image 克隆 `<iframe>` 时**不会带浏览上下文**。克隆时跳过带 `data-element-screenshot-snapshot` / `-ignore` 的节点，否则快照自己的离屏 iframe 会被拷进副本（它会作为 `<iframe>` 出现在 `snapshot.frames` 里）；
   - 回填 `scrollTop/scrollLeft`、`input/textarea/select` 的 value/checked/selected、以及窗口滚动；
   - 建 `<base href=页面 baseURI>`，让相对 URL、`@font-face` 和图片解析和页面一致；`document.adoptedStyleSheets` 也要导出成 `<style>`。
 - 复制在**活文档**里建树，最后 `snapshotDoc.replaceChild(html, snapshotDoc.documentElement)`；现代 DOM 会把整棵子树 adopt 进目标文档且**保持节点 identity**，所以构建时记下的 `live → clone` 映射（`Map`）在插入后依然有效，目标元素、滚动偏移都靠它。
@@ -385,45 +386,58 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 验证页：`playground/region.html`（三个独立面板 + 嵌套面板 + 渐变/圆角 + 面板内 fixed 元素 + 吸顶表头 + 页面滚动），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；页面把初始滚动位置写死，方便反复对比；
 - 调试顺序：内容错位先核对「滚动口尺寸 + border 并入 padding + 根偏移 = 滚动量 + 边框」；边框/圆角残影先看是不是只清了颜色没清 `border-width`/`border-radius`；出现假滚动条先看 `scrollbar-width: none` 是否生效；样式没恢复先看 `replaceScrollContainer()` 的 `restore` 是否按逆序执行。
 
-## 进行中：iframe 视口合成（0.9.0）
+## iframe 视口合成（0.9.0，同源已实现）
 
 > 2026-11-10 用户拍板：**跨域也要做**，走「帧内 helper 渲染回传像素」，接受为此去掉 `@noframes`。
 > 2026-11-11 用户确认：先做同源部分，跨域随后；帧内滚动沿用普通元素的规则（选中 iframe 本身 = 展开，选中祖先 = 只画当前视口）。
 
 ### 已经做完（别再重复实现）
 
-- `collectFrame()` 不再克隆帧的 `body`（那条路对 PNG 没有产出）。现在只清 `src` / `srcdoc` 留一个同尺寸空盒，并把 `FrameRecord` 推进 `snapshot.frames`：
+- `createSnapshot()` 支持 `doc` 选项：整条快照链路（`createFrame`、克隆、`copyStyleSheets`、`settle`、`restoreScroll`、`base`）都按传入的 document 工作，默认仍是顶层 `document`。帧副本的离屏 iframe 挂在**帧自己的 documentElement** 上，尺寸 = 帧的 `innerWidth × innerHeight`，所以媒体查询、`vw` 单位和滚动条都和帧一致。
+- `FrameRecord` 只记三件事，几何在渲染时从副本量（展开后位置可能变化）：
   ```ts
   interface FrameRecord {
     live: HTMLIFrameElement
-    rect: { left: number; top: number; width: number; height: number } // 内容盒，视口坐标
-    radius: { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number }
+    copy: HTMLIFrameElement // 快照里的那个空盒子，用它判断「是否在渲染根内」和量尺寸
     doc: Document | null // 跨域为 null，需要 helper
   }
   ```
-- 克隆时跳过带 `data-element-screenshot-snapshot` / `-ignore` 的节点，否则快照自己的离屏 iframe 会被拷进副本并混进 `snapshot.frames`。
-- 测试：`snapshot.test.ts` 覆盖内容盒几何（304×204 + 2px 边框 → 300×200）、圆角、同源 `doc`、跨域 `doc: null`、副本不留 `src` / `srcdoc`。
-- playground 夹具就位：`playground/frame.html`（自带样式、sticky 表头、30 行、初始 `scrollTo(0, 60)`）；`index.html` 的 `#frame-demo` 卡片嵌了它（1px 边框 + 10px 圆角）；`scripts/serve-playground.mjs` 有 `/frame.html` 路由（`/` 访问 4176）。
-- **现在截同源 iframe 仍然是空盒子**：记录有了，渲染 + 合成还没写。
+- `collectFrame()` 仍只清 `src` / `srcdoc`（不重复请求、不二次执行页面脚本），克隆时跳过带 `data-element-screenshot-snapshot` / `-ignore` 的节点。
+- 渲染在 `capture.ts`：`renderFrameViewport()`（帧视口出图）+ `paintFrames()`（把图写进帧盒子）+ `pinFrameSticky()`。
+- **帧图不走结果 canvas 合成，而是写回副本里那个空 iframe 的背景**（和区域截图的切片同一套思路）：`sliceBackgroundStyle(computed, { url, origin: 'content-box', size: '100% 100%' })`。好处是边框、圆角、`overflow` 裁剪、以及「压在 iframe 上的 sticky 表头/浮层」全部由父级那一次渲染按真实层叠顺序画，不存在「把帧图贴在最上层盖住别的东西」的问题。
+- **必须钉住帧内 sticky**：克隆里没有滚动口，sticky 退化为 static；帧视口又是靠 `top: -scrollY` 平移出来的，文档顶部的 sticky 表头会直接跑到画布外消失（实测 `frame.html` 的表头会整条不见）。`pinFrameSticky()` 在**展开根之前**（副本还在帧的真实滚动位置时）量 `pinned - static` 差值，写成 `position: relative + top`，顺序不能颠倒——`expandForCapture()` 会把副本滚回 0。
+- 帧渲染的根样式与区域截图一致：`position: relative; inset: auto; top: -scrollY; left: -scrollX; transform: none`（`transform` 会把 `fixed` 后代变成相对克隆根定位）；渲染面 = 帧的 `innerWidth × innerHeight`，`pixelRatio` 取父级 `plan.ratio`。
+- 递归：`paintFrames()` 先给「帧里的帧」出图，深度上限 `MAX_FRAME_DEPTH = 2`，更深的留空盒；单帧失败只 `console.warn`，不影响整次截图；取消会向上抛。
+- 字体：有帧时用 `sharedFontEmbedCSS()` 解析一次顶层页面的字体 CSS，同时传给帧渲染和页面渲染（否则每次渲染都重走一遍样式表）。帧自己文档里独有的 `@font-face` 目前仍会回退，见下。
+- 测试：`snapshot.test.ts` 覆盖 `doc` 选项（副本挂在帧 documentElement、宽度 = 帧视口）、`FrameRecord.copy/doc`、跨域 `doc: null`、副本不留 `src` / `srcdoc`；`capture.test.ts` 的 `iframe compositing` 覆盖帧视口参数、背景层写法（`100% 100%` / `content-box`）、根外的帧不渲染、跨域留空盒、零尺寸跳过、单帧失败不影响整次、字体 CSS 只解析一次。
+- playground 夹具：`playground/frame.html`（自带样式、sticky 表头、30 行、初始 `scrollTo(0, 60)`）；`index.html` 的 `#frame-demo` 卡片嵌了它（1px 边框 + 10px 圆角）；`scripts/serve-playground.mjs` 有 `/frame.html` 路由。
+
+### 已验证（真实浏览器，VM 实例 + playground）
+
+- 截 `#frame-demo` 卡片：432×363 CSS → 864×726 设备像素，`ratio 2`，3.2 秒；iframe 内容区从 `(38, 248)` 开始、788×440，正好是 `(iframe 相对卡片位置) × 2`。
+- 帧内 sticky 表头出现在帧图顶部（`#eef2ff` 像素 52,811 个），表头下沿能看到被它盖住的 `Frame row 02` 半行 → 说明帧自己的 `scrollY = 60` 平移正确（若没平移，会从 `Frame row 01` 开始）。
+- 圆角：帧图四个角外侧是卡片底色（`255,255,255`），内缩 1px 起才是表头色 → 帧自身的 `border-radius` 裁剪由页面渲染完成。
+- 截 iframe 元素本身：788×440，边框 `#d4d4d8`、圆角、帧内容都在，同样 2 秒级。
+- 截完活页面干净：页面和帧内都没有残留 `[data-element-screenshot-snapshot]`，iframe 行内样式/背景未改、帧滚动仍是 60。
 
 ### 下一步（按顺序）
 
-1. **帧视口渲染**：给 `createSnapshot()` 加 `doc` 选项（默认顶层 document）。对 `frame.doc` 快照后以 `documentElement` 为根渲染「当前可见视口」：`style` 里 `position: relative; top: -scrollY; left: -scrollX`，宽高 = 帧的 `innerWidth × innerHeight`，**不展开**（WYSIWYG），`pixelRatio` 取父级 `plan.ratio`。
-2. **合成**：把帧图按 `(rect.left - targetBox.left, rect.top - targetBox.top) × ratio` 画到结果 canvas，尺寸 = `rect × ratio`，用 `roundRect + clip` 按 `radius` 裁剪；只画内容盒，父级渲染出的 iframe 边框/阴影保持可见。
-3. **验证**：截 `#frame-demo` 卡片或整页，帧内应出现「Frame row 08 起的一段 + sticky 表头」，圆角和边框正确；再和页面截图对比。
-4. **跨域**：去掉 `@noframes`、helper 模式（帧内不挂 UI、不注册菜单命令）、postMessage 协议（nonce + 协议版本 + 单帧 4s 超时 + 失败降级空盒）、递归深度上限 2。复用同一个 `renderFrameViewport()`，只换「谁来渲染」。
-5. 区域截图里的 iframe 暂不处理，写进已知限制。
+1. **跨域 helper**：去掉 `@noframes`、helper 模式（帧内不挂 UI、不注册菜单命令）、postMessage 协议（nonce + 协议版本 + 单帧 4s 超时 + 失败降级空盒）。复用同一个 `renderFrameViewport()`，只换「谁来渲染」。
+2. **选中 iframe 本身 = 展开**：现在选中 iframe 是「它的视口」，按已定语义应该把帧文档当根整页展开，并让父级副本里的 iframe 盒子长高、父级重排（在副本里改 iframe 高度即可，别动活页面）。需要同时处理「父级盒子长高后画布尺寸跟着变」。
+3. **帧内字体**：给 `native` 加一个「字体源文档」钩子，把 `gm-fetch-plugin.ts` 里 `toArray(node.ownerDocument.styleSheets)` 的替换改成可切换的 document，让帧渲染用帧自己（副本）的 `@font-face`；否则帧独有字体只能回退。
+4. **区域截图里的 iframe**：暂不处理，写进已知限制（`captureRegion()` 现在不读 `snapshot.frames`）。
+5. 分布式 picker（穿透任意 iframe）——独立功能，排在合成之后。
 
 ### 关键约束（别踩）
 
-- html-to-image 克隆 `<iframe>` **不带浏览上下文**，帧内容永远要单独出图再合成。
-- 帧渲染用的是**帧自己的文档**：字体、背景、`color-scheme` 都跟帧走。html-to-image 的 `getFontEmbedCSS` 在构建时被 patch 成读顶层 document（`gm-fetch-plugin.ts`），所以给帧渲染要么显式传 `fontEmbedCSS`，要么接受字体回退。
+- html-to-image 克隆 `<iframe>` 时**不带浏览上下文**：`cloneIFrameElement()` 会退化成「克隆 `contentDocument.body` 并把 iframe 的 computed style 扣到那个 `<body>` 上」。所以副本里的空 iframe 仍会保留正确尺寸/边框/圆角/背景——我们的帧图正是作为它的 `background-image` 画出来的。
+- 帧渲染用的是**帧自己的文档**：背景、`color-scheme` 跟帧走；`getFontEmbedCSS` 在构建时被 patch 成读顶层 document，见上。
 - 帧内滚动语义：**直接选中 iframe** 时它相当于「根」，可以按整页展开并让父级把盒子撑高；**选中包含 iframe 的祖先**时只画帧的当前可见视口（除非打开「展开内部滚动区域」）。
-- 帧内 sticky 在帧的最终光栅里同样退化为 static 位置，和普通元素一致。
+- 每个同源帧都是一次独立 html-to-image 渲染：整页截图里有 N 个同源帧就多 N 次渲染（实测小帧 1～2 秒/个），跨域帧直接跳过。日志里出现 `[element-screenshot] frame render failed:` 表示该帧降级成空盒。
 
 ### 验证素材
 
-还需要：跨域 iframe（换端口起第二个 server，例如 `PLAYGROUND_PORT=4177`）、以及「帧内再嵌跨域帧」的用例。
+还需要：跨域 iframe（换端口起第二个 server，例如 `PLAYGROUND_PORT=4177`）、「帧内再嵌跨域帧」、以及「帧在可滚动祖先里，祖先被展开后帧位置是否跟得上」的用例。
 
 ## 验证建议
 
