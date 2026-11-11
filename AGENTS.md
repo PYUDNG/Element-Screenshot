@@ -48,7 +48,7 @@
 9. `c5ec8a8` playground：`index.html` 也认 `?vm=1`（此前顶层同时跑 stub 与 VM 两份实例，谁先挂 UI 不确定）；
 10. `25b4443` 帧内快捷键：新增 `core/hotkey-bridge.ts`（`subscribe` / `hotkey` / `trigger`，协议 `/3`），帧内按键回到顶层再复核；
 11. `d02ba88` 设置项归位：`触发快捷键` 从「截图 → 触发方式」搬到「触发 → 快捷键」；`b17e4d5` 文档；
-12. `bf0dbec` 焦点：`startPicker()` 把焦点从帧里 `blur()` 回页面，`Esc` 等按键重新到得了顶层（`ui/focus.ts`）。
+12. `71f05c0` 帧内选择器按键：**不动焦点**，帧把选择器用得上的键经桥上报（`ui` + `key`，协议 `/4`，`core/relay-key.ts`），顶层在 `document.body` 上重放给 picker。（`bf0dbec` 里先试过「启动时 blur 焦点」，已删除。）
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -183,7 +183,7 @@ Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = 
 
 ### 旧的 CDP 方案
 
-仅在 MCP 不可用时使用：用 `msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile> --window-size=1400,1000 about:blank` 起一个专用 profile，再通过 `http://127.0.0.1:9222/json/list` 连 page target 跑临时脚本（放仓库外，例如 `%TEMP%\es-cdp\`）。CDP 没有认证、能连上端口就能完全控制浏览器，所以别把日常主力 Profile 长期裸开调试端口，也不要指望防火墙隔离 loopback。新页面用 `PUT /json/new?<url>`（`/json/list` 里第一个 `type === 'page'` 可能是扩展安装页）；输入用 `Input.dispatchMouseEvent`（按下 → 多次移动 + `buttons: 1` → 抬起）；`Page.addScriptToEvaluateOnNewDocument` 包的 `toBlob`/`drawImage`/`serializeToString` 会被原生快照当成「原生」实现，可以借此分阶段计时或取最后一帧做像素比对；`Page.captureScreenshot` 带 `clip` 只截一小块。
+仅在 MCP 不可用时使用：用 `msedge.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<专用 profile> --window-size=1400,1000 about:blank` 起一个专用 profile，再通过 `http://127.0.0.1:9222/json/list` 连 page target 跑临时脚本（放仓库外，例如 `%TEMP%\es-cdp\`）。CDP 没有认证、能连上端口就能完全控制浏览器，所以别把日常主力 Profile 长期裸开调试端口，也不要指望防火墙隔离 loopback。
 
 ## 发布流程
 
@@ -382,7 +382,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 桥协议（`core/frame-bridge.ts` + `core/frame-helper.ts`）
 
-- `FRAME_PROTOCOL = 'element-screenshot:frame/3'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键的三条消息。）
+- `FRAME_PROTOCOL = 'element-screenshot:frame/4'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传。）
 - 探测：`probeFrameHelpers(frames)` 一次向所有帧发 `hello`，在**同一个 400ms 窗口**里收 `ready`，所以一页有 N 个没有 helper 的帧也只等一次；返回的集合里没有的帧就走兜底。
 - 测量：`requestFrameSize(frame)` 发 `measure`，等 `size`（默认 3 秒）。helper 回的是「根展开后文档有多大」（`frameContentSize()` 读 `scrollWidth` / `scrollHeight`，只读、不建快照）。0×0 或 `error` 都算失败。
 - 渲染：`requestFrameImage(frame, { ratio, depth, expand? })` 发 `render`，等 `result`（默认 10 秒），期间每 100ms 检查 `native.capture.aborted`，用户取消时立即放弃等待。失败/超时/`busy`/`error` 都返回 `null` → 走兜底（可读时）或空盒。
@@ -439,7 +439,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 嵌套：帧里的帧向自己的父帧 `subscribe`；父帧把配置再往下推，并把子帧的 `trigger` 原样转给 `window.parent`。只有顶层会 `startPicker()`。
 - 帧内匹配到快捷键时 `preventDefault()` + `stopPropagation()`，和顶层一致；`isTriggerStroke()` 保留「输入框里裸键让给页面」的规则。顶层 `shouldIgnore`（设置面板打开 / 不在 idle）对上报的 press 同样生效——所以选择模式里再按一次快捷键仍然什么都不做。
 - **已知边界**：完全不运行本脚本的帧（`about:blank` / `srcdoc` / `sandbox` 无 `allow-scripts`）收不到任何按键，用户得点悬浮按钮或菜单。
-- 焦点（`ui/focus.ts`）：键按下时焦点在帧里，`Esc` / `+` / `-` / 层级键会全部落在帧文档里。`startPicker()` 现在调 `takeFocusFromFrame()`：只有当 `document.activeElement` 是 **iframe** 时才 `blur()` 它，焦点回到页面 `body`，和用户点一下页面等价（实测 Chromium：blur 后 `activeElement` = `BODY`，随后的 keydown 目标也是 `BODY`）。不要改成「往我们自己的 shadow host 里 focus」——`isMarkedUiNode` 会把 UI 里的目标当成 UI 事件，picker 反而会忽略按键。顶层输入框有焦点时不受影响（不是 iframe 就不动）。
+- 选择器开着时（`ui`，`active = mode === 'picking'`）：帧**不动焦点**，把选择器用得上的键 `key` 报给父级并就地吞掉（空格只吞不报）。父级 `handleRelayedKey()` 用 `isPickerKey()` 复核，再 `dispatchCaptureUiKey()` 在 **`document.body`** 上合成 `keydown`，让 picker 走原来那条路径。约束：① 只放行选择器自己的键，字母/数字永不跨境（例外 Ctrl/Cmd+A）；② 目标必须是 body——落在我们 shadow host 上会被 `isMarkedUiNode` 当成 UI 事件忽略；③ 这些键会被 picker 的捕获监听 `stopImmediatePropagation`，页面监听收不到（实测页面 window 监听一条都没看到）。白名单在 `core/relay-key.ts`。
+- 不要改成 blur 焦点（会打断帧里正在输入的控件，旧方案已删）；预览也不需要——`handleSelect()` / `handleRegion()` 本来就会 `blur()` 当前焦点（避免截图带上焦点环）。
 - 测试：`tests/hotkey-bridge.test.ts` 覆盖订阅/重试/收到即停、配置复用、错 token / 非父窗口的下发被忽略、按键上报、输入框裸键不报、子帧订阅与上报转发、顶层复核与 `shouldIgnore`；`hotkey.test.ts` 覆盖 `isTriggerStroke()` 的修饰键、`repeat`、`defaultPrevented`、可编辑目标。
 
 ### 已验证（真实浏览器，VM 实例 + playground，2026-11-11）
@@ -469,6 +470,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 焦点在顶层时（`document.body` 被点过）`Alt+S` 照旧打开选择模式 → 普通快捷键没有回归。
 - 订阅时序：帧在顶层 `mountUi()` 之前发的第一条 `subscribe` 没人回，250ms 的重试拿到了 `hotkey`（顶层只看到 2 条 subscribe、帧里只有 1 条 hotkey）→ 重试确实兜住了「帧先加载完」。
 - 设置面板（stub 实例，`window.__menuCommands` 里的「设置」）：**触发** tab = 快捷键（`Alt+Shift+S` 录制框 + 提示）+ 悬浮按钮；**截图** tab = 选择交互 / 选框外观 / 输出，不再有「触发方式」。
+- 帧内选择器（同一环境）：点进帧 → `Alt+S` → 选择器出现且 `document.activeElement` 全程仍是 `IFRAME`（焦点没被动过）；`ArrowUp` 把层级从 `5/5` 换成 `4/5`；`Esc` 关闭选择器，页面自己注册的 window keydown 监听**一条都没收到**（重放的 key 被 picker 捕获监听吃掉）；跨域帧与顶层焦点两种场景同样通过。
 
 > 顺带记一下这次自动化踩到的坑：`hidden` 标签页里 `requestAnimationFrame` 完全不跑，而 picker 的 hover 命中是 rAF 节流的 → 鼠标移动不会刷新选框，读数会一直停在 `start()` 那一刻的元素上。绕法是先 `mouse.move`（它同步更新 `picker.cursor`），再 `window.dispatchEvent(new Event('resize'))`（`handleResize()` 会同步 `refresh()`），最后按 `Enter` 选中。另外 FAB 贴右边时坐标用的是 `innerWidth`（含滚动条），`document.elementsFromPoint()` 在滚动条区域返回空数组，点击要落在 `clientWidth` 内。
 
