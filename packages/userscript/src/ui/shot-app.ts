@@ -19,6 +19,7 @@ import { describeTarget, getTargetBox } from '../core/target'
 import type { TargetBox } from '../core/target'
 import InPageApp from './InPageApp.vue'
 import type { PickerHover, ShotAppApi, ShotState, ToastTone } from './api'
+import { takeFocusFromFrame } from './focus'
 import { freeRatio, placeStored, readDock, resolveDrop, clampToViewport } from './fab-position'
 import type { FabViewport } from './fab-position'
 
@@ -191,6 +192,9 @@ export class ShotApp implements ShotAppApi {
     this.clearSelection()
     this.state.mode = 'picking'
     this.picker.start()
+    // Reached through the in-frame shortcut: the frame still owns the keyboard,
+    // so Esc and the layer keys would never arrive.
+    takeFocusFromFrame()
   }
 
   cancel(): void {

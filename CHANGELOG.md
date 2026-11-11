@@ -70,6 +70,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `Esc` and the picker's other keys work when the picker was started from inside an
+  iframe. A click inside a frame leaves the keyboard focus in that document, so
+  every key press — including `Esc` — was dispatched there and the top window,
+  where the picker listens, never saw it; the picker could only be left by clicking
+  the page first. Starting the picker now blurs the focused frame, which hands the
+  keyboard back to the page (exactly what clicking the page did), while a focused
+  field in the top document keeps its focus.
 - A cloned custom element no longer duplicates the shadow tree its constructor
   builds; the collected tree replaces it.
 
