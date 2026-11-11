@@ -10,6 +10,7 @@ import { native } from './core/native'
 import { setFrameToken } from './core/frame-bridge'
 import { installFrameHelper } from './core/frame-helper'
 import { installFrameHotkey } from './core/hotkey-bridge'
+import { installEarlyPickerListeners } from './core/picker'
 import { startApp } from './app'
 
 /** Storage key of the per-install secret that gates the frame helper. */
@@ -50,6 +51,10 @@ const token = ensureFrameToken()
 setFrameToken(token)
 
 if (window === window.top) {
+  // Before DOMContentLoaded, i.e. before any page script can register its own
+  // listeners: the picker has to be first in the window capture queue, otherwise
+  // a page that stops propagation can make picking silently do nothing.
+  installEarlyPickerListeners()
   const begin = (): void => {
     try {
       startApp()

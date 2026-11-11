@@ -32,6 +32,58 @@ interface DragSession {
 }
 
 /**
+ * Events the picker has to see before the page does.
+ *
+ * The picker used to add its listeners when picking started, which is after every
+ * page script registered its own — and `stopImmediatePropagation()` only stops
+ * listeners that run *after* it. A page listening on `window` (capture) therefore
+ * saw the clicks the picker was meant to consume, and a page that swallowed them
+ * could make the picker deaf. Registering these once at document-start puts the
+ * picker first in the queue for the lifetime of the page; every handler starts by
+ * checking `active`, so an idle page behaves exactly as before.
+ *
+ * `wheel` is deliberately not in the list: it needs `passive: false` so the page
+ * cannot scroll under the picker, and a permanent non-passive wheel listener would
+ * make every page's scrolling wait for JavaScript. `mousemove` / `pointermove` are
+ * in it because a stale crosshair is just as broken as a dead click.
+ */
+const EARLY_EVENTS = [
+  'mousemove',
+  'pointermove',
+  'pointerdown',
+  'mousedown',
+  'mouseup',
+  'pointerup',
+  'click',
+  'dblclick',
+  'keydown',
+  'contextmenu',
+  'dragstart',
+  'resize',
+  'blur'
+] as const
+
+/** The picker that owns the always-on listeners; there is one per page. */
+let dispatchTo: ((event: Event) => void) | null = null
+let earlyInstalled = false
+
+/**
+ * Put the picker's listeners in front of every page listener.
+ *
+ * Called from the entry point before the page has parsed a single script, and
+ * again (idempotently) when a picker is constructed so a test or an embedding
+ * harness that mounts the picker directly still gets the listeners.
+ */
+export function installEarlyPickerListeners(): void {
+  if (earlyInstalled) return
+  earlyInstalled = true
+  const forward = (event: Event): void => {
+    dispatchTo?.(event)
+  }
+  for (const type of EARLY_EVENTS) native.addEventListener(window, type, forward, true)
+}
+
+/**
  * Page-level element picker. All listeners live in the capture phase so page
  * handlers never see the clicks, wheels, drags or keystrokes used for
  * selection. A press that stays inside the drag threshold still picks the
@@ -52,7 +104,53 @@ export class ElementPicker {
   private previousUserSelect = ''
   private previousUserSelectPriority = ''
 
-  constructor(private readonly options: ElementPickerOptions) {}
+  constructor(private readonly options: ElementPickerOptions) {
+    dispatchTo = (event) => this.handleEvent(event)
+    installEarlyPickerListeners()
+  }
+
+  /** Route one of the always-on capture listeners to its handler. */
+  handleEvent(event: Event): void {
+    switch (event.type) {
+      case 'mousemove':
+        this.handleMouseMove(event as MouseEvent)
+        break
+      case 'pointermove':
+        this.handlePointerMove(event as PointerEvent)
+        break
+      case 'pointerdown':
+      case 'mousedown':
+        this.handlePointerDown(event)
+        break
+      case 'pointerup':
+      case 'mouseup':
+        this.handlePointerUp(event)
+        break
+      case 'click':
+        this.handleClick(event as MouseEvent)
+        break
+      case 'dblclick':
+        this.handleDblClick(event as MouseEvent)
+        break
+      case 'keydown':
+        this.handleKeyDown(event as KeyboardEvent)
+        break
+      case 'contextmenu':
+        this.handleContextMenu(event as MouseEvent)
+        break
+      case 'dragstart':
+        this.handleDragStart(event as DragEvent)
+        break
+      case 'resize':
+        this.handleResize()
+        break
+      case 'blur':
+        this.handleBlur()
+        break
+      default:
+        break
+    }
+  }
 
   get isActive(): boolean {
     return this.active
@@ -72,20 +170,10 @@ export class ElementPicker {
     rootStyle.setProperty('cursor', 'crosshair', 'important')
     rootStyle.setProperty('user-select', 'none', 'important')
 
-    native.addEventListener(window, 'mousemove', this.handleMouseMove, true)
-    native.addEventListener(window, 'pointerdown', this.handlePointerDown, true)
-    native.addEventListener(window, 'mousedown', this.handlePointerDown, true)
-    native.addEventListener(window, 'mouseup', this.handlePointerUp, true)
-    native.addEventListener(window, 'pointerup', this.handlePointerUp, true)
-    native.addEventListener(window, 'pointermove', this.handlePointerMove, true)
-    native.addEventListener(window, 'click', this.handleClick, true)
-    native.addEventListener(window, 'dblclick', this.handleDblClick, true)
+    // Everything else is already listening (see EARLY_EVENTS); the wheel is
+    // added here so a page's normal scrolling never pays for a passive:false
+    // listener it does not need.
     native.addEventListener(window, 'wheel', this.handleWheel, { capture: true, passive: false })
-    native.addEventListener(window, 'keydown', this.handleKeyDown, true)
-    native.addEventListener(window, 'contextmenu', this.handleContextMenu, true)
-    native.addEventListener(window, 'dragstart', this.handleDragStart, true)
-    native.addEventListener(window, 'resize', this.handleResize, true)
-    native.addEventListener(window, 'blur', this.handleBlur, true)
 
     this.cursor = {
       x: Math.round(window.innerWidth / 2),
@@ -101,20 +189,7 @@ export class ElementPicker {
     this.drag = null
     this.suppressClick = false
 
-    native.removeEventListener(window, 'mousemove', this.handleMouseMove, true)
-    native.removeEventListener(window, 'pointerdown', this.handlePointerDown, true)
-    native.removeEventListener(window, 'mousedown', this.handlePointerDown, true)
-    native.removeEventListener(window, 'mouseup', this.handlePointerUp, true)
-    native.removeEventListener(window, 'pointerup', this.handlePointerUp, true)
-    native.removeEventListener(window, 'pointermove', this.handlePointerMove, true)
-    native.removeEventListener(window, 'click', this.handleClick, true)
-    native.removeEventListener(window, 'dblclick', this.handleDblClick, true)
     native.removeEventListener(window, 'wheel', this.handleWheel, true)
-    native.removeEventListener(window, 'keydown', this.handleKeyDown, true)
-    native.removeEventListener(window, 'contextmenu', this.handleContextMenu, true)
-    native.removeEventListener(window, 'dragstart', this.handleDragStart, true)
-    native.removeEventListener(window, 'resize', this.handleResize, true)
-    native.removeEventListener(window, 'blur', this.handleBlur, true)
 
     if (this.rafId) {
       native.cancelAnimationFrame(this.rafId)
