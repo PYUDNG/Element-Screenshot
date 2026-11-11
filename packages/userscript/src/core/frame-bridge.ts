@@ -17,14 +17,16 @@ import type { FrameSize } from './frame-size'
  *
  * Two requests travel over the bridge: `measure` (how tall the document is once
  * its root is expanded, used to size the frame's box) and `render` (the picture).
- * The keyboard shortcut travels the other way: the frame asks for the shortcut
- * once (`subscribe`) and reports a press (`trigger`) that the parent then
- * verifies against its own setting, because a keydown inside a frame never
- * reaches the top document.
+ * The keyboard travels the other way: the frame asks for the shortcut once
+ * (`subscribe`) and reports a press (`trigger`) that the parent then verifies
+ * against its own setting, because a keydown inside a frame never reaches the top
+ * document. While the capture UI is open the parent also tells frames so (`ui`),
+ * and a frame reports the keys that UI uses (`key`) so the picker keeps working
+ * without stealing the focus from the frame.
  */
 
 /** Bump when the message shape or the frame renderer changes. */
-export const FRAME_PROTOCOL = 'element-screenshot:frame/3'
+export const FRAME_PROTOCOL = 'element-screenshot:frame/4'
 /** How long a frame gets to answer the hello probe. */
 export const FRAME_READY_TIMEOUT = 400
 /** How long one helper render may take before the parent stops waiting. */
@@ -117,6 +119,28 @@ export interface FrameTriggerMessage {
   shortcut: string
 }
 
+/** Whether the capture UI is open in the top document. */
+export interface FrameUiMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'ui'
+  token: string
+  nonce: string
+  active: boolean
+}
+
+/** A key the capture UI consumes, reported while it is open. */
+export interface FrameKeyMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'key'
+  token: string
+  nonce: string
+  key: string
+  ctrlKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+  metaKey: boolean
+}
+
 export type FrameMessage =
   | FrameHelloMessage
   | FrameReadyMessage
@@ -127,6 +151,8 @@ export type FrameMessage =
   | FrameSubscribeMessage
   | FrameHotkeyMessage
   | FrameTriggerMessage
+  | FrameUiMessage
+  | FrameKeyMessage
 
 const MESSAGE_TYPES = new Set([
   'hello',
@@ -137,7 +163,9 @@ const MESSAGE_TYPES = new Set([
   'result',
   'subscribe',
   'hotkey',
-  'trigger'
+  'trigger',
+  'ui',
+  'key'
 ])
 
 /**
@@ -418,5 +446,38 @@ export function postHotkeyTrigger(win: Window, shortcut: string): boolean {
     token,
     nonce: createNonce(),
     shortcut
+  })
+}
+
+/** Tell one frame whether the capture UI is open in the top document. */
+export function postUiState(win: Window | null, active: boolean): boolean {
+  const token = frameToken
+  if (!token || !win) return false
+  return postFrameMessage(win, {
+    protocol: FRAME_PROTOCOL,
+    type: 'ui',
+    token,
+    nonce: createNonce(),
+    active
+  })
+}
+
+/** Report one press to the parent so the open capture UI can act on it. */
+export function postRelayedKey(
+  win: Window,
+  key: { key: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }
+): boolean {
+  const token = frameToken
+  if (!token) return false
+  return postFrameMessage(win.parent, {
+    protocol: FRAME_PROTOCOL,
+    type: 'key',
+    token,
+    nonce: createNonce(),
+    key: key.key,
+    ctrlKey: key.ctrlKey,
+    altKey: key.altKey,
+    shiftKey: key.shiftKey,
+    metaKey: key.metaKey
   })
 }

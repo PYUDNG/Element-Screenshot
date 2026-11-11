@@ -1,5 +1,6 @@
 import type { I18n, SettingsController } from '@element-screenshot/settings'
 import type { FabPlacement } from './fab-position'
+import type { RelayedKey } from '../core/relay-key'
 
 export type PickerMode = 'idle' | 'picking' | 'selected'
 export type ToastTone = 'info' | 'success' | 'error'
@@ -65,6 +66,8 @@ export interface ShotAppApi {
   readonly i18n: I18n
   startPicker(): void
   cancel(): void
+  /** Act on a key a frame reported while our UI is open. */
+  handleRelayedKey(stroke: RelayedKey): boolean
   cycle(delta: number): void
   /** Jump to the next/previous layer that scrolls by itself. */
   cycleScroll(delta: number): void

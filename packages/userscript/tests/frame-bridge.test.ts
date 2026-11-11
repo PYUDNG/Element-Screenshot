@@ -81,6 +81,20 @@ describe('frame messages', () => {
     expect(
       readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'trigger', nonce: 'n', token: 't', shortcut: 'Alt+S' })
     ).not.toBeNull()
+    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'ui', nonce: 'n', token: 't', active: true })).not.toBeNull()
+    expect(
+      readFrameMessage({
+        protocol: FRAME_PROTOCOL,
+        type: 'key',
+        nonce: 'n',
+        token: 't',
+        key: 'Escape',
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        metaKey: false
+      })
+    ).not.toBeNull()
   })
 
   it('reads a frame window and survives a frame without one', () => {

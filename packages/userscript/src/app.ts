@@ -97,9 +97,16 @@ export function startApp(): void {
     const bridge = installHotkeyBridge({
       getShortcut: shortcut,
       shouldIgnore: () => settings.isOpen.value || shot?.state.mode !== 'idle',
-      onTrigger: () => shot?.startPicker()
+      onTrigger: () => shot?.startPicker(),
+      onKey: (stroke) => shot?.handleRelayedKey(stroke)
     })
     watch(shortcut, () => bridge.broadcast())
+    // Let frames know while the picker owns the keyboard, so they can report Esc
+    // and the layer keys without us having to steal the focus from them.
+    watch(
+      () => shot?.state.mode ?? 'idle',
+      (mode) => bridge.setActive(mode === 'picking')
+    )
   }
 
   function registerMenus(): void {

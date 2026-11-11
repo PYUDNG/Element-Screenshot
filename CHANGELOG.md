@@ -74,9 +74,11 @@ All notable changes to this project are documented here. The format follows
   iframe. A click inside a frame leaves the keyboard focus in that document, so
   every key press — including `Esc` — was dispatched there and the top window,
   where the picker listens, never saw it; the picker could only be left by clicking
-  the page first. Starting the picker now blurs the focused frame, which hands the
-  keyboard back to the page (exactly what clicking the page did), while a focused
-  field in the top document keeps its focus.
+  the page first. The focus is left alone: while the picker is open, a frame now
+  reports the keys the picker consumes (`Esc`, `Enter`, arrows, `PageUp`/`PageDown`,
+  `+`/`-`, `Tab`, `Ctrl+A`) over the same token-gated bridge, swallows them locally
+  and the top document replays each one into its own listeners. Only those keys
+  travel — no plain letters or digits — and the page never sees the replayed event.
 - A cloned custom element no longer duplicates the shadow tree its constructor
   builds; the collected tree replaces it.
 

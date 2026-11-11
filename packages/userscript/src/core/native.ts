@@ -138,6 +138,7 @@ export interface NativeSnapshot {
   readonly HTMLInputElement: typeof HTMLInputElement
   readonly HTMLSelectElement: typeof HTMLSelectElement
   readonly HTMLImageElement: typeof HTMLImageElement
+  readonly KeyboardEvent: typeof KeyboardEvent
   readonly SVGImageElement: typeof SVGImageElement | undefined
   readonly canvas: NativeCanvas
   readonly isSecureContext: boolean
@@ -277,6 +278,9 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
   const FileReaderCtor = win.FileReader
   const URLCtor = win.URL
   const DOMParserCtor = win.DOMParser
+  const HTMLSelectElementCtor = win.HTMLSelectElement
+  const HTMLImageElementCtor = win.HTMLImageElement
+  const KeyboardEventCtor = win.KeyboardEvent
   const SVGImageElementCtor = win.SVGImageElement
 
   const querySelector = <E extends Element = Element>(
@@ -515,8 +519,9 @@ export function createNativeSnapshot(win: BrowserWindow = window): NativeSnapsho
     HTMLIFrameElement: win.HTMLIFrameElement,
     HTMLTextAreaElement: win.HTMLTextAreaElement,
     HTMLInputElement: win.HTMLInputElement,
-    HTMLSelectElement: win.HTMLSelectElement,
-    HTMLImageElement: win.HTMLImageElement,
+    HTMLSelectElement: HTMLSelectElementCtor,
+    HTMLImageElement: HTMLImageElementCtor,
+    KeyboardEvent: KeyboardEventCtor,
     SVGImageElement: SVGImageElementCtor,
     canvas: nativeCanvas,
     isSecureContext: win.isSecureContext,

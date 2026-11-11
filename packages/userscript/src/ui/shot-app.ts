@@ -14,12 +14,13 @@ import { resolvePageBackground } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
 import { native } from '../core/native'
 import { ElementPicker } from '../core/picker'
+import { dispatchCaptureUiKey, isPickerKey } from '../core/relay-key'
+import type { RelayedKey } from '../core/relay-key'
 import { clampRegion } from '../core/region'
 import { describeTarget, getTargetBox } from '../core/target'
 import type { TargetBox } from '../core/target'
 import InPageApp from './InPageApp.vue'
 import type { PickerHover, ShotAppApi, ShotState, ToastTone } from './api'
-import { takeFocusFromFrame } from './focus'
 import { freeRatio, placeStored, readDock, resolveDrop, clampToViewport } from './fab-position'
 import type { FabViewport } from './fab-position'
 
@@ -192,9 +193,21 @@ export class ShotApp implements ShotAppApi {
     this.clearSelection()
     this.state.mode = 'picking'
     this.picker.start()
-    // Reached through the in-frame shortcut: the frame still owns the keyboard,
-    // so Esc and the layer keys would never arrive.
-    takeFocusFromFrame()
+  }
+
+  /**
+   * Act on a picker key reported by a frame.
+   *
+   * A click inside a frame leaves the keyboard there, so the picker would never
+   * see Esc or its layer keys. The press is replayed as a `keydown` so the picker
+   * keeps one keyboard path; only keys it consumes are replayed, so nothing leaks
+   * to the page. Starting a capture blurs the focused element anyway, which is
+   * why the preview does not need this.
+   */
+  handleRelayedKey(stroke: RelayedKey): boolean {
+    if (this.state.mode !== 'picking') return false
+    if (!isPickerKey(stroke)) return false
+    return dispatchCaptureUiKey(stroke)
   }
 
   cancel(): void {
