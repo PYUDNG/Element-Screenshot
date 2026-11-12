@@ -1,4 +1,5 @@
 import { native } from './native'
+import { frameContentBox } from './frame-size'
 import type { FrameSize } from './frame-size'
 
 /**
@@ -31,11 +32,13 @@ import type { FrameSize } from './frame-size'
  */
 
 /** Bump when the message shape or the frame renderer changes. */
-export const FRAME_PROTOCOL = 'element-screenshot:frame/5'
+export const FRAME_PROTOCOL = 'element-screenshot:frame/6'
 /** How long a frame gets to answer the hello probe. */
 export const FRAME_READY_TIMEOUT = 400
 /** A hover answer is one hit test; a slow frame must not stall the crosshair. */
 export const FRAME_PICK_TIMEOUT = 250
+/** How many frames deep one hover answer may travel. */
+export const MAX_FRAME_PIERCE = 3
 /** How long one helper render may take before the parent stops waiting. */
 export const FRAME_RESULT_TIMEOUT = 10_000
 /** An element capture is a full render, so it gets the render budget. */
@@ -101,11 +104,20 @@ export interface FrameResultMessage {
   error?: string
 }
 
-/** Frame asks its parent which shortcut to watch for. */
+/**
+ * Frame asks its parent which shortcut to watch for.
+ *
+ * Nothing that travels *up* carries the token. A message a frame sends up is
+ * delivered into the parent window, and the parent's own page scripts can read
+ * it — which is exactly the window the token has to stay hidden from. The
+ * presses this channel carries cannot be authenticated for the same reason: the
+ * frame's page shares a window with the frame's copy of the script, so anything
+ * that copy could prove, the page can replay. Dropping the secret at least keeps
+ * the token out of the hands of an embedding page.
+ */
 export interface FrameSubscribeMessage {
   protocol: typeof FRAME_PROTOCOL
   type: 'subscribe'
-  token: string
   nonce: string
 }
 
@@ -125,7 +137,6 @@ export interface FrameHotkeyMessage {
 export interface FrameTriggerMessage {
   protocol: typeof FRAME_PROTOCOL
   type: 'trigger'
-  token: string
   nonce: string
   shortcut: string
 }
@@ -137,13 +148,17 @@ export interface FrameUiMessage {
   token: string
   nonce: string
   active: boolean
+  /**
+   * True while the picker has no transparent layer of its own: the pointer lands
+   * in the frame, so the frame is the only side that can report it.
+   */
+  passthrough: boolean
 }
 
 /** A key the capture UI consumes, reported while it is open. */
 export interface FrameKeyMessage {
   protocol: typeof FRAME_PROTOCOL
   type: 'key'
-  token: string
   nonce: string
   key: string
   ctrlKey: boolean
@@ -169,6 +184,14 @@ export interface FramePickItem {
   contentHeight: number
   scrollAxis: 'x' | 'y' | 'both' | null
   fullPage: boolean
+  /**
+   * Frames to walk through before `id` means something, newest hop first.
+   *
+   * A layer two frames down is named by the ids of the frames the answer had to
+   * travel through, because each frame keeps its own `id` registry and the parent
+   * never sends a selector into a document it cannot read.
+   */
+  via?: number[]
 }
 
 /** Parent asks which layers of the frame sit under one point. */
@@ -179,6 +202,8 @@ export interface FrameHoverMessage {
   nonce: string
   x: number
   y: number
+  /** How many frames below this one may still be pierced. */
+  depth: number
 }
 
 /** The frame's answer: topmost layer first, like `getElementStack`. */
@@ -204,6 +229,8 @@ export interface FrameCaptureMessage {
   nonce: string
   /** `FramePickItem.id` from a previous `stack` answer. */
   elementId: number
+  /** Frames to walk through first; empty means the element lives here. */
+  via?: number[]
   ratio: number
   expandNested: boolean
   background: FrameCaptureBackground
@@ -229,6 +256,23 @@ export interface FrameCancelMessage {
   nonce: string
 }
 
+/**
+ * Where the pointer is inside a frame, in that frame's client coordinates.
+ *
+ * Only travels upward, and only while the top document has the picker open with
+ * the transparent layer off: the pointer then enters the frame and the top window
+ * stops seeing it. A click is the capture gesture, so the frame swallows it and
+ * reports it instead of letting the page navigate.
+ */
+export interface FramePointerMessage {
+  protocol: typeof FRAME_PROTOCOL
+  type: 'pointer'
+  nonce: string
+  kind: 'move' | 'click'
+  x: number
+  y: number
+}
+
 export type FrameMessage =
   | FrameHelloMessage
   | FrameReadyMessage
@@ -245,6 +289,7 @@ export type FrameMessage =
   | FrameStackMessage
   | FrameCaptureMessage
   | FrameCapturedMessage
+  | FramePointerMessage
   | FrameCancelMessage
 
 const MESSAGE_TYPES = new Set([
@@ -263,6 +308,7 @@ const MESSAGE_TYPES = new Set([
   'stack',
   'capture',
   'captured',
+  'pointer',
   'cancel'
 ])
 
@@ -519,12 +565,9 @@ export async function requestFrameSize(
  * caller retries a few times.
  */
 export function subscribeToHotkey(win: Window = window): boolean {
-  const token = frameToken
-  if (!token) return false
   return postFrameMessage(win.parent, {
     protocol: FRAME_PROTOCOL,
     type: 'subscribe',
-    token,
     nonce: createNonce()
   })
 }
@@ -544,19 +587,16 @@ export function postHotkeyConfig(win: Window | null, shortcut: string): boolean 
 
 /** Tell the parent that the shortcut was pressed inside this frame. */
 export function postHotkeyTrigger(win: Window, shortcut: string): boolean {
-  const token = frameToken
-  if (!token) return false
   return postFrameMessage(win.parent, {
     protocol: FRAME_PROTOCOL,
     type: 'trigger',
-    token,
     nonce: createNonce(),
     shortcut
   })
 }
 
 /** Tell one frame whether the capture UI is open in the top document. */
-export function postUiState(win: Window | null, active: boolean): boolean {
+export function postUiState(win: Window | null, active: boolean, passthrough = false): boolean {
   const token = frameToken
   if (!token || !win) return false
   return postFrameMessage(win, {
@@ -564,8 +604,77 @@ export function postUiState(win: Window | null, active: boolean): boolean {
     type: 'ui',
     token,
     nonce: createNonce(),
-    active
+    active,
+    passthrough
   })
+}
+
+/** Report a pointer position inside this frame to its parent. */
+export function postFramePointer(win: Window, kind: 'move' | 'click', x: number, y: number): boolean {
+  return postFrameMessage(win.parent, {
+    protocol: FRAME_PROTOCOL,
+    type: 'pointer',
+    nonce: createNonce(),
+    kind,
+    x,
+    y
+  })
+}
+
+export interface FramePointerBridgeOptions {
+  /** Where the pointer is, in the top document's client coordinates. */
+  onMove: (point: { x: number; y: number }, frame: HTMLIFrameElement) => void
+  /** The user clicked inside a frame: this is the capture gesture. */
+  onClick: (point: { x: number; y: number }, frame: HTMLIFrameElement) => void
+  win?: Window
+}
+
+/**
+ * Receive pointer reports from the frames the document embeds.
+ *
+ * The point arrives in the frame's own client coordinates and is shifted here, so
+ * the picker keeps working in one coordinate space. Only a direct child frame can
+ * be the source — a nested frame's report is relayed by its own parent, which is
+ * the child we see — and anything outside that frame's viewport is dropped.
+ */
+export function installFramePointerBridge(options: FramePointerBridgeOptions): () => void {
+  const win = options.win ?? window
+
+  const frameFor = (source: Window): HTMLIFrameElement | null => {
+    const root = native.document.documentElement
+    if (!root) return null
+    for (const element of Array.from(native.querySelectorAll(root, 'iframe'))) {
+      const frame = element as HTMLIFrameElement
+      if (frameWindow(frame) === source) return frame
+    }
+    return null
+  }
+
+  const handler = (event: Event): void => {
+    const message = readFrameMessage((event as MessageEvent).data)
+    if (!message || message.type !== 'pointer') return
+    const source = (event as MessageEvent).source as Window | null
+    if (!source) return
+    const frame = frameFor(source)
+    if (!frame) return
+    const view = frameContentBox(frame)
+    if (!view) return
+    const x = view.left + message.x
+    const y = view.top + message.y
+    if (
+      x < view.left ||
+      x > view.left + view.width ||
+      y < view.top ||
+      y > view.top + view.height
+    ) {
+      return
+    }
+    if (message.kind === 'click') options.onClick({ x, y }, frame)
+    else options.onMove({ x, y }, frame)
+  }
+
+  native.addEventListener(win, 'message', handler, true)
+  return () => native.removeEventListener(win, 'message', handler, true)
 }
 
 /** Report one press to the parent so the open capture UI can act on it. */
@@ -573,12 +682,9 @@ export function postRelayedKey(
   win: Window,
   key: { key: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }
 ): boolean {
-  const token = frameToken
-  if (!token) return false
   return postFrameMessage(win.parent, {
     protocol: FRAME_PROTOCOL,
     type: 'key',
-    token,
     nonce: createNonce(),
     key: key.key,
     ctrlKey: key.ctrlKey,
@@ -596,6 +702,27 @@ function readAxis(value: unknown): 'x' | 'y' | 'both' | null {
   return value === 'x' || value === 'y' || value === 'both' ? value : null
 }
 
+/** How many frame hops an answer still has to walk back through. */
+const MAX_VIA = 8
+
+/**
+ * Read the frame chain a layer or a capture request travels through.
+ *
+ * Ids are opaque numbers chosen by the frame that reported them. A malformed
+ * chain is rejected instead of guessed at: treating it as "no hops" would send
+ * the capture to the wrong document and render whatever shares that id there.
+ */
+export function readVia(value: unknown): number[] | null {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value) || value.length > MAX_VIA) return null
+  const via: number[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'number' || !Number.isInteger(entry) || entry < 1) return null
+    via.push(entry)
+  }
+  return via
+}
+
 /**
  * Validate a layer stack a frame reported.
  *
@@ -609,6 +736,8 @@ export function readPickItems(value: unknown): FramePickItem[] {
   for (const entry of value.slice(0, MAX_PICK_ITEMS)) {
     if (!entry || typeof entry !== 'object') continue
     const raw = entry as Record<string, unknown>
+    const via = readVia(raw.via)
+    if (via === null) continue
     const item: FramePickItem = {
       id: finiteNumber(raw.id),
       label: typeof raw.label === 'string' ? raw.label.slice(0, 120) : '',
@@ -619,7 +748,8 @@ export function readPickItems(value: unknown): FramePickItem[] {
       contentWidth: finiteNumber(raw.contentWidth),
       contentHeight: finiteNumber(raw.contentHeight),
       scrollAxis: readAxis(raw.scrollAxis),
-      fullPage: raw.fullPage === true
+      fullPage: raw.fullPage === true,
+      ...(via.length ? { via } : {})
     }
     if (!Number.isInteger(item.id) || item.id < 1) continue
     if (![item.left, item.top, item.width, item.height, item.contentWidth, item.contentHeight].every(Number.isFinite)) {
@@ -634,6 +764,8 @@ export interface FramePickRequest {
   /** Point in the frame's own client coordinates. */
   x: number
   y: number
+  /** How many frames below this one may still be pierced. */
+  depth?: number
   timeout?: number
 }
 
@@ -652,6 +784,7 @@ export async function requestFramePick(
   const win = frameWindow(frame)
   if (!token || !win) return null
 
+  const depth = Math.min(Math.max(Math.floor(request.depth ?? 1), 1), MAX_FRAME_PIERCE)
   const nonce = createNonce()
   let items: FramePickItem[] | null = null
   let failure = ''
@@ -661,12 +794,15 @@ export async function requestFramePick(
     token,
     nonce,
     x: request.x,
-    y: request.y
+    y: request.y,
+    depth
   })
   if (!sent) return null
 
   await waitForMessages({
-    timeout: request.timeout ?? FRAME_PICK_TIMEOUT,
+    // Every hop below this one gets its own budget, so the deepest answer still
+    // fits inside the wait.
+    timeout: request.timeout ?? FRAME_PICK_TIMEOUT * depth,
     onMessage: (message, event) => {
       if (message.type !== 'stack') return false
       if (message.nonce !== nonce || event.source !== win) return false
@@ -682,6 +818,8 @@ export async function requestFramePick(
 
 export interface FrameCaptureRequest {
   elementId: number
+  /** Frames to walk through first; empty means `elementId` lives in this frame. */
+  via?: number[]
   ratio: number
   expandNested: boolean
   background: FrameCaptureBackground
@@ -720,6 +858,7 @@ export async function requestFrameCapture(
     token,
     nonce,
     elementId: request.elementId,
+    ...(request.via && request.via.length ? { via: request.via.slice(0, MAX_VIA) } : {}),
     ratio: request.ratio,
     expandNested: request.expandNested,
     background: request.background

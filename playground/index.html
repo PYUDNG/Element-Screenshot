@@ -412,6 +412,26 @@
         ></iframe>
       </section>
 
+      <section class="card" id="split-frame-demo">
+        <h2>Frame inside a frame</h2>
+        <p class="muted">
+          指向 <code>/frame-split.html</code>：那个页面自己又嵌了一个 <code>/frame.html</code>。
+          悬停最里面那几行时，选择器应该能穿过两层帧（设置里的「穿透帧层级」默认 2）。
+        </p>
+        <iframe
+          src="/frame-split.html"
+          title="nested frame fixture"
+          style="
+            display: block;
+            width: 100%;
+            height: 320px;
+            border: 1px solid #d4d4d8;
+            border-radius: 10px;
+            background: #fff;
+          "
+        ></iframe>
+      </section>
+
       <div class="stack">
         <div class="tall">tall filler for full-page capture</div>
       </div>

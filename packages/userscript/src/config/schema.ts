@@ -23,6 +23,18 @@ export function createSettingsTabs(): SettingsTab[] {
               label: 'app.field.pointerPassthrough',
               description: 'app.field.pointerPassthroughDesc',
               default: false
+            },
+            {
+              type: 'select',
+              key: 'picker.frameDepth',
+              label: 'app.field.frameDepth',
+              description: 'app.field.frameDepthDesc',
+              default: '2',
+              options: [
+                { value: '1', label: 'app.field.frameDepth1' },
+                { value: '2', label: 'app.field.frameDepth2' },
+                { value: '3', label: 'app.field.frameDepth3' }
+              ]
             }
           ]
         },

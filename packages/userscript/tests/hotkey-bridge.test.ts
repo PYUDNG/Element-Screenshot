@@ -85,17 +85,24 @@ describe('hotkey bridge in the top document', () => {
     )
   })
 
-  it('answers a wrong install only silence', () => {
+  it('answers any frame that subscribes, without asking for a secret', () => {
+    // Upward messages travel into the parent window, where the parent's own page
+    // can read them; a token in one would be handed to the page this all exists
+    // to keep it away from. The frame never sends one, so the parent cannot
+    // verify it either — a frame can at worst open the picker.
     const frameWin = fakeWindow()
     bridge = installHotkeyBridge({
       getShortcut: () => 'Alt+Shift+S',
       onTrigger: () => undefined
     })
 
-    dispatch({ type: 'subscribe', token: 'other-install', nonce: 's2' }, frameWin)
-    bridge.broadcast()
+    dispatch({ type: 'subscribe', nonce: 's2' }, frameWin)
 
-    expect(frameWin.postMessage).not.toHaveBeenCalled()
+    expect(frameWin.postMessage).toHaveBeenCalledTimes(1)
+    expect(frameWin.postMessage.mock.calls[0]?.[0]).toMatchObject({
+      type: 'hotkey',
+      token: TOKEN
+    })
   })
 
   it('pushes a changed shortcut to the frames that subscribed', () => {
@@ -135,7 +142,7 @@ describe('hotkey bridge in the top document', () => {
     expect(onTrigger).toHaveBeenCalledTimes(1)
   })
 
-  it('stays quiet for a wrong token or while the UI is busy', () => {
+  it('stays quiet while the UI is busy', () => {
     const onTrigger = vi.fn()
     bridge = installHotkeyBridge({
       getShortcut: () => 'Alt+Shift+S',
@@ -143,8 +150,7 @@ describe('hotkey bridge in the top document', () => {
       shouldIgnore: () => true
     })
 
-    dispatch({ type: 'trigger', token: 'other-install', nonce: 't4', shortcut: 'Alt+Shift+S' }, fakeWindow())
-    dispatch({ type: 'trigger', token: TOKEN, nonce: 't5', shortcut: 'Alt+Shift+S' }, fakeWindow())
+    dispatch({ type: 'trigger', nonce: 't5', shortcut: 'Alt+Shift+S' }, fakeWindow())
 
     expect(onTrigger).not.toHaveBeenCalled()
   })
@@ -163,10 +169,10 @@ describe('hotkey bridge in the top document', () => {
     const onKey = vi.fn()
     bridge = installHotkeyBridge({ getShortcut: () => 'Alt+Shift+S', onTrigger: () => undefined, onKey })
 
-    dispatch({ type: 'key', token: TOKEN, nonce: 'k1', key: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }, fakeWindow())
-    dispatch({ type: 'key', token: 'other-install', nonce: 'k2', key: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }, fakeWindow())
+    dispatch({ type: 'key', nonce: 'k1', key: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }, fakeWindow())
+    dispatch({ type: 'key', nonce: 'k2', key: 'ArrowDown', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }, fakeWindow())
 
-    expect(onKey).toHaveBeenCalledTimes(1)
+    expect(onKey).toHaveBeenCalledTimes(2)
     expect(onKey).toHaveBeenCalledWith({
       key: 'Escape',
       ctrlKey: false,
@@ -220,7 +226,9 @@ describe('hotkey relay in a frame', () => {
     await until(() => posted(post, 'subscribe').length >= 1)
     const asked = posted(post, 'subscribe')
     expect(asked).toHaveLength(1)
-    expect(asked[0]).toMatchObject({ token: TOKEN })
+    // The parent's page can read anything sent to the parent window, so the ask
+    // must not carry the install token.
+    expect(asked[0]).not.toHaveProperty('token')
 
     configure('Alt+Shift+S')
     await wait(300)
@@ -258,8 +266,9 @@ describe('hotkey relay in a frame', () => {
     )
 
     expect(posted(post, 'trigger')).toEqual([
-      expect.objectContaining({ token: TOKEN, shortcut: 'Alt+Shift+S' })
+      expect.objectContaining({ shortcut: 'Alt+Shift+S' })
     ])
+    expect(posted(post, 'trigger')[0]).not.toHaveProperty('token')
   })
 
   it('ignores other keys and keys typed into a text field', () => {
@@ -329,7 +338,6 @@ describe('hotkey relay in a frame', () => {
 
     expect(posted(post, 'key')).toEqual([
       expect.objectContaining({
-        token: TOKEN,
         key: 'Escape',
         ctrlKey: false,
         altKey: false,
@@ -337,6 +345,7 @@ describe('hotkey relay in a frame', () => {
         metaKey: false
       })
     ])
+    expect(posted(post, 'key')[0]).not.toHaveProperty('token')
     expect(escape.defaultPrevented).toBe(true)
 
     const command = new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, cancelable: true })

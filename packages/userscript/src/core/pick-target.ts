@@ -24,6 +24,12 @@ export interface PickTarget {
    * reported even if the page changed in between.
    */
   frameElementId: number | null
+  /**
+   * Frames the capture has to walk through before that id means something: the
+   * frame's own child ids, newest hop first. Empty for a layer of the frame
+   * itself; two entries for a layer of a frame two levels down.
+   */
+  path: readonly number[]
   label: string
   /** The element's border box on screen, in top viewport coordinates. */
   rect: TargetBox
@@ -51,6 +57,47 @@ function clipToFrame(rect: TargetBox, frame: TargetBox): TargetBox {
   }
 }
 
+/**
+ * Move layers a frame reported into its parent's client coordinates.
+ *
+ * The visible box is clipped to the frame's viewport because the rest is not on
+ * screen, while the capture box is left unclipped: like a scroll container, an
+ * element inside a frame can be taller than the window it is seen through, and
+ * that growth is exactly what the dashed frame tells the user.
+ *
+ * `hop` names the frame the answer came from, and is prepended to every layer's
+ * `via` so a capture knows which doors to walk through. The top document passes
+ * no hop: it asks its frame directly, so no door has been crossed yet.
+ */
+export function liftFrameItems(
+  view: TargetBox,
+  items: readonly FramePickItem[],
+  hop?: number
+): FramePickItem[] {
+  return items.map((item) => {
+    const rect = clipToFrame(
+      {
+        left: view.left + item.left,
+        top: view.top + item.top,
+        width: clampSize(item.width),
+        height: clampSize(item.height)
+      },
+      view
+    )
+    const via = hop === undefined ? (item.via ?? []) : [hop, ...(item.via ?? [])]
+    return {
+      ...item,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      contentWidth: clampSize(item.contentWidth),
+      contentHeight: clampSize(item.contentHeight),
+      ...(via.length ? { via } : {})
+    }
+  })
+}
+
 /** A layer in the document the picker runs in. */
 export function elementTarget(element: Element): PickTarget {
   const info = describeTarget(element)
@@ -58,6 +105,7 @@ export function elementTarget(element: Element): PickTarget {
     element,
     frame: null,
     frameElementId: null,
+    path: [],
     label: info.label,
     rect: info.rect,
     box: info.box,
@@ -81,33 +129,20 @@ export function frameTargets(
   const view = frameContentBox(frame)
   if (!view) return []
 
-  const targets: PickTarget[] = []
-  for (const item of items) {
-    const left = view.left + item.left
-    const top = view.top + item.top
-    targets.push({
-      element: null,
-      frame,
-      frameElementId: item.id,
-      label: item.label,
-      rect: clipToFrame(
-        {
-          left,
-          top,
-          width: clampSize(item.width),
-          height: clampSize(item.height)
-        },
-        view
-      ),
-      box: {
-        left,
-        top,
-        width: clampSize(item.contentWidth),
-        height: clampSize(item.contentHeight)
-      },
-      scrollAxis: item.scrollAxis,
-      fullPage: item.fullPage
-    })
-  }
-  return targets
+  return liftFrameItems(view, items).map((item) => ({
+    element: null,
+    frame,
+    frameElementId: item.id,
+    path: item.via ?? [],
+    label: item.label,
+    rect: { left: item.left, top: item.top, width: item.width, height: item.height },
+    box: {
+      left: item.left,
+      top: item.top,
+      width: item.contentWidth,
+      height: item.contentHeight
+    },
+    scrollAxis: item.scrollAxis,
+    fullPage: item.fullPage
+  }))
 }

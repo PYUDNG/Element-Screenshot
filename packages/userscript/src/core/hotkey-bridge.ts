@@ -33,6 +33,12 @@ import {
  *   choosing and use the reports as a keylogger;
  * - the parent is told *that* the shortcut was pressed plus the shortcut string it
  *   already knows, and the presses of keys our own UI consumes.
+ *
+ * Nothing travelling *up* carries the token: a message a frame sends to its parent
+ * is delivered into the parent window, where the parent's page scripts can read
+ * it — the very window the token has to stay out of. Upward presses are therefore
+ * unauthenticated by design; a frame can at worst open the picker or press a key
+ * the picker already handles.
  */
 
 /** How often a frame asks for the shortcut before it stops trying. */
@@ -52,8 +58,8 @@ export interface HotkeyBridgeOptions {
 export interface HotkeyBridge {
   /** Push the current shortcut to every frame that subscribed. */
   broadcast: () => void
-  /** Tell subscribed frames whether the capture UI is open. */
-  setActive: (active: boolean) => void
+  /** Tell subscribed frames whether the capture UI is open, and how. */
+  setActive: (active: boolean, passthrough?: boolean) => void
   dispose: () => void
 }
 
@@ -69,6 +75,7 @@ export function installHotkeyBridge(options: HotkeyBridgeOptions): HotkeyBridge 
   const win = options.win ?? window
   const subscribers = new Set<Window>()
   let active = false
+  let passthrough = false
 
   const broadcast = (): void => {
     const shortcut = options.getShortcut()
@@ -79,34 +86,31 @@ export function installHotkeyBridge(options: HotkeyBridgeOptions): HotkeyBridge 
 
   const pushActive = (): void => {
     for (const frameWin of subscribers) {
-      if (!postUiState(frameWin, active)) subscribers.delete(frameWin)
+      if (!postUiState(frameWin, active, passthrough)) subscribers.delete(frameWin)
     }
   }
 
-  const setActive = (next: boolean): void => {
-    if (next === active) return
+  const setActive = (next: boolean, nextPassthrough = passthrough): void => {
+    if (next === active && nextPassthrough === passthrough) return
     active = next
+    passthrough = nextPassthrough
     pushActive()
   }
 
   const handler = (event: Event): void => {
     const message = readFrameMessage((event as MessageEvent).data)
     if (!message) return
-    const token = getFrameToken()
-    if (!token) return
 
     if (message.type === 'subscribe') {
-      if (message.token !== token) return
       const source = (event as MessageEvent).source
       if (!source) return
       subscribers.add(source as Window)
       postHotkeyConfig(source as Window, options.getShortcut())
-      if (active) postUiState(source as Window, true)
+      if (active) postUiState(source as Window, true, passthrough)
       return
     }
 
     if (message.type === 'trigger') {
-      if (message.token !== token) return
       // The frame matched its own copy of the shortcut; drop the press if the
       // setting changed after that copy was handed out.
       if (message.shortcut !== options.getShortcut()) return
@@ -116,7 +120,6 @@ export function installHotkeyBridge(options: HotkeyBridgeOptions): HotkeyBridge 
     }
 
     if (message.type === 'key') {
-      if (message.token !== token) return
       options.onKey?.({
         key: message.key,
         ctrlKey: message.ctrlKey,
@@ -158,6 +161,7 @@ export function installFrameHotkey(options: FrameHotkeyOptions = {}): () => void
   const subscribers = new Set<Window>()
   let shortcut = ''
   let uiActive = false
+  let uiPassthrough = false
   let timer = 0
 
   const stopAsking = (): void => {
@@ -173,7 +177,7 @@ export function installFrameHotkey(options: FrameHotkeyOptions = {}): () => void
 
   const pushUi = (): void => {
     for (const childWin of subscribers) {
-      if (!postUiState(childWin, uiActive)) subscribers.delete(childWin)
+      if (!postUiState(childWin, uiActive, uiPassthrough)) subscribers.delete(childWin)
     }
   }
 
@@ -206,12 +210,13 @@ export function installFrameHotkey(options: FrameHotkeyOptions = {}): () => void
     if (message.type === 'ui') {
       if (message.token !== token || (event as MessageEvent).source !== win.parent) return
       uiActive = message.active
+      uiPassthrough = message.passthrough === true
       pushUi()
       return
     }
 
     if (message.type === 'subscribe') {
-      if (message.token !== token || !source) return
+      if (!source) return
       subscribers.add(source)
       if (shortcut) postHotkeyConfig(source, shortcut)
       if (uiActive) postUiState(source, true)
@@ -222,13 +227,13 @@ export function installFrameHotkey(options: FrameHotkeyOptions = {}): () => void
       // A press inside a nested frame stops here only long enough to pass it on.
       // `source === win` would be our own post coming back (only possible if this
       // relay were installed in the top document) — never relay that.
-      if (message.token !== token || !source || source === win) return
+      if (!source || source === win) return
       postHotkeyTrigger(win, message.shortcut)
       return
     }
 
     if (message.type === 'key') {
-      if (message.token !== token || !source || source === win) return
+      if (!source || source === win) return
       postRelayedKey(win, message)
     }
   }

@@ -17,9 +17,21 @@ All notable changes to this project are documented here. The format follows
   cross-origin document and the one that has the right fonts. The result is an
   ordinary picture of the element at its own size. A frame that cannot answer (no
   helper, still starting up, busy) is skipped for two seconds instead of making
-  every mouse move wait, and the picker falls back to the frame itself. Piercing
-  needs mouse passthrough off (the default): with the transparent layer gone the
-  pointer enters the frame and the page's own `mousemove` never reaches the picker.
+  every mouse move wait, and the picker falls back to the frame itself.
+- The picker can pierce more than one frame, up to “Frame depth” in the settings
+  (1–3, default 2). A hover that lands on a frame is answered by that frame, which
+  — if it finds one of *its* frames under the pointer — asks that frame in turn and
+  merges the answer into its own coordinates. Layers below name the frames the
+  answer travelled through, so picking one walks the same doors back down to the
+  frame that owns the element and renders it there. Every extra level costs one
+  more round trip inside that frame's own realm, which is why this is a setting
+  instead of an unconditional recursion.
+- Picking works with mouse passthrough on. With the transparent layer gone the
+  pointer enters the frame and the top window stops seeing it, so a frame reports
+  its pointer positions (and swallows the click, which is the capture gesture) while
+  the picker is open; the top document replays each report into its own pointer
+  handlers, which keeps one crosshair, one layer stack and one capture path. A
+  nested frame's report is relayed by its parent the same way.
 - The trigger shortcut works while the pointer focus is inside an iframe. A keydown
   fired in a frame never reaches the top document, so every frame now asks its
   parent for the shortcut over the bridge (`subscribe`), watches its own keys and
@@ -141,6 +153,21 @@ All notable changes to this project are documented here. The format follows
   travel — no plain letters or digits — and the page never sees the replayed event.
 - A cloned custom element no longer duplicates the shadow tree its constructor
   builds; the collected tree replaces it.
+
+### Security
+
+- A frame no longer hands the install token to the page that embeds it. Frames
+  report presses and pointer positions upward (`subscribe`, `trigger`, `key`), and
+  a message sent to the parent window is readable by the parent's own scripts —
+  which is exactly the window the token has to stay hidden from. Every page that
+  embedded a frame therefore learned the token from the first `subscribe` and could
+  then ask the frame for a picture of itself: a cross-origin screenshot that the
+  token was there to prevent. Upward messages now carry no token at all; downward
+  requests still do, so a helper keeps refusing strangers. Losing the token also
+  means those upward presses cannot be authenticated any more — a frame can open
+  the picker or press a key the picker already handles, which is a nuisance, not a
+  leak. The full model, including what still leaks and why it cannot be fixed in a
+  userscript, is written down in `docs/frame-bridge-security.md`.
 
 ## [0.7.1] - 2026-11-10
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { native } from '../src/core/native'
 import { createFrameHelper } from '../src/core/frame-helper'
+import { frameContentBox } from '../src/core/frame-size'
 import { FRAME_PROTOCOL, setFrameToken } from '../src/core/frame-bridge'
 
 const BLOB = new Blob(['png'], { type: 'image/png' })
@@ -445,5 +446,191 @@ describe('frame element capture', () => {
     await settle()
 
     expect(post).not.toHaveBeenCalled()
+  })
+})
+
+describe('piercing a nested frame', () => {
+  function nestedFrame(): HTMLIFrameElement {
+    const frame = document.createElement('iframe')
+    document.body.append(frame)
+    Object.defineProperty(frame, 'clientWidth', { value: 300 })
+    Object.defineProperty(frame, 'clientHeight', { value: 200 })
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 50,
+      width: 300,
+      height: 200,
+      right: 400,
+      bottom: 250,
+      x: 100,
+      y: 50,
+      toJSON: () => ({})
+    } as DOMRect)
+    return frame
+  }
+
+  function postedStack(post: { mock: { calls: unknown[][] } }): { items: unknown[] } {
+    const found = post.mock.calls
+      .map((call) => call[0] as { type?: string })
+      .find((entry) => entry && entry.type === 'stack')
+    return found as unknown as { items: unknown[] }
+  }
+
+  function hoverInto(helper: ReturnType<typeof createFrameHelper>): void {
+    helper.handleMessage(
+      messageEvent({
+        protocol: FRAME_PROTOCOL,
+        type: 'hover',
+        token: 'test-token',
+        nonce: 'h9',
+        x: 120,
+        y: 70,
+        depth: 2
+      })
+    )
+  }
+
+  it('asks the frame under the pointer and names the door it used', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const frame = nestedFrame()
+    const childPick = vi.fn(async () => [{ ...pickItem('div.inner'), left: 10, top: 20 }])
+    const helper = createFrameHelper({
+      pick: () => [
+        { element: frame, item: pickItem('iframe') },
+        { element: document.body, item: pickItem('body') }
+      ],
+      childPick
+    })
+
+    hoverInto(helper)
+    await settle()
+
+    const view = frameContentBox(frame)
+    expect(view).not.toBeNull()
+    // The point is handed over in the child's own coordinates, with one level of
+    // budget spent.
+    expect(childPick).toHaveBeenCalledWith(frame, {
+      x: 120 - (view?.left ?? 0),
+      y: 70 - (view?.top ?? 0),
+      depth: 1,
+      timeout: 250
+    })
+    const stack = postedStack(post)
+    expect(stack.items).toHaveLength(3)
+    // Deeper layers are on top, so they come first; the hop is recorded so a
+    // capture can walk the same path.
+    expect(stack.items[0]).toMatchObject({
+      label: 'div.inner',
+      left: (view?.left ?? 0) + 10,
+      top: (view?.top ?? 0) + 20,
+      via: [1]
+    })
+    expect(stack.items[1]).toMatchObject({ label: 'iframe' })
+    expect(stack.items[2]).toMatchObject({ label: 'body' })
+  })
+
+  it('keeps the frame depth from the request', async () => {
+    const childPick = vi.fn(async () => [{ ...pickItem('div.inner') }])
+    const frame = nestedFrame()
+    const helper = createFrameHelper({
+      pick: () => [{ element: frame, item: pickItem('iframe') }],
+      childPick
+    })
+
+    helper.handleMessage(
+      messageEvent({
+        protocol: FRAME_PROTOCOL,
+        type: 'hover',
+        token: 'test-token',
+        nonce: 'h1',
+        x: 120,
+        y: 70,
+        depth: 1
+      })
+    )
+    await settle()
+
+    expect(childPick).not.toHaveBeenCalled()
+  })
+
+  it('captures a deep layer through the hop a hover reported', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const frame = nestedFrame()
+    const childCapture = vi.fn(async () => ({
+      blob: BLOB,
+      width: 12,
+      height: 34,
+      limited: false
+    }))
+    const helper = createFrameHelper({
+      pick: () => [{ element: frame, item: pickItem('iframe') }],
+      childPick: async () => [{ ...pickItem('div.inner') }],
+      childCapture
+    })
+
+    hoverInto(helper)
+    await settle()
+
+    helper.handleMessage(
+      messageEvent({
+        protocol: FRAME_PROTOCOL,
+        type: 'capture',
+        token: 'test-token',
+        nonce: 'c9',
+        elementId: 7,
+        via: [1],
+        ratio: 2,
+        expandNested: true,
+        background: { mode: 'page' }
+      })
+    )
+    await settle()
+
+    expect(childCapture).toHaveBeenCalledWith(frame, {
+      elementId: 7,
+      via: [],
+      ratio: 2,
+      expandNested: true,
+      background: { mode: 'page' }
+    })
+    expect(post).toHaveBeenCalledWith(
+      {
+        protocol: FRAME_PROTOCOL,
+        type: 'captured',
+        nonce: 'c9',
+        blob: BLOB,
+        width: 12,
+        height: 34,
+        limited: false
+      },
+      '*'
+    )
+  })
+
+  it('refuses a capture with a malformed hop path', async () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const capture = vi.fn()
+    const helper = createFrameHelper({ capture })
+
+    helper.handleMessage(
+      messageEvent({
+        protocol: FRAME_PROTOCOL,
+        type: 'capture',
+        token: 'test-token',
+        nonce: 'c7',
+        elementId: 7,
+        via: [0],
+        ratio: 1,
+        expandNested: false,
+        background: { mode: 'page' }
+      })
+    )
+    await settle()
+
+    expect(capture).not.toHaveBeenCalled()
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'captured', nonce: 'c7', error: 'The element path is invalid' }),
+      '*'
+    )
   })
 })

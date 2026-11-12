@@ -14,6 +14,7 @@ function target(): PickTarget {
     element: document.createElement('div'),
     frame: null,
     frameElementId: null,
+    path: [],
     label: 'div',
     rect: { left: 0, top: 0, width: 10, height: 10 },
     box: { left: 0, top: 0, width: 10, height: 10 },

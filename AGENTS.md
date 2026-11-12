@@ -372,14 +372,14 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 桥协议（`core/frame-bridge.ts` + `core/frame-helper.ts`）
 
-- `FRAME_PROTOCOL = 'element-screenshot:frame/5'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key/hover/stack/capture/captured/cancel`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传，`/5` 加了穿透选取。）
+- `FRAME_PROTOCOL = 'element-screenshot:frame/6'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key/hover/stack/capture/captured/pointer/cancel`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传，`/5` 加了穿透选取，`/6` 加了多层 `depth`/`via`、鼠标穿透的 `pointer`，并取消向上消息里的 token。）
 - 探测：`probeFrameHelpers(frames)` 一次向所有帧发 `hello`，在**同一个 400ms 窗口**里收 `ready`，所以一页有 N 个没有 helper 的帧也只等一次；返回的集合里没有的帧就走兜底。
 - 测量：`requestFrameSize(frame)` 发 `measure`，等 `size`（默认 3 秒）。helper 回的是「根展开后文档有多大」（`frameContentSize()` 读 `scrollWidth` / `scrollHeight`，只读、不建快照）。0×0 或 `error` 都算失败。
 - 渲染：`requestFrameImage(frame, { ratio, depth, expand? })` 发 `render`，等 `result`（默认 10 秒），期间每 100ms 检查 `native.capture.aborted`，用户取消时立即放弃等待。失败/超时/`busy`/`error` 都返回 `null` → 走兜底（可读时）或空盒。
 - 顺序：`paintFrames()` 先 `probeFrameHelpers`（根帧的探测在 `planFrameExpansion()` 里已经做过，会复用），再逐帧 `requestFrameImage ?? renderFrameViewport(frame.doc, …)`，图写回副本 iframe 的 `background-image`（`origin: content-box`、`size: 100% 100%`），父级只渲染一次页面。
 - 深度：`paintFrames(root, frames, ratio, options, depth)` 里 `depth > MAX_FRAME_DEPTH(2)` 直接返回；helper 收到 `depth` 原样转给 `renderFrameViewport`，所以「帧里的帧」最多两层，再深留空盒。
 - 并发：helper 同时只渲染一个请求，第二个立刻回 `busy`；helper 会等 `DOMContentLoaded`（最多 5 秒）再开始，避免在解析中途拍照。
-- **鉴权（别拆）**：helper 会渲染自己的页面，没有门槛的话任何站点都能嵌一个页面进来、用我们的 helper 截它的图（跨域像素外泄）。现在 `main.ts` 用 `GM_getValue/GM_setValue` 生成并共享一个安装级 token（`element-screenshot:frame-token`），helper 只接受 `event.source === window.parent` 且 token 匹配的请求。页面脚本读不到 userscript 存储，所以拿不到 token。两个不同安装（或 playground stub 与 VM）token 不同 → 互相不响应，这是**预期**行为。
+- **鉴权（别拆）**：helper 会渲染自己的页面，没有门槛的话任何站点都能嵌一个页面进来、用我们的 helper 截它的图（跨域像素外泄）。现在 `main.ts` 用 `GM_getValue/GM_setValue` 生成并共享一个安装级 token（`element-screenshot:frame-token`），helper 只接受 `event.source === window.parent` 且 token 匹配的请求。页面脚本读不到 userscript 存储，所以拿不到 token——**前提是 token 只向下传**：`subscribe/trigger/key/pointer` 发往父窗口，父窗口的页面能读，所以一个字节都不带。完整的威胁模型、残余风险与验证手法见 `docs/frame-bridge-security.md`（2026-11-12 修掉的正是「`subscribe` 带 token」这个漏洞）。
 - `setFrameToken()` / `getFrameToken()` 是模块级状态：`main.ts` 在两边的 realm 里都要先调用 `setFrameToken(ensureFrameToken())`；token 为空时桥整体沉默（探测返回空集、请求返回 null），安全降级。
 
 ### 已经做完（别再重复实现）
@@ -438,8 +438,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 选中帧内图层 → `capture{elementId}` 让**帧自己**渲染：helper 直接调 `captureElement()`，回 `captured{blob,width,height,limited}`。父级读不到跨域文档，同源也不该用父级 realm 的字体，所以不走父级兜底。
 - `elementId` 是 helper 侧的 `WeakMap<Element, number>` 编号（不复用、跨 hover 稳定、超 2000 条裁剪），父级**不传选择器**：跨域文档里的选择器既不可信也不可靠；capture 时再校验 `isConnected`。
 - 没有 helper 的帧不参与穿透：`hover` 250ms 超时 → 该帧进 `framePickRetry`（2 秒），期间悬停直接退回 `iframe` 图层，不会让光标卡住；`startPicker()` 清空这张表。
-- 只穿一层：帧的栈里最内层若又是 `<iframe>`，它就是「帧内的帧元素」，父级不再往下问（否则坐标要跨两级换算）。
-- 依赖「鼠标穿透」关闭（默认）：pick-surface 接住指针，必须父级驱动；打开穿透后指针进入帧、顶层收不到 mousemove，穿透失效。帧内滚轮被 picker 占用，所以只能选帧当前视口里的部分。
+- 多层（`picker.frameDepth`，设置里 1–3、默认 2）：帧发现自己的最内层又是 `<iframe>` 时，**它自己**向下问一层（`depth-1`），把子帧条目换算进自己的坐标、给 `via` 加上这一跳的帧编号，再并到自己上面。`via` 是「还要穿过哪些子帧」的编号链，capture 时每层按 `via[0]` 转发、`via.slice(1)` 下传，最后一层才用 `elementId`；帧编号是 helper 自己的 `WeakMap<HTMLIFrameElement, number>`（上限 64）。每层的超时预算 `FRAME_PICK_TIMEOUT × depth`，所以深一层就多一跳 RTT、选择器栈也多 3–5 项。
+- 鼠标穿透开着时也能量：帧收到 `ui{active, passthrough}` 后自己上报 `pointer{kind,x,y}`（`core/frame-pointer.ts`，只报 move、click 吞掉并上报），顶层 `installFramePointerBridge()` 换算成视口坐标、在 `document.body` 上重放 `mousemove`/`click` 给 picker——同一个十字线、同一份栈、同一条截图路径。mousemove 不 `preventDefault`（页面的 hover 要保留），嵌套帧的上报由父帧换算后再转发。帧内滚轮仍归页面，所以只能选帧当前视口里的部分。
 
 ### 帧的字体与并行渲染
 
@@ -449,25 +449,14 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - `paintFrames()` 先 `Promise.all` 发所有 helper 请求，再串行处理本地兜底（同一个 realm 的字体源切换、canvas、内存都不该并发）；每张图仍逐个 `blobToDataUrl` + 写回背景。取消时 `requestFrameImage()` 也发 `cancel`（以前只有 `capture` 会）。helper 的「同时只渲染一个」不变，只是**各个帧的 helper** 现在同时开工。
 - 同站帧共享一个渲染进程/线程，并行只省掉「排队等」；实测本机 2 帧 2.2～3.0 秒、1 帧 1.55 秒（两个 loopback origin 也在同一进程）。真正跨站的帧才拿得到 max 而不是 sum。
 
-### 已验证（真实浏览器，VM 实例 + playground，2026-11-11）
+### 已验证（真实浏览器）
 
-验证手法：`page.addInitScript` 把 `HTMLCanvasElement.prototype.toBlob` 包一层统计每个 realm 的调用次数（`window.__shotCount`），再用 `frame.contentWindow.__shotCount` 区分「帧自己渲染」和「父级渲染」。
-
-- 同源 `#frame-demo`（`?vm=1`）：864×726、`ratio 2`，1.4 秒；父级 `toBlob` +1、帧内 1 → 走 helper；表头 `#eef2ff` 52,811 像素、下沿露出 `Frame row 02` 半行 → `scrollY = 60` 平移正确。跨域（4176 嵌 4177）：1040×682、1.5 秒、表头 65,835 像素 → 只有 helper 能做到；兜底（`about:blank` + `document.write`）帧内 0 次、父级 2 次、720×360 正常。
-- 鉴权：页面伪造 `hello`/`render`（错 token 或空 token）→ 900ms 内无任何回复。截完页面和帧内都没有残留快照节点、iframe 行内样式未改、帧滚动仍是 60。
-- 选中帧本身 = 展开：同源 + helper **788×2226**、跨域 + helper **964×2226**；同源兜底也一样。选中包含帧的祖先 **864×770**、帧只画 220px 视口、盒子没撑高。
-- 帧内快捷键（`Alt+S`）：点进同源/跨域帧后按快捷键 → 顶层收到 `trigger`、选框出现，`document.activeElement` 始终是 `IFRAME`；方向键换层、`Esc` 关闭，页面 window keydown 监听一条都没收到。
-
-穿透选取（同一环境）：
-
-- 悬停同源帧（394×220）→ 标签 `div.row帧内377 × 369/9`、可见框 `784.5,389.7 377×36`（帧在 783.5,300.7，1px 边框）；层级 1/9→9/9 = `html → body → main → section#frame-demo → iframe → html帧内 → body帧内 → div#frame-list 帧内 → div.row 帧内`。点它 → **754×72**、跨域帧同样 → **930×72**；无 helper 的帧悬停 ~120ms 退回 `iframe`，2 秒内重进命中缓存。
-
-> 自动化坑：`hidden` 标签页里 `requestAnimationFrame` 完全不跑，而 picker 的 hover 是 rAF 节流的 → 先 `mouse.move`（同步更新 `picker.cursor`）再 `dispatchEvent(new Event('resize'))`（`handleResize()` 同步 `refresh()`）。FAB 贴右边时坐标用 `innerWidth`（含滚动条），`elementsFromPoint()` 在滚动条区域返回空数组，点击要落在 `clientWidth` 内。注意 `native` 在 document-start 快照了 `toBlob`，运行期再包原型统计不到（要统计得用 `addInitScript`）。
+像素级证据、测量数字与自动化坑都放在 `docs/frame-verification.md`：首轮（2026-11-11）验证了同源/跨域帧出图、鉴权、选中帧=展开、帧内快捷键、穿透选取；之后每轮新增的验证都追加在那里。
 
 ### 下一步（按顺序）
 
-1. 穿透选取的缺口：鼠标穿透开着时帧收不到指针（要帧上报 pointer、父级换算坐标并接管点击）；只穿一层（递归要一层一次坐标换算 + `via` 链路）；`MAX_FRAME_DEPTH = 2` 之外的帧留空盒。用户想支持多层，但要先看到代价评估再决定。
-2. 区域截图里「帧在被替换的滚动容器内」已修（见上），目前只有 jsdom 用例锁顺序，真实页面还没验证。
+1. **选取深度 ≠ 渲染深度**：`picker.frameDepth` 可以到 3，但 `MAX_FRAME_DEPTH = 2` 管的是渲染——第 3 层帧里的再下一层帧渲染出来仍是空盒。要加深得先算清「每层一次完整渲染」的时间。
+2. 预览阶段的帧内按键没有回传（`ui` 只在 `picking` 时置位，`handleSelect()` 靠 blur 把焦点带出帧）；实测如果发现预览里 `Esc` 无效，再把 `ui` 扩到 `selected`。
 
 ### 关键约束（别踩）
 
@@ -484,7 +473,9 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 跨域：先 `PLAYGROUND_PORT=4177 pnpm playground`，再访问 4176 页面的 `#cross-frame-demo`。
 - 兜底：`about:blank` + `document.write` 的临时 iframe（VM 不注入这种帧）。
 - 区域 + 帧：`region.html` 的 `#panel-d`（同源）/`#panel-e`（跨域 4177），面板自身滚动 70px、帧内滚动 60px；这一格出图才说明「帧图先于切片写回」生效（jsdom 侧由 `capture.test.ts` 的顺序用例锁定）。
-- 还缺：「帧内再嵌帧」的两层用例、「帧在可滚动祖先里、祖先展开后帧位置是否跟得上」的用例。
+- 多层：`index.html` 的 `#split-frame-demo` → `frame-split.html`（外层帧）→ `/frame.html`（内层帧）。悬停内层行应出现带两层 `帧内` 的栈；穿透层数设成 1 时只到外层帧。
+- 鼠标穿透：设置里打开「鼠标穿透」后重新拾取，悬停 `#frame-demo` 内部应看到选框跟手、点击直接出图。
+- 还缺：三层帧、「帧在可滚动祖先里、祖先展开后帧位置是否跟得上」的用例。
 
 ## 验证建议
 

@@ -1,12 +1,24 @@
 import { native } from './native'
 import { captureElement, renderFrameViewport, shouldCaptureNode } from './capture'
 import type { CaptureBackground } from './capture'
-import { frameContentSize } from './frame-size'
+import { frameContentBox, frameContentSize } from './frame-size'
 import type { FrameSize } from './frame-size'
 import { collectFramePickCandidates } from './frame-pick'
 import type { FramePickCandidate } from './frame-pick'
-import { FRAME_PROTOCOL, getFrameToken, postFrameMessage, readFrameMessage } from './frame-bridge'
+import {
+  FRAME_PICK_TIMEOUT,
+  FRAME_PROTOCOL,
+  MAX_FRAME_PIERCE,
+  getFrameToken,
+  postFrameMessage,
+  readFrameMessage,
+  readVia,
+  requestFrameCapture,
+  requestFramePick
+} from './frame-bridge'
 import type {
+  FrameCapturePayload,
+  FrameCaptureRequest,
   FrameCapturedMessage,
   FrameHelloMessage,
   FrameHoverMessage,
@@ -15,6 +27,7 @@ import type {
   FrameSizeMessage,
   FrameStackMessage
 } from './frame-bridge'
+import { liftFrameItems } from './pick-target'
 import { getTargetBox } from './target'
 
 /** A frame whose parser never finishes must not hang the parent's capture. */
@@ -25,6 +38,13 @@ const PARSE_TIMEOUT = 5_000
  * for the lifetime of the page.
  */
 const MAX_ELEMENTS = 2_000
+/**
+ * How many child frames one document may report through.
+ *
+ * A hover chain only needs the frames it walked through, so a small table is
+ * enough; the oldest entries are dropped instead of growing for the page lifetime.
+ */
+const MAX_CHILD_FRAMES = 64
 
 export interface FrameRenderRequest {
   ratio: number
@@ -59,6 +79,21 @@ export interface FrameHelperOptions {
   pick?: (doc: Document, x: number, y: number) => FramePickCandidate[]
   /** Element capture override, used by tests. */
   capture?: (request: FrameElementCaptureRequest) => Promise<FrameElementCaptureResult | null>
+  /** Ask a nested frame for its layers; defaults to the bridge. */
+  childPick?: (frame: HTMLIFrameElement, request: FrameChildPickRequest) => Promise<FramePickItem[] | null>
+  /** Ask a nested frame to capture one of its layers; defaults to the bridge. */
+  childCapture?: (
+    frame: HTMLIFrameElement,
+    request: FrameCaptureRequest
+  ) => Promise<FrameCapturePayload | null>
+}
+
+/** A hover forwarded one frame down, with the point in that frame's coordinates. */
+export interface FrameChildPickRequest {
+  x: number
+  y: number
+  depth: number
+  timeout: number
 }
 
 export interface FrameHelper {
@@ -126,9 +161,27 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
       }
     })
 
+  const childPick =
+    options.childPick ??
+    ((frame: HTMLIFrameElement, request: FrameChildPickRequest) => requestFramePick(frame, request))
+  const childCapture =
+    options.childCapture ??
+    ((frame: HTMLIFrameElement, request: FrameCaptureRequest) =>
+      requestFrameCapture(frame, request))
+
   const elements = new Map<number, Element>()
   const elementIds = new WeakMap<Element, number>()
   let nextElementId = 1
+  /**
+   * Child frames that a deeper layer travelled through.
+   *
+   * A layer two frames down is named by the ids of the frames the answer passed
+   * through, so a capture can walk the same doors; the ids belong to this frame
+   * and mean nothing anywhere else.
+   */
+  const childFrames = new Map<number, HTMLIFrameElement>()
+  const childFrameIds = new WeakMap<HTMLIFrameElement, number>()
+  let nextChildFrameId = 1
   let busy = false
 
   /**
@@ -154,6 +207,24 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
     return id
   }
 
+  /** Remember the frame a deeper answer travelled through, and name it. */
+  const registerFrame = (frame: HTMLIFrameElement): number => {
+    const existing = childFrameIds.get(frame)
+    if (existing !== undefined) return existing
+
+    const id = nextChildFrameId
+    nextChildFrameId += 1
+    childFrameIds.set(frame, id)
+    childFrames.set(id, frame)
+    if (childFrames.size > MAX_CHILD_FRAMES) {
+      for (const key of childFrames.keys()) {
+        childFrames.delete(key)
+        if (childFrames.size <= MAX_CHILD_FRAMES / 2) break
+      }
+    }
+    return id
+  }
+
   const reply = (
     source: Window | null,
     message:
@@ -170,15 +241,43 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
    *
    * A hit test is cheap and read-only, so it is answered even while a render runs
    * and it never joins the `busy` queue: the crosshair has to keep up.
+   *
+   * The innermost layer may be one of our own frames, in which case that frame is
+   * asked for its layers and its answer is shifted into this document, tagged
+   * with the frame it came through. The list stays topmost first, so the deeper
+   * layers go *before* the frame that contains them.
    */
-  const replyStack = (source: Window, message: FrameHoverMessage): void => {
+  const replyStack = async (source: Window, message: FrameHoverMessage): Promise<void> => {
     let items: FramePickItem[] = []
     let error: string | undefined
     try {
-      items = pick(doc, message.x, message.y).map((candidate) => ({
+      const candidates = pick(doc, message.x, message.y)
+      items = candidates.map((candidate) => ({
         ...candidate.item,
         id: register(candidate.element)
       }))
+
+      const depth =
+        Number.isFinite(message.depth) && message.depth > 0
+          ? Math.min(Math.floor(message.depth), MAX_FRAME_PIERCE)
+          : 1
+      const innermost = candidates[0]?.element
+      if (depth > 1 && innermost && innermost.tagName === 'IFRAME') {
+        const frame = innermost as HTMLIFrameElement
+        const view = frameContentBox(frame)
+        if (view) {
+          const hop = registerFrame(frame)
+          const nested = await childPick(frame, {
+            x: message.x - view.left,
+            y: message.y - view.top,
+            depth: depth - 1,
+            timeout: FRAME_PICK_TIMEOUT * (depth - 1)
+          })
+          if (nested && nested.length > 0) {
+            items = [...liftFrameItems(view, nested, hop), ...items]
+          }
+        }
+      }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
     }
@@ -209,7 +308,7 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
       if ((message as FrameHoverMessage).token !== token) return
       // Nothing is laid out yet while the document is still parsing.
       if (doc.readyState === 'loading') return
-      replyStack(source, message as FrameHoverMessage)
+      void replyStack(source, message as FrameHoverMessage)
       return
     }
     if (message.type === 'cancel') {
@@ -260,6 +359,32 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
           return
         }
         if (message.type === 'capture') {
+          // A layer of a frame below this one: walk the same doors the hover
+          // answer came through and hand the picture back up the chain.
+          const via = readVia(message.via)
+          if (via === null) throw new Error('The element path is invalid')
+          if (via.length > 0) {
+            const hop = via[0]
+            const child = hop === undefined ? undefined : childFrames.get(hop)
+            if (!child || !child.isConnected) throw new Error('The frame is gone')
+            const nested = await childCapture(child, {
+              elementId: message.elementId,
+              via: via.slice(1),
+              ratio: message.ratio,
+              expandNested: message.expandNested !== false,
+              background: readBackground(message.background)
+            })
+            if (!nested) throw new Error('The frame produced no picture')
+            reply(source, {
+              type: 'captured',
+              nonce: message.nonce,
+              blob: nested.blob,
+              width: nested.width,
+              height: nested.height,
+              limited: nested.limited
+            })
+            return
+          }
           const element = elements.get(message.elementId)
           if (!element || !element.isConnected) throw new Error('The picked element is gone')
           const result = await capture({

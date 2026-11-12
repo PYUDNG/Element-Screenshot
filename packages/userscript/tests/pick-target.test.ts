@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FramePickItem } from '../src/core/frame-bridge'
 import { native } from '../src/core/native'
-import { elementTarget, frameTargets } from '../src/core/pick-target'
+import { elementTarget, frameTargets, liftFrameItems } from '../src/core/pick-target'
 
 function rectOf(left: number, top: number, width: number, height: number): DOMRect {
   return {
@@ -111,5 +111,29 @@ describe('pick targets', () => {
     const frame = fakeFrame()
     const [target] = frameTargets(frame, [item({ left: 5000, top: 5000 })])
     expect(target?.rect).toEqual({ left: 405, top: 255, width: 0, height: 0 })
+  })
+
+  it('keeps the path a frame reported for a deeper layer', () => {
+    const frame = fakeFrame()
+    const [target] = frameTargets(frame, [item({ via: [4, 9] })])
+    expect(target?.path).toEqual([4, 9])
+  })
+
+  it('gives a layer of the frame itself an empty path', () => {
+    const frame = fakeFrame()
+    const [target] = frameTargets(frame, [item()])
+    expect(target?.path).toEqual([])
+  })
+
+  it('prepends the hop a nested answer came through', () => {
+    const items = liftFrameItems({ left: 100, top: 50, width: 300, height: 200 }, [item()], 3)
+
+    expect(items[0]).toMatchObject({ left: 120, top: 60, via: [3] })
+  })
+
+  it('keeps the hops a nested frame already reported', () => {
+    const items = liftFrameItems({ left: 0, top: 0, width: 600, height: 400 }, [item({ via: [8] })], 3)
+
+    expect(items[0]).toMatchObject({ via: [3, 8] })
   })
 })

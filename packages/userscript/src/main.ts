@@ -9,6 +9,7 @@ import { GM_getValue, GM_setValue } from '$'
 import { native } from './core/native'
 import { setFrameToken } from './core/frame-bridge'
 import { installFrameHelper } from './core/frame-helper'
+import { installFramePointer } from './core/frame-pointer'
 import { installFrameHotkey } from './core/hotkey-bridge'
 import { installEarlyPickerListeners } from './core/picker'
 import { startApp } from './app'
@@ -73,4 +74,6 @@ if (window === window.top) {
   // Keys pressed inside a frame never reach the top document, so the frame
   // reports the shortcut upward instead of starting a capture of its own.
   installFrameHotkey()
+  // With mouse passthrough on the pointer never reaches the top document either.
+  installFramePointer()
 }

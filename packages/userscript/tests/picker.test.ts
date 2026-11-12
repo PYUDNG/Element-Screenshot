@@ -14,6 +14,7 @@ function layer(element: Element): PickTarget {
     element,
     frame: null,
     frameElementId: null,
+    path: [],
     label: element.tagName.toLowerCase(),
     rect: { left: 0, top: 0, width: 10, height: 10 },
     box: { left: 0, top: 0, width: 10, height: 10 },

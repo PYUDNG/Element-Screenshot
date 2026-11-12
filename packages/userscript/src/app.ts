@@ -21,6 +21,7 @@ import { SETTINGS_DOMAIN_KEY, SETTINGS_STEPS } from './config/migrate'
 import { native } from './core/native'
 import { installHotkey } from './core/hotkey'
 import { installHotkeyBridge } from './core/hotkey-bridge'
+import { installFramePointerBridge } from './core/frame-bridge'
 import { enableSiteForUrl, isSiteEnabled } from './core/site-policy'
 import { createShotApp, UI_ROOT_ATTRIBUTE } from './ui/shot-app'
 import type { ShotApp } from './ui/shot-app'
@@ -109,11 +110,23 @@ export function startApp(): void {
       onKey: (stroke) => shot?.handleRelayedKey(stroke)
     })
     watch(shortcut, () => bridge.broadcast())
+    // With mouse passthrough on there is no transparent layer, so the pointer is
+    // inside a frame and only the frame can say where it is.
+    installFramePointerBridge({
+      onMove: (point) => shot?.handleFramePointer(point, 'move'),
+      onClick: (point) => shot?.handleFramePointer(point, 'click')
+    })
     // Let frames know while the picker owns the keyboard, so they can report Esc
     // and the layer keys without us having to steal the focus from them.
+    const passthrough = (): boolean => settings.get('capture.pointerPassthrough') === true
     watch(
       () => shot?.state.mode ?? 'idle',
-      (mode) => bridge.setActive(mode === 'picking')
+      (mode) => bridge.setActive(mode === 'picking', passthrough())
+    )
+    // Frames have to hear about the switch too: it decides whether they report the
+    // pointer at all.
+    watch(passthrough, () =>
+      bridge.setActive((shot?.state.mode ?? 'idle') === 'picking', passthrough())
     )
   }
 

@@ -12,7 +12,7 @@ import {
 import type { CaptureBackground } from '../core/capture'
 import { resolvePageBackground } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
-import { requestFrameCapture, requestFramePick } from '../core/frame-bridge'
+import { MAX_FRAME_PIERCE, requestFrameCapture, requestFramePick } from '../core/frame-bridge'
 import type { FramePickItem } from '../core/frame-bridge'
 import { frameContentBox } from '../core/frame-size'
 import { native } from '../core/native'
@@ -214,6 +214,29 @@ export class ShotApp implements ShotAppApi {
   }
 
   /**
+   * Follow the pointer a frame reported.
+   *
+   * With mouse passthrough on there is no transparent layer, so the pointer lives
+   * inside a frame and the top window never sees it. Replaying the event keeps one
+   * pointer path inside the picker: it moves the crosshair, resolves the stack
+   * under the point and, on a click, picks the layer the user is looking at.
+   */
+  handleFramePointer(point: { x: number; y: number }, kind: 'move' | 'click'): void {
+    if (this.state.mode !== 'picking') return
+    const target = native.document.body ?? native.document.documentElement
+    if (!target) return
+    target.dispatchEvent(
+      new native.MouseEvent(kind === 'click' ? 'click' : 'mousemove', {
+        clientX: point.x,
+        clientY: point.y,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      })
+    )
+  }
+
+  /**
    * Act on a picker key reported by a frame.
    *
    * A click inside a frame leaves the keyboard there, so the picker would never
@@ -401,6 +424,19 @@ export class ShotApp implements ShotAppApi {
   }
 
   /**
+   * How many frame levels the picker may pierce.
+   *
+   * Every level costs another round trip through a frame's own realm, so the
+   * setting is capped at `MAX_FRAME_PIERCE`; the default of two covers a widget
+   * inside a page that is itself embedded.
+   */
+  private pierceDepth(): number {
+    const raw = Number(this.settings.get('picker.frameDepth') ?? 2)
+    const depth = Number.isFinite(raw) ? Math.floor(raw) : 2
+    return Math.min(Math.max(depth, 1), MAX_FRAME_PIERCE)
+  }
+
+  /**
    * Ask one frame what sits under the pointer.
    *
    * The point only counts inside the frame's viewport: on its border or padding
@@ -427,7 +463,11 @@ export class ShotApp implements ShotAppApi {
       return null
     }
 
-    const items = await requestFramePick(frame, { x: x - view.left, y: y - view.top })
+    const items = await requestFramePick(frame, {
+      x: x - view.left,
+      y: y - view.top,
+      depth: this.pierceDepth()
+    })
     if (!items) {
       this.framePickRetry.set(frame, Date.now() + FRAME_PICK_RETRY)
       return null
@@ -484,7 +524,12 @@ export class ShotApp implements ShotAppApi {
       return
     }
     if (target.frame && target.frameElementId !== null) {
-      this.pending = this.renderFrameCapture(target.frame, target.frameElementId, token)
+      this.pending = this.renderFrameCapture(
+        target.frame,
+        target.frameElementId,
+        target.path,
+        token
+      )
       return
     }
 
@@ -596,6 +641,7 @@ export class ShotApp implements ShotAppApi {
   private async renderFrameCapture(
     frame: HTMLIFrameElement,
     elementId: number,
+    path: readonly number[],
     token: number
   ): Promise<void> {
     try {
@@ -603,6 +649,7 @@ export class ShotApp implements ShotAppApi {
       native.capture.aborted = false
       const result = await requestFrameCapture(frame, {
         elementId,
+        via: [...path],
         ratio: this.pixelRatio(),
         expandNested: Boolean(this.settings.get('capture.expandNested')),
         background: this.captureBackground()

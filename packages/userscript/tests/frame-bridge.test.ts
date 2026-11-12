@@ -4,17 +4,20 @@ import {
   FRAME_PROTOCOL,
   frameWindow,
   getFrameToken,
+  installFramePointerBridge,
   postFrameCancel,
   postFrameMessage,
   probeFrameHelpers,
   readFrameMessage,
   readPickItems,
+  readVia,
   requestFrameCapture,
   requestFrameImage,
   requestFramePick,
   requestFrameSize,
   setFrameToken
 } from '../src/core/frame-bridge'
+import { frameContentBox } from '../src/core/frame-size'
 import type { FrameMessage } from '../src/core/frame-bridge'
 
 interface FakeFrame {
@@ -104,6 +107,91 @@ describe('frame messages', () => {
         metaKey: false
       })
     ).not.toBeNull()
+  })
+
+  it('reads a hop path strictly', () => {
+    expect(readVia(undefined)).toEqual([])
+    expect(readVia([])).toEqual([])
+    expect(readVia([1, 2])).toEqual([1, 2])
+    // Anything that is not a positive integer would name a different frame, so the
+    // whole path is rejected instead of being repaired.
+    expect(readVia([0])).toBeNull()
+    expect(readVia([-1])).toBeNull()
+    expect(readVia([1.5])).toBeNull()
+    expect(readVia(['1'])).toBeNull()
+    expect(readVia([1, 2, 3, 4, 5, 6, 7, 8, 9])).toBeNull()
+  })
+
+  it('drops a layer whose hop path is malformed', () => {
+    const base = {
+      id: 1,
+      label: 'div',
+      left: 0,
+      top: 0,
+      width: 10,
+      height: 10,
+      contentWidth: 10,
+      contentHeight: 10,
+      scrollAxis: null,
+      fullPage: false
+    }
+    expect(readPickItems([{ ...base, via: [3] }])[0]?.via).toEqual([3])
+    expect(readPickItems([{ ...base, via: [] }])[0]?.via).toBeUndefined()
+    expect(readPickItems([{ ...base, via: [0] }])).toEqual([])
+  })
+
+  it('shifts a frame pointer into the top viewport', () => {
+    const frame = document.createElement('iframe')
+    Object.defineProperty(frame, 'clientWidth', { value: 300 })
+    Object.defineProperty(frame, 'clientHeight', { value: 200 })
+    document.body.append(frame)
+    const box = {
+      left: 100,
+      top: 50,
+      width: 300,
+      height: 200,
+      right: 400,
+      bottom: 250,
+      x: 100,
+      y: 50,
+      toJSON: () => ({})
+    } as DOMRect
+    vi.spyOn(native, 'getBoundingClientRect').mockReturnValue(box)
+    const view = frameContentBox(frame)
+    const moves: Array<{ x: number; y: number }> = []
+    const off = installFramePointerBridge({
+      onMove: (point) => moves.push(point),
+      onClick: () => undefined
+    })
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { protocol: FRAME_PROTOCOL, type: 'pointer', nonce: 'p1', kind: 'move', x: 10, y: 20 },
+        source: frame.contentWindow as never
+      })
+    )
+
+    expect(moves).toEqual([
+      { x: (view?.left ?? 0) + 10, y: (view?.top ?? 0) + 20 }
+    ])
+    // A point outside the frame's own viewport is not a place in the page.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { protocol: FRAME_PROTOCOL, type: 'pointer', nonce: 'p2', kind: 'move', x: 9999, y: 20 },
+        source: frame.contentWindow as never
+      })
+    )
+    expect(moves).toHaveLength(1)
+
+    // An unrelated window cannot drive the picker.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { protocol: FRAME_PROTOCOL, type: 'pointer', nonce: 'p3', kind: 'move', x: 10, y: 20 },
+        source: { other: 'window' } as never
+      })
+    )
+    expect(moves).toHaveLength(1)
+    off()
   })
 
   it('reads a frame window and survives a frame without one', () => {
