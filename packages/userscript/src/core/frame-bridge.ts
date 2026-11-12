@@ -1,4 +1,5 @@
 import { native } from './native'
+import { frameLevels } from './frame-levels'
 import { frameContentBox } from './frame-size'
 import type { FrameSize } from './frame-size'
 import {
@@ -53,8 +54,6 @@ export const FRAME_PROTOCOL = 'element-screenshot:frame/7'
 export const FRAME_READY_TIMEOUT = 400
 /** A hover answer is one hit test; a slow frame must not stall the crosshair. */
 export const FRAME_PICK_TIMEOUT = 250
-/** How many frames deep one hover answer may travel. */
-export const MAX_FRAME_PIERCE = 6
 /** A chain this short is not worth another round trip. */
 export const FRAME_PICK_MIN_BUDGET = 40
 /** How long one helper render may take before the parent stops waiting. */
@@ -162,7 +161,15 @@ export interface OpenedFrameMessage {
 /** Capture ratio and nesting depth the parent asks a frame to render with. */
 export interface FrameRenderData {
   ratio: number
+  /** Nesting level of the frame being asked; 1 for a frame in the root page. */
   depth: number
+  /**
+   * How many levels of frames the whole render may paint.
+   *
+   * Optional on the wire: a build that predates it falls back to two levels, so
+   * an old frame answers a new parent (and the other way round) as it always did.
+   */
+  maxDepth?: number
   /**
    * Render the whole document on this surface instead of the current viewport.
    * The parent sends the size it already reserved for the frame's box.
@@ -280,6 +287,8 @@ export interface FrameCaptureData {
   ratio: number
   expandNested: boolean
   background: FrameCaptureBackground
+  /** Frame levels the captured element's own frames may paint; see `FrameRenderData`. */
+  maxDepth?: number
 }
 
 /** The frame's picture of that element, at the parent's ratio. */
@@ -715,6 +724,13 @@ export async function probeFrameHelpers(
 export interface FrameRenderRequest {
   ratio: number
   depth: number
+  /**
+   * Levels of nested frames the render may paint, including this one.
+   *
+   * The frame itself is level 1 inside the parent's own render, and its frames
+   * are level 2, so the number travels unchanged down the chain.
+   */
+  maxDepth?: number
   /** Render the whole document instead of its current viewport. */
   expand?: FrameSize
   timeout?: number
@@ -741,6 +757,7 @@ export async function requestFrameImage(
     {
       ratio: request.ratio,
       depth: request.depth,
+      maxDepth: frameLevels(request.maxDepth),
       ...(request.expand ? { expand: request.expand } : {})
     },
     { nonce }
@@ -1014,7 +1031,7 @@ export async function requestFramePick(
   const win = frameWindow(frame)
   if (!frameKey || !win) return null
 
-  const depth = Math.min(Math.max(Math.floor(request.depth ?? 1), 1), MAX_FRAME_PIERCE)
+  const depth = frameLevels(request.depth, 1)
   const deadline = request.deadline ?? Date.now() + FRAME_PICK_TIMEOUT
   // A frame the picker has never talked to (the first hover) has to introduce
   // itself first; after that the id is cached until a navigation invalidates it.
@@ -1054,6 +1071,8 @@ export interface FrameCaptureRequest {
   ratio: number
   expandNested: boolean
   background: FrameCaptureBackground
+  /** Frame levels inside the captured element that may be painted. */
+  maxDepth?: number
   timeout?: number
 }
 
@@ -1094,7 +1113,8 @@ export async function requestFrameCapture(
       ...(request.via && request.via.length ? { via: request.via.slice(0, MAX_VIA) } : {}),
       ratio: request.ratio,
       expandNested: request.expandNested,
-      background: request.background
+      background: request.background,
+      maxDepth: frameLevels(request.maxDepth)
     },
     { nonce }
   )

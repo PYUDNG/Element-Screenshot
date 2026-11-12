@@ -365,13 +365,20 @@ describe('frame render request', () => {
       answer(frame, request, { mime: 'image/png' }, pngBytes('picture'))
     )
 
-    const image = await requestFrameImage(frame.element, { ratio: 2, depth: 1, timeout: 500 })
+    const image = await requestFrameImage(frame.element, {
+      ratio: 2,
+      depth: 1,
+      maxDepth: 5,
+      timeout: 500
+    })
 
     expect(image).not.toBeNull()
     expect(await blobText(image as Blob)).toBe('picture')
     expect(image?.type).toBe('image/png')
     const render = received(frame, 'render')[0]
-    expect(render?.data).toMatchObject({ ratio: 2, depth: 1 })
+    // The frame paints the whole chain below it, so the level count goes with
+    // every request instead of being a constant of each realm.
+    expect(render?.data).toMatchObject({ ratio: 2, depth: 1, maxDepth: 5 })
     // The frame was addressed by the session id it introduced itself with.
     expect(render?.header.to).toBe(frame.sid)
   })
@@ -425,7 +432,8 @@ describe('frame render request', () => {
     })
 
     expect(received(frame, 'render')[0]?.data).toMatchObject({
-      expand: { width: 300, height: 900 }
+      expand: { width: 300, height: 900 },
+      maxDepth: 2
     })
   })
 })
@@ -572,6 +580,7 @@ describe('frame element capture', () => {
       ratio: 2,
       expandNested: true,
       background: { mode: 'page' },
+      maxDepth: 3,
       timeout: 500
     })
 
@@ -579,7 +588,8 @@ describe('frame element capture', () => {
       elementId: 7,
       ratio: 2,
       expandNested: true,
-      background: { mode: 'page' }
+      background: { mode: 'page' },
+      maxDepth: 3
     })
     expect(result?.width).toBe(320)
     expect(result?.height).toBe(480)

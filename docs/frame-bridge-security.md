@@ -35,9 +35,9 @@ plain = [u32 头长度][JSON 头][二进制尾巴]            PNG 走尾巴，�
 | --- | --- | --- | --- |
 | `hello` / `ready` | 父 → 帧 / 帧 → 父 | 无 / 无（头的 `sid` 就是握手结果） | 解封 + `to`（握手可空）+ `seq` |
 | `measure` / `size` | 父 → 帧 / 帧 → 父 | 无 / 宽高 | 解封 + `to` + `seq` + nonce + source |
-| `render` / `result` | 父 → 帧 / 帧 → 父 | 比例、深度、展开尺寸 / PNG 字节 | 同上 |
+| `render` / `result` | 父 → 帧 / 帧 → 父 | 比例、当前层级、层数上限、展开尺寸 / PNG 字节 | 同上 |
 | `hover{ x, y, depth, deadline }` / `stack{ items }` | 父 → 帧 / 帧 → 父 | 坐标、层数、截止时间 / 标签、矩形、滚动轴、`via` 链 | 同上 |
-| `capture{ elementId, via, … }` / `captured` | 父 → 帧 / 帧 → 父 | 元素编号、路径、比例、背景 / PNG 字节 | 同上 |
+| `capture{ elementId, via, … }` / `captured` | 父 → 帧 / 帧 → 父 | 元素编号、路径、比例、背景、层数上限 / PNG 字节 | 同上 |
 | `cancel` | 父 → 帧 | 无 | 解封 + `to` + `seq` |
 | `ui{ active, passthrough }` | 父 → 帧 | 状态 | 解封 + `to` + `seq` + `source === parent` |
 | `hotkey{ shortcut }` | 父 → 帧 | 快捷键字符串 | 同上 |

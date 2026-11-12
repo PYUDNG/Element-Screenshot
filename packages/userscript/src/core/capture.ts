@@ -8,7 +8,13 @@ import type { Point, ViewportSize } from './region'
 import { planCrop, cropBlob } from './crop'
 import { createSnapshot } from './snapshot'
 import type { FrameRecord } from './snapshot'
-import { probeFrameHelpers, requestFrameImage, requestFrameSize } from './frame-bridge'
+import {
+  FRAME_RESULT_TIMEOUT,
+  probeFrameHelpers,
+  requestFrameImage,
+  requestFrameSize
+} from './frame-bridge'
+import { frameLevels } from './frame-levels'
 import {
   frameContentSize,
   frameElementViewport,
@@ -48,6 +54,14 @@ export interface CaptureBackground {
 
 export interface CaptureOptions {
   expandNested?: boolean
+  /**
+   * How many levels of iframes inside the captured root are painted.
+   *
+   * The setting is shared with the picker, so a layer the picker can reach is
+   * also rendered; see `core/frame-levels.ts`. Every level is one more full
+   * render, which is why the default stays low.
+   */
+  maxDepth?: number
   /** Element capture backdrop. Region capture uses `backgroundColor` instead. */
   background?: CaptureBackground
   backgroundColor?: string
@@ -97,8 +111,16 @@ export interface RegionCaptureOptions extends CaptureOptions {
 const DEFAULT_MAX_DIMENSION = 16_384
 const DEFAULT_MAX_AREA = 268_435_456
 const ERROR_SOURCE_LIMIT = 512
-/** Frames nested deeper than this stay empty boxes instead of nested renders. */
-const MAX_FRAME_DEPTH = 2
+/**
+ * Extra time one more frame level gets on top of the render budget.
+ *
+ * A frame renders in the helper's realm, and its own frames render inside that
+ * call, so the parent's wait has to cover the whole chain below it. Level 1 of a
+ * six-level capture therefore waits `FRAME_RESULT_TIMEOUT` plus five of these:
+ * a deep chain that takes a few seconds per level must not be mistaken for a
+ * silent frame, which would throw away the whole subtree as an empty box.
+ */
+const FRAME_LEVEL_TIMEOUT = 5_000
 /** Guard rail for the sticky scan inside a frame. */
 const MAX_STICKY_SCAN = 6_000
 /** Shared by the clone loop in the build patch and by `assertNotCancelled()`. */
@@ -682,7 +704,7 @@ export async function renderFrameViewport(
 ): Promise<Blob | null> {
   assertNotCancelled()
   // A cross-origin frame has no readable document and needs a helper instance.
-  if (!doc || depth > MAX_FRAME_DEPTH) return null
+  if (!doc || depth > frameLevels(options.maxDepth)) return null
   const viewport = frameViewport(doc)
   if (!viewport) return null
 
@@ -851,7 +873,8 @@ async function paintFrames(
   depth: number,
   expansion: FrameExpansion | null = null
 ): Promise<void> {
-  if (depth > MAX_FRAME_DEPTH) return
+  const levels = frameLevels(options.maxDepth)
+  if (depth > levels) return
   const targets = framesInside(root, frames).filter((frame) => frameBoxSize(frame.copy))
   if (targets.length === 0) return
 
@@ -870,6 +893,13 @@ async function paintFrames(
    * work is the same either way.)
    */
   const remote = new Map<HTMLIFrameElement, Blob>()
+  /*
+   * The wait covers the frames nested inside this one too, because the helper
+   * renders them within its own render: a frame two levels down needs two more
+   * renders before this answer arrives. Levels left below this frame add that
+   * budget, so a legitimate deep render is not cut off as a silent frame.
+   */
+  const timeout = FRAME_RESULT_TIMEOUT + Math.max(0, levels - depth) * FRAME_LEVEL_TIMEOUT
   await Promise.all(
     planned
       .filter((entry) => helpers.has(entry.frame.live))
@@ -878,7 +908,9 @@ async function paintFrames(
           const image = await requestFrameImage(entry.frame.live, {
             ratio,
             depth,
-            ...(entry.expand ? { expand: entry.expand } : {})
+            maxDepth: levels,
+            ...(entry.expand ? { expand: entry.expand } : {}),
+            timeout
           })
           if (image) remote.set(entry.frame.live, image)
         } catch (error) {

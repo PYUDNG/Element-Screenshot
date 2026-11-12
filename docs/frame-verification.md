@@ -39,3 +39,14 @@
 - **伪造一律沉默**：从页面直接向同源帧发三种东西——`/7` 的 `hello`（随机 `box`）、`/6` 的 `hello`（带一个猜的 token）、`/7` 的 `measure`（随机 `box`）——2 秒内没有任何回复（顶层 `message` 监听与帧内监听都是空的）。
 - **观察到的慢**：`hidden` 标签页里消息任务是排队的，`stack` 应答可能比 `hover` 晚数秒才到（同一次悬停的两条应答在后面的轮询里才出现）；因此**固定等 1–2 秒没看到回复，不能当作失败证据**，要么多等，要么看帧内/顶层的监听累计结果。整页 html-to-image 渲染在 `hidden` 下会被定时器节流拖到分钟级，与本次改动无关。
 - **没在浏览器里验的**：帧内图层的 `capture`/`captured`（需要在帧图层上真实点一下；`hidden` 标签页的点击不可靠）。它和 `render`/`result` 走同一条应答路径（`postFrameReply` + 二进制尾巴），单元测试覆盖了两端。
+
+## 2026-11-12（第三轮）：渲染层数跟随「帧层级」
+
+环境：`pnpm build`（`610.99 kB`），`index.html` 不装 VM、由页面自己注入构建产物（stub 的 `GM_*` 走 `localStorage`），这样才改得动设置；新夹具 `#deep-frame-demo` → `/frame-deep.html` → `/frame-split.html` → `/frame.html`（三层帧）。
+
+- **设置走真实 UI**：用 stub 的 `__menuCommands` 打开设置面板 →「截图」→ 把「帧层级」从默认的 `2 层` 改成 `3 层`，`localStorage` 里的 `element-screenshot:settings` 立刻变成 `"picker.frameDepth":"3"`；界面上新文案（「选择器最多能钻进几层 iframe，截图时也按这个层数渲染帧里的帧」）正常显示。验完把这条值删掉，恢复默认。
+- **三层帧，层数 2**：选中 `#deep-frame-demo`（520×563 CSS，`ratio 2` → **1040×1126**），最里层那一格是白盒；截图中 `frame.html` 表头色 `#eef2ff` 的像素数 **16**（抗锯齿噪声级）。
+- **三层帧，层数 3**：同样的选区、同样的 **1040×1126**，最里层出现 `Inside the frame — this header is sticky` 表头和 `Frame row 03…07`；`#eef2ff` 像素数 **56,277**。行号从 03 开始、表头被钉在顶部，说明最内层帧自己的 `scrollTo(0, 60)` 和 `pinFrameSticky()` 也一起生效了。
+- 两次截图只有最内层不同，其余（两层外框、圆角、留白）逐像素一致，说明差异确实来自层数而不是布局抖动。
+- **没在浏览器里验的**：这次的帧里没有脚本（没有 helper），走的是父级兜底 `renderFrameViewport()`；helper 路径传 `maxDepth` 只做了单元测试覆盖（`frame-helper.test.ts` 的 render / capture / 中继三处断言），而 helper 渲染调用的就是同一个函数。要看 helper 版的三层，得让 VM 里那份的 `picker.frameDepth` 变成 3，而 VM 存储没有对外的写入接口。
+- 另一个实测坑：`hidden` 标签页里三层渲染等了 90 秒以上没结束，`browser_tabs.select` 让标签页变成 `visible` 后几秒就完成 —— 与上一轮记的定时器节流一致，别把 `hidden` 下的慢当作卡死。

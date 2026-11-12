@@ -107,7 +107,7 @@ describe('frame helper', () => {
     helper.handleMessage(request('render', { ratio: 3, depth: 1 }, 'r1'))
     await settle()
 
-    expect(render).toHaveBeenCalledWith({ ratio: 3, depth: 1 })
+    expect(render).toHaveBeenCalledWith({ ratio: 3, depth: 1, maxDepth: 2 })
     const [result] = replies(post)
     expect(result?.type).toBe('result')
     expect(result?.header.nonce).toBe('r1')
@@ -232,7 +232,12 @@ describe('frame helper', () => {
     )
     await settle()
 
-    expect(render).toHaveBeenCalledWith({ ratio: 2, depth: 1, expand: { width: 300, height: 900 } })
+    expect(render).toHaveBeenCalledWith({
+      ratio: 2,
+      depth: 1,
+      maxDepth: 2,
+      expand: { width: 300, height: 900 }
+    })
     expect(replies(post)[0]?.type).toBe('result')
   })
 })
@@ -369,7 +374,8 @@ describe('frame element capture', () => {
           elementId: 1,
           ratio: 2,
           expandNested: true,
-          background: { mode: 'color', color: '#fafafa' }
+          background: { mode: 'color', color: '#fafafa' },
+          maxDepth: 4
         },
         'c1'
       )
@@ -380,12 +386,39 @@ describe('frame element capture', () => {
       element,
       ratio: 2,
       expandNested: true,
-      background: { mode: 'color', color: '#fafafa' }
+      background: { mode: 'color', color: '#fafafa' },
+      maxDepth: 4
     })
     const captured = replies(post).find((message) => message.type === 'captured')
     expect(captured?.header).toMatchObject({ nonce: 'c1', to: PARENT })
     expect(captured?.data).toMatchObject({ width: 60, height: 80, limited: true })
     expect(binaryText(captured)).toBe('png')
+  })
+
+  it('clamps a frame depth it cannot honour', async () => {
+    vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+    const element = document.createElement('div')
+    document.body.append(element)
+    const capture = vi.fn(async () => ({ blob: BLOB, width: 1, height: 1, limited: false }))
+    const helper = createFrameHelper({
+      pick: () => [{ element, item: pickItem() }],
+      capture
+    })
+
+    helper.handleMessage(request('hover', { x: 1, y: 1 }, 'pick-3'))
+    await settle()
+    // A parent asking for a hundred levels must not make this frame render an
+    // unbounded chain; the cap is the same one the picker uses.
+    helper.handleMessage(
+      request(
+        'capture',
+        { elementId: 1, ratio: 1, expandNested: false, background: { mode: 'page' }, maxDepth: 99 },
+        'c4'
+      )
+    )
+    await settle()
+
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ maxDepth: 6 }))
   })
 
   it('refuses an id it never reported', async () => {
@@ -556,7 +589,8 @@ describe('piercing a nested frame', () => {
           via: [1],
           ratio: 2,
           expandNested: true,
-          background: { mode: 'page' }
+          background: { mode: 'page' },
+          maxDepth: 5
         },
         'c9'
       )
@@ -568,7 +602,8 @@ describe('piercing a nested frame', () => {
       via: [],
       ratio: 2,
       expandNested: true,
-      background: { mode: 'page' }
+      background: { mode: 'page' },
+      maxDepth: 5
     })
     const captured = replies(post).find((message) => message.type === 'captured')
     expect(captured?.header).toMatchObject({ nonce: 'c9', to: PARENT })

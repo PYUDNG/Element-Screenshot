@@ -179,7 +179,9 @@
         align-self: start;
       }
       #frame-demo,
-      #cross-frame-demo {
+      #cross-frame-demo,
+      #split-frame-demo,
+      #deep-frame-demo {
         align-self: start;
       }
       #nested-panel {
@@ -416,7 +418,7 @@
         <h2>Frame inside a frame</h2>
         <p class="muted">
           指向 <code>/frame-split.html</code>：那个页面自己又嵌了一个 <code>/frame.html</code>。
-          悬停最里面那几行时，选择器应该能穿过两层帧（设置里的「穿透帧层级」默认 2）。
+          悬停最里面那几行时，选择器应该能穿过两层帧（设置里的「帧层级」默认 2）。
         </p>
         <iframe
           src="/frame-split.html"
@@ -425,6 +427,29 @@
             display: block;
             width: 100%;
             height: 320px;
+            border: 1px solid #d4d4d8;
+            border-radius: 10px;
+            background: #fff;
+          "
+        ></iframe>
+      </section>
+
+      <!-- 三层帧：index → frame-deep → frame-split → /frame.html。设置里层数 < 3 时
+           最里面那一段是空盒，3 层才画出来（每层都是一次完整渲染）。 -->
+      <section class="card" id="deep-frame-demo">
+        <h2>Three levels deep</h2>
+        <p class="muted">
+          指向 <code>/frame-deep.html</code>，它再嵌 <code>/frame-split.html</code>，最里面才是
+          <code>/frame.html</code>。要把「帧层级」调到 3 层，截图才会画出最内层；默认 2 层时
+          最里面是空盒。
+        </p>
+        <iframe
+          src="/frame-deep.html"
+          title="three level frame fixture"
+          style="
+            display: block;
+            width: 100%;
+            height: 420px;
             border: 1px solid #d4d4d8;
             border-radius: 10px;
             background: #fff;

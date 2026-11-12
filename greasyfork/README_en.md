@@ -93,7 +93,7 @@ After selection:
 ### Settings
 
 - **Trigger** — shortcut, floating button visibility/size and dragged position.
-- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, mouse passthrough (off by default), frame depth for picking (2 by default).
+- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, mouse passthrough (off by default), frame depth for picking and rendering (2 by default).
 - **Appearance** — border color and width, UI language, light/dark theme.
 - **Site rules** — only run on, or exclude, specific sites. Excluded pages can still be enabled temporarily from the userscript menu.
 

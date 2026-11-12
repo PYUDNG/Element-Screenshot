@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Element Screenshot — three level frame fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 10px 14px;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        background: #f1f5f9;
+        color: #18181b;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 13px;
+      }
+      p {
+        margin: 0 0 8px;
+        font-size: 11px;
+        color: #52525b;
+      }
+      iframe {
+        display: block;
+        width: 100%;
+        height: 300px;
+        border: 1px solid #c4b5fd;
+        border-radius: 8px;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Middle frame</h1>
+    <p>这一层是三层嵌套的中间层：下面再嵌一个 <code>/frame-split.html</code>。</p>
+    <iframe src="/frame-split.html" title="middle frame fixture"></iframe>
+  </body>
+</html>

@@ -49,7 +49,9 @@
 
 10. 帧桥全面密封（已完成）：协议 `/7`，信封 `{protocol, type, box}`，XChaCha20-Poly1305，密钥只在管理器存储里；`core/frame-crypto.ts` + `core/frame-bridge.ts`，模型与残余风险见 `docs/frame-bridge-security.md`。
 
-发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
+11. 渲染深度跟随设置（已完成）：`picker.frameDepth`（界面改名「帧层级」）同时是选取与渲染的层数，`core/frame-levels.ts` 统一 cap 到 6、默认 2；`render`/`capture` 带可选 `maxDepth`。
+
+`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
 ## 文档同步规则
 
@@ -374,12 +376,12 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 桥协议（`core/frame-bridge.ts` + `core/frame-helper.ts`）
 
-- `FRAME_PROTOCOL = 'element-screenshot:frame/7'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key/hover/stack/capture/captured/pointer/cancel`。信封是 `{protocol, type, box}`：`box` = nonce‖密文‖tag，明文 `type` 只用于路由，业务字段全在密文头里，PNG 走二进制尾巴；`AAD = protocol|type|方向`。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传，`/5` 加了穿透选取，`/6` 加了多层 `depth`/`via`、鼠标穿透的 `pointer`，`/7` 换成密封信封并取消 token。不要再往消息里加明文业务字段或 token 检查。）
+- `FRAME_PROTOCOL = 'element-screenshot:frame/7'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key/hover/stack/capture/captured/pointer/cancel`。信封是 `{protocol, type, box}`：`box` = nonce‖密文‖tag，明文 `type` 只用于路由，业务字段全在密文头里，PNG 走二进制尾巴；`AAD = protocol|type|方向`。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解；只**新增**可选字段不用升（缺失时走默认，两侧都兼容）。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传，`/5` 加了穿透选取，`/6` 加了多层 `depth`/`via`、鼠标穿透的 `pointer`，`/7` 换成密封信封并取消 token。不要再往消息里加明文业务字段或 token 检查。）
 - 探测：`probeFrameHelpers(frames)` 一次向所有帧发 `hello`，在**同一个 400ms 窗口**里收 `ready`，所以一页有 N 个没有 helper 的帧也只等一次；返回的集合里没有的帧就走兜底。
 - 测量：`requestFrameSize(frame)` 发 `measure`，等 `size`（默认 3 秒）。helper 回的是「根展开后文档有多大」（`frameContentSize()` 读 `scrollWidth` / `scrollHeight`，只读、不建快照）。0×0 或 `error` 都算失败。
-- 渲染：`requestFrameImage(frame, { ratio, depth, expand? })` 发 `render`，等 `result`（默认 10 秒），期间每 100ms 检查 `native.capture.aborted`，用户取消时立即放弃等待。失败/超时/`busy`/`error` 都返回 `null` → 走兜底（可读时）或空盒。
+- 渲染：`requestFrameImage(frame, { ratio, depth, maxDepth?, expand? })` 发 `render`（默认等 10 秒 + 每层 5 秒），期间每 100ms 检查 `native.capture.aborted`。失败/超时/`busy`/`error` 都返回 `null` → 走兜底（可读时）或空盒。
 - 顺序：`paintFrames()` 先 `probeFrameHelpers`（根帧的探测在 `planFrameExpansion()` 里已经做过，会复用），再逐帧 `requestFrameImage ?? renderFrameViewport(frame.doc, …)`，图写回副本 iframe 的 `background-image`（`origin: content-box`、`size: 100% 100%`），父级只渲染一次页面。
-- 深度：`paintFrames(root, frames, ratio, options, depth)` 里 `depth > MAX_FRAME_DEPTH(2)` 直接返回；helper 收到 `depth` 原样转给 `renderFrameViewport`，所以「帧里的帧」最多两层，再深留空盒。
+- 深度：`options.maxDepth`（= 设置 `picker.frameDepth`，`core/frame-levels.ts` clamp 1–6、默认 2）是整条链的层数上限，`depth` 是这一帧的层级（根页里的帧 = 1）；`depth > maxDepth` 留空盒。`maxDepth` 随 `render`/`capture` 过桥并原样下传，父级超时 = 10s + 剩余层数 × 5s（帧里的帧在 helper 那次渲染里出图）。
 - 并发：helper 同时只渲染一个请求，第二个立刻回 `busy`；helper 会等 `DOMContentLoaded`（最多 5 秒）再开始，避免在解析中途拍照。
 - **密封（别拆）**：helper 会渲染自己的页面，没有门槛的话任何站点都能嵌一个页面进来、用我们的 helper 截它的图（跨域像素外泄）。现在每个 realm 从 `GM_getValue('element-screenshot:frame-key')` 读同一把 32 字节密钥，整条消息用 XChaCha20-Poly1305 密封，密钥**不上线**；helper 只接受 `event.source === window.parent` 且能解开的请求。接收方还校验 `to === 自己的 sid`（握手可空）与 `seq`（`ReplayGuard`，允许乱序），跨帧/同帧重放都被拒；页面只能看到 `{protocol, type, box}`、大小与时序。威胁模型与残余风险见 `docs/frame-bridge-security.md`。
 - `setFrameKey(secret)` 是模块级状态：`main.ts` 在两边的 realm 里都要先调用 `setFrameKey(ensureFrameKey())`；密钥为空时桥整体沉默（探测返回空集、请求返回 null），安全降级。它同时重置本 realm 的 `sid`/`seq`/peer 表/重放守卫（测试靠这个隔离用例）。
@@ -400,7 +402,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - **帧图不走结果 canvas 合成，而是写回副本里那个空 iframe 的背景**（和区域截图的切片同一套思路）：`sliceBackgroundStyle(computed, { url, origin: 'content-box', size: '100% 100%' })`。好处是边框、圆角、`overflow` 裁剪、以及「压在 iframe 上的 sticky 表头/浮层」全部由父级那一次渲染按真实层叠顺序画，不存在「把帧图贴在最上层盖住别的东西」的问题。
 - **必须钉住帧内 sticky**：克隆里没有滚动口，sticky 退化为 static；帧视口又是靠 `top: -scrollY` 平移出来的，文档顶部的 sticky 表头会直接跑到画布外消失（实测 `frame.html` 的表头会整条不见）。`pinFrameSticky()` 在**展开根之前**（副本还在帧的真实滚动位置时）量 `pinned - static` 差值，写成 `position: relative + top`，顺序不能颠倒——`expandForCapture()` 会把副本滚回 0。
 - 帧渲染的根样式与区域截图一致：`position: relative; inset: auto; top: -scrollY; left: -scrollX; transform: none`（`transform` 会把 `fixed` 后代变成相对克隆根定位）；渲染面 = 帧的 `innerWidth × innerHeight`，`pixelRatio` 取父级 `plan.ratio`。
-- 递归：`paintFrames()` 先给「帧里的帧」出图，深度上限 `MAX_FRAME_DEPTH = 2`，更深的留空盒；单帧失败只 `console.warn`，不影响整次截图；取消会向上抛。
+- 递归：`paintFrames()` 先给「帧里的帧」出图，层数由 `options.maxDepth` 决定；单帧失败只 `console.warn`，不影响整次截图；取消会向上抛。
 - 字体：页面渲染共用一份 `sharedFontEmbedCSS()`；帧渲染各自从帧文档解析，不共用父级 CSS（`native.fontSource`）。
 - 测试：`snapshot.test.ts` 覆盖 `doc` 选项与 `FrameRecord`；`capture.test.ts` 的 `iframe compositing` 覆盖帧视口参数、背景层写法、根外帧不探测、跨域空盒、零尺寸、单帧失败、helper 优先 / 沉默回退；`frame-bridge.test.ts` / `frame-helper.test.ts` 覆盖协议、探测、请求、超时、取消、busy、无密钥、非父窗口；穿透部分在 `pick-target` / `frame-pick` / `picker`（异步栈）和 `frame-*`（hover / capture）。
 - playground 夹具：`playground/frame.html`（自带样式、sticky 表头、30 行、初始 `scrollTo(0, 60)`）；`index.html` 的 `#frame-demo`（同源）与 `#cross-frame-demo`（`http://127.0.0.1:4177/frame.html`，跨域，需 `PLAYGROUND_PORT=4177 pnpm playground`）。
@@ -457,8 +459,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 下一步（按顺序）
 
-1. **选取深度 ≠ 渲染深度**：`picker.frameDepth` 可以到 6，但 `MAX_FRAME_DEPTH = 2` 管的是渲染——第 3 层帧里的再下一层帧渲染出来仍是空盒。要加深得先算清「每层一次完整渲染」的时间。
-2. 预览阶段的帧内按键：**已验证不需要回传**——`handleSelect()` 的 `blur()` 把焦点带出帧，预览的 `Esc` / `Ctrl+C` 由顶层 window 直接收到（用户手动验证：开关穿透、焦点在不在帧内都正常）。
+1. 发版准备（0.8/0.9）：CHANGELOG、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。
+2. 预览阶段的帧内按键已验证不需要回传：`handleSelect()` 的 `blur()` 把焦点带出帧。
 
 ### 关键约束（别踩）
 
@@ -474,10 +476,10 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 同源：`http://127.0.0.1:4176/?vm=1` 的 `#frame-demo`。
 - 跨域：先 `PLAYGROUND_PORT=4177 pnpm playground`，再访问 4176 页面的 `#cross-frame-demo`。
 - 兜底：`about:blank` + `document.write` 的临时 iframe（VM 不注入这种帧）。
-- 区域 + 帧：`region.html` 的 `#panel-d`（同源）/`#panel-e`（跨域 4177），面板自身滚动 70px、帧内滚动 60px；这一格出图才说明「帧图先于切片写回」生效（jsdom 侧由 `capture.test.ts` 的顺序用例锁定）。
-- 多层：`index.html` 的 `#split-frame-demo` → `frame-split.html`（外层帧）→ `/frame.html`（内层帧）。悬停内层行应出现带两层 `帧内` 的栈；穿透层数设成 1 时只到外层帧。
-- 鼠标穿透：设置里打开「鼠标穿透」后重新拾取，悬停 `#frame-demo` 内部应看到选框跟手、点击直接出图。
-- 还缺：三层帧、「帧在可滚动祖先里、祖先展开后帧位置是否跟得上」的用例。
+- 区域 + 帧：`region.html` 的 `#panel-d`（同源）/`#panel-e`（跨域 4177）；这一格出图才说明「帧图先于切片写回」生效（jsdom 侧由 `capture.test.ts` 的顺序用例锁定）。
+- 多层：`#split-frame-demo` → `frame-split.html` → `/frame.html`；三层用 `#deep-frame-demo` → `frame-deep.html`。悬停应看到对应层数的 `帧内`；层数设为 2 时最内层是空盒，设为 3 才出图。
+- 鼠标穿透：打开设置后悬停 `#frame-demo` 内部，选框应跟手、点击直接出图。
+- 还缺：「帧在可滚动祖先里、祖先展开后帧位置是否跟得上」。
 
 ## 验证建议
 

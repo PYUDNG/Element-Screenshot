@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The “Frame depth” setting now drives rendering as well as picking. One number
+  (1–6, still default 2) is used by both ends: the picker may pierce that many
+  frame levels, and a capture paints that many levels of frames inside its root,
+  so a layer picked in a third-level frame is no longer an empty box. The value
+  travels with `render` and `capture` requests as an optional `maxDepth` — a build
+  that predates it keeps the old two-level behaviour in either direction — and is
+  clamped on both sides, because the number crosses realms. The parent's wait for
+  a frame grows by five seconds per remaining level, since the frames nested below
+  it are rendered inside that one answer; without that, a legitimate deep render
+  would be mistaken for a silent frame and thrown away as an empty box.
 - The picker reaches inside iframes. Hovering a frame asks it over the bridge which
   layers sit under the pointer, and those layers are appended to the page's own
   stack with their boxes shifted into the page viewport (the visible box clipped to
@@ -83,9 +93,9 @@ All notable changes to this project are documented here. The format follows
   corners and anything stacked on top of it, so the picture composites in the
   right order. Sticky elements inside the frame are pinned first — a clone has no
   scrollport, so a sticky header would otherwise be rasterized above the shifted
-  viewport and disappear. Nested frames are painted recursively (two levels), a
-  frame that fails to render keeps its empty box, and the parent falls back to
-  rendering a readable frame itself.
+  viewport and disappear. Nested frames are painted recursively, as deep as the
+  frame-depth setting allows, a frame that fails to render keeps its empty box,
+  and the parent falls back to rendering a readable frame itself.
 - The picker shows which layer scrolls: the solid frame is the element as seen on
   screen, a dashed frame appears when the capture will be larger, and a badge
   reads `可滚动 ↓Npx` / `→Npx` / `↕` for the active layer. `Shift`+wheel and

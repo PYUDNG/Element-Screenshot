@@ -8,13 +8,13 @@ import type { FramePickCandidate } from './frame-pick'
 import {
   FRAME_PICK_MIN_BUDGET,
   FRAME_PICK_TIMEOUT,
-  MAX_FRAME_PIERCE,
   decodeFrameEvent,
   postFrameReply,
   readVia,
   requestFrameCapture,
   requestFramePick
 } from './frame-bridge'
+import { frameLevels } from './frame-levels'
 import type {
   FrameCapturePayload,
   FrameCaptureRequest,
@@ -44,6 +44,8 @@ const MAX_CHILD_FRAMES = 64
 export interface FrameRenderRequest {
   ratio: number
   depth: number
+  /** Levels of nested frames the render may paint; see `FrameRenderData`. */
+  maxDepth?: number
   expand?: FrameSize
 }
 
@@ -52,6 +54,8 @@ export interface FrameElementCaptureRequest {
   ratio: number
   expandNested: boolean
   background: CaptureBackground
+  /** Levels of frames inside the captured element that may be painted. */
+  maxDepth?: number
 }
 
 export interface FrameElementCaptureResult {
@@ -146,7 +150,13 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
   const render =
     options.render ??
     ((request: FrameRenderRequest) =>
-      renderFrameViewport(doc, request.ratio, {}, request.depth, request.expand))
+      renderFrameViewport(
+        doc,
+        request.ratio,
+        { maxDepth: request.maxDepth },
+        request.depth,
+        request.expand
+      ))
   const measure = options.measure ?? frameContentSize
   const pick = options.pick ?? collectFramePickCandidates
   const capture =
@@ -157,6 +167,7 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
         expandNested: request.expandNested,
         background: request.background,
         pixelRatio: request.ratio,
+        maxDepth: request.maxDepth,
         filter: shouldCaptureNode
       })
       return {
@@ -277,10 +288,7 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
         id: register(candidate.element)
       }))
 
-      const depth =
-        Number.isFinite(request.depth) && request.depth > 0
-          ? Math.min(Math.floor(request.depth), MAX_FRAME_PIERCE)
-          : 1
+      const depth = frameLevels(request.depth, 1)
       const deadline = Number.isFinite(request.deadline)
         ? request.deadline
         : Date.now() + FRAME_PICK_TIMEOUT
@@ -367,6 +375,9 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
           if (!Number.isInteger(elementId) || elementId < 1) {
             throw new Error('The element is invalid')
           }
+          // The level count is the same for the whole chain: it describes the
+          // capture, not this hop, so it travels with the request.
+          const maxDepth = frameLevels(data.maxDepth)
           if (via.length > 0) {
             const hop = via[0]
             const child = hop === undefined ? undefined : childFrames.get(hop)
@@ -376,7 +387,8 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
               via: via.slice(1),
               ratio,
               expandNested: data.expandNested !== false,
-              background: readBackground(data.background)
+              background: readBackground(data.background),
+              maxDepth
             })
             if (!nested) throw new Error('The frame produced no picture')
             void reply(
@@ -399,7 +411,8 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
             element,
             ratio,
             expandNested: data.expandNested !== false,
-            background: readBackground(data.background)
+            background: readBackground(data.background),
+            maxDepth
           })
           if (!result) throw new Error('The frame produced no picture')
           void reply(
@@ -420,6 +433,7 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
         const blob = await render({
           ratio,
           depth: Number(data.depth),
+          maxDepth: frameLevels(data.maxDepth),
           ...(expand ? { expand } : {})
         })
         void reply(source, 'result', blob ? { mime: blob.type || 'image/png' } : {}, nonce, blob)

@@ -8,8 +8,10 @@ const { toBlobMock, cropBlobMock, fontEmbedMock, probeMock, frameImageMock, fram
     fontEmbedMock: vi.fn(async () => '/* page fonts */'),
     probeMock: vi.fn(async (_frames: readonly HTMLIFrameElement[]) => new Set<HTMLIFrameElement>()),
     frameImageMock: vi.fn(
-      async (_frame: HTMLIFrameElement, _request: { ratio: number; depth: number }) =>
-        null as Blob | null
+      async (
+        _frame: HTMLIFrameElement,
+        _request: { ratio: number; depth: number; maxDepth?: number; timeout?: number }
+      ) => null as Blob | null
     ),
     frameSizeMock: vi.fn(async (_frame: HTMLIFrameElement) => null as { width: number; height: number } | null)
   }))
@@ -20,6 +22,7 @@ vi.mock('html-to-image', () => ({
 }))
 
 vi.mock('../src/core/frame-bridge', () => ({
+  FRAME_RESULT_TIMEOUT: 10_000,
   probeFrameHelpers: probeMock,
   requestFrameImage: frameImageMock,
   requestFrameSize: frameSizeMock
@@ -54,6 +57,7 @@ import {
   handleImageError,
   inlineSvgPaintVariables,
   pureTranslation,
+  renderFrameViewport,
   rootPlacementStyle,
   shouldCaptureNode
 } from '../src/core/capture'
@@ -943,7 +947,10 @@ describe('iframe compositing', () => {
     })
 
     expect(probeMock).toHaveBeenCalledWith([record.live])
-    expect(frameImageMock).toHaveBeenCalledWith(record.live, { ratio: 2, depth: 1 })
+    expect(frameImageMock).toHaveBeenCalledWith(
+      record.live,
+      expect.objectContaining({ ratio: 2, depth: 1, maxDepth: 2 })
+    )
     expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
     // The frame picture came from the helper, so the page render is the only
     // local html-to-image call.
@@ -1142,11 +1149,15 @@ describe('iframe compositing', () => {
     expect(frameSizeMock).toHaveBeenCalledWith(record.live)
     expect(probeMock).toHaveBeenCalledTimes(1)
     // The helper renders the expanded document on the surface the parent reserved.
-    expect(frameImageMock).toHaveBeenCalledWith(record.live, {
-      ratio: 2,
-      depth: 1,
-      expand: { width: 640, height: 900 }
-    })
+    expect(frameImageMock).toHaveBeenCalledWith(
+      record.live,
+      expect.objectContaining({
+        ratio: 2,
+        depth: 1,
+        maxDepth: 2,
+        expand: { width: 640, height: 900 }
+      })
+    )
     // Only the page render is local.
     expect(calls).toHaveLength(1)
     expect(calls[0]?.options).toMatchObject({ width: 640, height: 900 })
@@ -1202,6 +1213,46 @@ describe('iframe compositing', () => {
       width: window.innerWidth,
       height: window.innerHeight
     })
+  })
+
+  it('passes the configured frame depth to the helper with a deep budget', async () => {
+    const root = document.createElement('section')
+    document.body.append(root)
+    const copy = document.createElement('iframe')
+    root.append(copy)
+    const record = frameRecord(copy, null)
+    mockSnapshots([record])
+    vi.spyOn(native, 'getBoundingClientRect').mockImplementation((element) =>
+      element === copy ? rectOf(200, 100) : rectOf(0, 0)
+    )
+    probeMock.mockResolvedValue(new Set([record.live]))
+    frameImageMock.mockResolvedValue(new Blob(['helper'], { type: 'image/png' }))
+
+    await captureElement(root, {
+      box: { left: 0, top: 0, width: 300, height: 200 },
+      pixelRatio: 1,
+      maxDepth: 4
+    })
+
+    // The helper renders the whole chain below the frame, so its wait grows by
+    // one render budget per remaining level: 10s base + three more levels.
+    expect(frameImageMock).toHaveBeenCalledWith(
+      record.live,
+      expect.objectContaining({ ratio: 1, depth: 1, maxDepth: 4, timeout: 25_000 })
+    )
+  })
+
+  it('stops rendering frames below the configured depth', async () => {
+    native.capture.aborted = false
+    mockSnapshots([])
+    const calls = observeCalls()
+
+    // `depth` is the level of the frame this render would produce, counted from
+    // the capture root: level 3 needs a limit of at least 3.
+    await expect(renderFrameViewport(document, 1, { maxDepth: 2 }, 3)).resolves.toBeNull()
+    expect(calls).toHaveLength(0)
+    await expect(renderFrameViewport(document, 1, { maxDepth: 3 }, 3)).resolves.toBeInstanceOf(Blob)
+    expect(calls).toHaveLength(1)
   })
 })
 
@@ -1412,7 +1463,10 @@ describe('region capture with frames', () => {
 
     await captureRegion({ left: 0, top: 0, width: 400, height: 300 }, { pixelRatio: 1 })
 
-    expect(frameImageMock).toHaveBeenCalledWith(expect.anything(), { ratio: 1, depth: 1 })
+    expect(frameImageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ratio: 1, depth: 1, maxDepth: 2 })
+    )
     expect(calls).toHaveLength(1)
     expect(copy.style.getPropertyValue('background-image')).toContain('url("data:image/png')
   })

@@ -29,9 +29,9 @@ const zhCN: LocaleDefinition = {
         pointerPassthrough: '鼠标穿透',
         pointerPassthroughDesc:
           '默认关闭：选择时用透明层拦住指针，页面 hover 与点击效果不会进入截图。打开后指针直接落在页面上，可以截取 hover 展开的菜单/浮层；代价是纯 CSS :hover 样式不会被复制进截图。',
-        frameDepth: '穿透帧层级',
+        frameDepth: '帧层级',
         frameDepthDesc:
-          '选择器最多能钻进几层 iframe。每多一层，悬停要多走一次帧内查询，深层帧里的元素也更难辨认；默认 2 层。',
+          '选择器最多能钻进几层 iframe，截图时也按这个层数渲染帧里的帧。每多一层，悬停要多走一次帧内查询、截图要多一次完整渲染；层数越多越慢，默认 2 层。',
         frameDepth1: '1 层',
         frameDepth2: '2 层',
         frameDepth3: '3 层',
@@ -144,9 +144,9 @@ const zhTW: LocaleDefinition = {
         pointerPassthrough: '滑鼠穿透',
         pointerPassthroughDesc:
           '預設關閉：選擇時用透明層攔住指標，頁面 hover 與點擊效果不會進入截圖。打開後指標直接落在頁面上，可以截取 hover 展開的選單/浮層；代價是純 CSS :hover 樣式不會被複製進截圖。',
-        frameDepth: '穿透幀層級',
+        frameDepth: '幀層級',
         frameDepthDesc:
-          '選擇器最多能鑽進幾層 iframe。每多一層，懸停要多走一次幀內查詢，深層幀裡元素也更難辨認；預設 2 層。',
+          '選擇器最多能鑽進幾層 iframe，截圖時也依這個層數渲染幀裡的幀。每多一層，懸停要多走一次幀內查詢、截圖要多一次完整渲染；層數越多越慢，預設 2 層。',
         frameDepth1: '1 層',
         frameDepth2: '2 層',
         frameDepth3: '3 層',
@@ -261,7 +261,7 @@ const en: LocaleDefinition = {
           'Off by default: a transparent layer swallows the pointer, so page hover and click effects stay out of the capture. Turn it on to let the pointer reach the page and pick hover-opened menus — pure CSS :hover styling is still not copied into the picture.',
         frameDepth: 'Frame depth',
         frameDepthDesc:
-          'How many iframe levels the picker may reach into. Every extra level costs another round trip inside that frame, and layers deep inside are harder to tell apart; the default is 2.',
+          'How many iframe levels the picker may reach into, and how many levels of frames a capture paints. Every extra level costs one more round trip while picking and one more full render while capturing, so deeper is slower; the default is 2.',
         frameDepth1: '1 level',
         frameDepth2: '2 levels',
         frameDepth3: '3 levels',

@@ -12,8 +12,9 @@ import {
 import type { CaptureBackground } from '../core/capture'
 import { resolvePageBackground } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
-import { MAX_FRAME_PIERCE, requestFrameCapture, requestFramePick } from '../core/frame-bridge'
+import { requestFrameCapture, requestFramePick } from '../core/frame-bridge'
 import type { FramePickItem } from '../core/frame-bridge'
+import { frameLevels } from '../core/frame-levels'
 import { frameContentBox } from '../core/frame-size'
 import { native } from '../core/native'
 import { ElementPicker } from '../core/picker'
@@ -424,16 +425,15 @@ export class ShotApp implements ShotAppApi {
   }
 
   /**
-   * How many frame levels the picker may pierce.
+   * How many frame levels this capture works with.
    *
-   * Every level costs another round trip through a frame's own realm, so the
-   * setting is capped at `MAX_FRAME_PIERCE`; the default of two covers a widget
-   * inside a page that is itself embedded.
+   * One number drives both ends: the picker may pierce this deep, and a capture
+   * paints the frames inside its root this deep. They have to agree — a layer the
+   * picker reached in a third-level frame should not come out of the renderer as
+   * an empty box. Every level costs one more full render, hence the low default.
    */
-  private pierceDepth(): number {
-    const raw = Number(this.settings.get('picker.frameDepth') ?? 2)
-    const depth = Number.isFinite(raw) ? Math.floor(raw) : 2
-    return Math.min(Math.max(depth, 1), MAX_FRAME_PIERCE)
+  private frameDepth(): number {
+    return frameLevels(this.settings.get('picker.frameDepth'))
   }
 
   /**
@@ -466,7 +466,7 @@ export class ShotApp implements ShotAppApi {
     const items = await requestFramePick(frame, {
       x: x - view.left,
       y: y - view.top,
-      depth: this.pierceDepth()
+      depth: this.frameDepth()
     })
     if (!items) {
       this.framePickRetry.set(frame, Date.now() + FRAME_PICK_RETRY)
@@ -581,6 +581,7 @@ export class ShotApp implements ShotAppApi {
 
       const result = await captureRegion(rect, {
         pixelRatio: this.pixelRatio(),
+        maxDepth: this.frameDepth(),
         backgroundColor: background,
         filter: (node) => shouldCaptureNode(node) && !isMarkedUiNode(node)
       })
@@ -610,6 +611,7 @@ export class ShotApp implements ShotAppApi {
         background: this.captureBackground(),
         box,
         pixelRatio: this.pixelRatio(),
+        maxDepth: this.frameDepth(),
         filter: (node) => shouldCaptureNode(node) && !isMarkedUiNode(node)
       })
 
@@ -653,7 +655,8 @@ export class ShotApp implements ShotAppApi {
         via: [...path],
         ratio: this.pixelRatio(),
         expandNested: Boolean(this.settings.get('capture.expandNested')),
-        background: this.captureBackground()
+        background: this.captureBackground(),
+        maxDepth: this.frameDepth()
       })
 
       if (token !== this.captureToken) return

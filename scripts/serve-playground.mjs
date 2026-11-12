@@ -22,6 +22,7 @@ const files = new Map([
   ['/region.html', join(root, 'playground/region.html')],
   ['/frame.html', join(root, 'playground/frame.html')],
   ['/frame-split.html', join(root, 'playground/frame-split.html')],
+  ['/frame-deep.html', join(root, 'playground/frame-deep.html')],
   ['/gm-stub.js', join(root, 'playground/gm-stub.js')],
   ['/sample.svg', join(root, 'playground/sample.svg')],
   ['/script.user.js', join(root, 'packages/userscript/dist/script.user.js')],

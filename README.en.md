@@ -102,14 +102,14 @@ After selection:
 ### Settings
 
 - **Trigger** — shortcut, floating button visibility/size and dragged position.
-- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, mouse passthrough (off by default), frame depth for picking (2 by default).
+- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, mouse passthrough (off by default), frame depth for picking and rendering (2 by default).
 - **Appearance** — border color and width, UI language (简体中文 / 繁體中文 / English), light/dark theme.
 - **Site rules** — only run on, or exclude, specific sites. Excluded pages can still be enabled temporarily from the userscript menu.
 
 ## Known limitations
 
 - Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, and its contents are rebuilt in the snapshot (including `<style>`, adoptedStyleSheets, and the rules a script adds to a shadow `<style>` at runtime with `insertRule()`).
-- Cross-origin iframes are captured too: a copy of the script runs inside the frame and renders its own document (same install, and the frame must allow scripts). A frame that runs no script (`about:blank`, `srcdoc`, a sandbox without `allow-scripts`) can only be captured as an empty box. Elements inside a frame can be picked through the boundary (also requiring a helper instance), and how many frames deep is a setting (2 by default). Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
+- Cross-origin iframes are captured too: a copy of the script runs inside the frame and renders its own document (same install, and the frame must allow scripts). A frame that runs no script (`about:blank`, `srcdoc`, a sandbox without `allow-scripts`) can only be captured as an empty box. Elements inside a frame can be picked through the boundary (also requiring a helper instance), and how many frames deep — for picking and for rendering — is a setting (2 by default). Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
 - A snapshot is a full copy of the page: memory and the first layout roughly double, and a very large page pauses for a few hundred milliseconds before rendering starts.
 - Stay on the page while it renders: navigating or reloading discards the snapshot, and with it the capture (cancel and start again).
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
