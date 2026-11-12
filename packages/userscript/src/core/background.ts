@@ -8,6 +8,11 @@ interface Rgba {
 }
 
 const WHITE: Rgba = { r: 255, g: 255, b: 255, a: 1 }
+/**
+ * The canvas a dark colour scheme paints: Chrome's `#121212`, which a page that
+ * only sets `color-scheme: dark` shows behind its content.
+ */
+const DARK_CANVAS: Rgba = { r: 18, g: 18, b: 18, a: 1 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -110,13 +115,39 @@ function composite(top: Rgba, bottom: Rgba): Rgba {
 }
 
 /**
+ * The colour the browser paints under the page. A page that opts into a dark
+ * colour scheme gets a dark canvas without ever setting a background colour, so
+ * starting from white would turn every transparent part of it into a white gap.
+ */
+function canvasColor(doc: Document): Rgba {
+  let style: CSSStyleDeclaration
+  try {
+    style = native.getComputedStyle(doc.documentElement)
+  } catch {
+    return WHITE
+  }
+  const tokens = (style.colorScheme ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+  if (!tokens.includes('dark')) return WHITE
+  // `light dark` leaves the choice to the user's preference.
+  if (!tokens.includes('light')) return DARK_CANVAS
+  try {
+    return typeof matchMedia === 'function' &&
+      matchMedia('(prefers-color-scheme: dark)').matches
+      ? DARK_CANVAS
+      : WHITE
+  } catch {
+    return WHITE
+  }
+}
+
+/**
  * The page canvas is not always represented by a hit-tested element. Pages with
  * a fixed application root often leave `body` with a zero-height box while its
  * background still paints the whole canvas, so `elementsFromPoint` omits it.
  * Start from the real root/body colors instead of assuming white.
  */
 function pageBaseColor(doc: Document): Rgba {
-  let painted = WHITE
+  let painted = canvasColor(doc)
   for (const root of [doc.documentElement, doc.body]) {
     if (!root) continue
     try {

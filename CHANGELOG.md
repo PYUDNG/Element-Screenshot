@@ -8,13 +8,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- Full-page captures (`Ctrl+A`) keep the page background colour. A `body`
-  background is propagated to the browser's canvas instead of being painted on
-  the body's own box, and a cloned `<html>` has no canvas to propagate it to, so
-  a dark page came out white below the body box — usually just past the first
-  viewport, which left white gaps around the content, a white footer with pale
-  text, and white columns under a virtualised timeline. The canvas colour is now
-  resolved from the root and body backgrounds and painted behind the clone.
+- Full-page captures (`Ctrl+A`) use the width the page is laid out at, not the
+  document's horizontal overflow. A page whose content sticks out sideways (a
+  wide table, a review with an unbreakable string) produced a picture several
+  times wider than the viewport — and, because the copy reflows when the root is
+  widened, even wider than the page — with the content squeezed into the left
+  quarter and viewport-fixed layers (`position: fixed; inset: 0`) stranded at
+  the left edge instead of sitting behind the content. The capture keeps the
+  viewport width and grows only in height; pick the overflowing element or drag
+  a region when the horizontal part matters.
+- Pages that only declare `color-scheme: dark` get the dark canvas they show in
+  the browser (`#121212`) instead of a white fill, so their full-page capture is
+  no longer white below the content.
+- Full-page captures keep the page background colour. A `body` background is
+  propagated to the browser's canvas instead of being painted on the body's own
+  box, and a cloned `<html>` has no canvas to propagate it to, so a dark page
+  came out white below the body box — usually just past the first viewport,
+  which left white gaps around the content, a white footer with pale text, and
+  white columns under a virtualised timeline. The canvas colour is now resolved
+  from the root and body backgrounds and painted behind the clone.
 
 ### Added
 

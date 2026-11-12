@@ -218,7 +218,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 高元素中心点会被 clamp 到视口底部；
 - `document.elementsFromPoint()` 可能不返回 `body`（body 盒高为 0，但背景仍绘制 canvas）；
 - 不要从固定白色开始合成；先把 `html` / `body` 背景作为页面基础底色；
-- **`body` 背景画在 canvas 上**：html 透明时 body 背景传播到画布，克隆出来的 `<html>` 没有画布，html-to-image 就退回白底——整页截图在 body 盒高（通常一个视口）以下全白。`resolveBackdropColor()` 对 `documentElement` / `body` 直接返回 `pageBaseColor()`；
+- **页面底色是 canvas，不是 body 盒子**：body 背景传播到画布，克隆出来的 `<html>` 没有画布；`color-scheme: dark` 还会给出 `#121212` 的画布。`resolveBackdropColor()` 对 `documentElement` / `body` 直接返回 `pageBaseColor()`（含 color-scheme 初始色），细节与实测见 `docs/page-canvas.md`；
 - 复杂背景会单独渲染隐藏背景层，再与元素截图合成；
 - 目前复杂背景主要覆盖 `html` / `body` 的渐变和背景图，不包括所有 fixed/absolute 图层、伪元素、mask 等。
 
@@ -236,8 +236,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 预算按时间算而不是按节点数：单个节点可能极贵（巨大的内联 `style`、深子树）。
 - 这类 patch 依赖 prelude 注入的 `__elementScreenshotNative`，所以和 `patchSvgSerialization` 一样只在 `nativeAdapter` 开启时加入；`patchCloneYield` 必须排在 `patchSvgSymbols` **之后**，否则它插在 `cloneNode` 前面的 helper 会被 `patchSvgSymbols` 的整段替换一起删掉。
 - 实测（`playground/region.html`，3 面板 + 嵌套，1400×900）：最长阻塞任务 638ms → 223ms，长任务总时长 1257ms → 482ms，总耗时 1393ms → 1338ms（噪声内），裁剪出的 PNG 字节完全一致。
-- 剩余的一次 200ms 级长任务来自「把数 MB 的 SVG data URL 交给浏览器解析」和「把切片 data URL 写进 `background-image` 内联样式」，都是单次调用，无法切片；要再降只能改成 blob URL 流，属于另一个量级的工作且有 CSP 风险。
-- 分片让出意味着页面自己的任务有机会在截图过程中运行：截图期间页面样式是被临时改写过的（切片隐藏子内容等），这也是为什么不要顺手把让出点加得过于频繁。
+- 剩余的长任务来自「解析数 MB 的 SVG data URL」和「把切片 data URL 写进 `background-image`」，都是单次调用切不动；再降只能改 blob URL 流（有 CSP 风险）。
+- 分片让出会让页面自己的任务插进来，而截图期间副本样式正被改写（切片隐藏子内容等），所以别把让出点加得太密。
 
 ### 离屏快照（`core/snapshot.ts`）
 
@@ -279,7 +279,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 渲染结束后页面大概率已经被用户滚走或改过，**不要再把结果叠在原选框上**：`mode === 'selected'` 时只渲染 `ResultViewer`，`PickerOverlay` 仅在 `mode === 'picking'` 时存在。
 - 预览用 `URL.createObjectURL(blob)`（存在 `state.previewUrl`），在 `reset()` / `clearSelection()` 里必须 `revokeObjectURL`，否则每次截图漏一个几十 MB 的 blob。
 - 有站点的 CSP `img-src` 不含 `blob:`，预览会空。`<img @error>` 触发 `usePreviewFallback()`：用 `FileReader` 转 data URL 再塞回 `state.previewUrl`，并用 `previewFallback` 标志防死循环。实测 GitHub 允许 blob:，所以这条通常不触发。
-- 预览层自己就能挡住鼠标（`pointer-events-auto` + 全屏 backdrop），但拦截滚动/快捷键仍靠 `finishRender()` 安装的交互守卫。**点遮罩不关闭**（渲染很贵，误触不该丢结果）：关闭只有右上角 44px 的 `×`、底栏「关闭」和守卫的 `Esc`。因此原先的「双击页面保存」已删除（模态层收不到页面的 dblclick），Ctrl+S / 保存按钮覆盖同一需求。
+- 预览层自己就能挡住鼠标（`pointer-events-auto` + 全屏 backdrop），但拦截滚动/快捷键仍靠 `finishRender()` 安装的交互守卫。**点遮罩不关闭**（渲染很贵，误触不该丢结果）：关闭只有右上角 44px 的 `×`、底栏「关闭」和守卫的 `Esc`。因此原先的「双击页面保存」已删除，Ctrl+S / 保存按钮覆盖同一需求。
 - 尺寸不再交给 CSS `max-h-full`：组件量取 stage 的 `clientWidth/Height`（`ResizeObserver` + `resize`）算出 `fitScale = min(1, stageW/natW, stageH/natH)`，再乘以 `zoom` 写成显式 `width/height`，所以 fit 状态下小图保持原始像素、不放大也不糊。图片必须 `shrink-0`，否则作为 flex 子项会被压缩回 stage 宽度、破坏缩放比例。
 - 缩放：`zoom` 是相对 fit 的倍数（1 = 适应窗口，10 上限）。点击是在 1 和 `CLICK_ZOOM = 3` 之间切换（只有两个状态，所以步长要大）；滚轮用 `exp(-delta * 0.0012)` 连续步进并把单次因子夹在 `[0.8, 1.25]`，滚轮缩放以指针位置为锚点（把指针下的图内坐标换算成平移量），最小钳到 1（即适应窗口），回到 1 时平移归零。
 - 键盘缩放：`+` / `=`、`-` / `_` 各按 `KEY_ZOOM = 1.25` 步进，`0` 回到 fit。监听挂在 `window` 的 capture 阶段（预览没有自带焦点元素），带 Ctrl / Meta / Alt 的组合一律放过（那是浏览器缩放），命中时 `preventDefault` + `stopImmediatePropagation`，否则按键会漏给页面。组件卸载时必须摘掉这个监听。
@@ -323,6 +323,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - **默认只展开根**：`capture.expandNested` 默认 `false`。根自己的滚动内容永远展开（`getTargetBox()` 已经把 `max(rect, scrollHeight)` 当截图框）；开启设置后才会递归展开后代滚动容器。
 - **画布跟着布局走**：`renderElement()` 的顺序必须是「展开 → 重新测量（`fitBoxToLayout()`）→ `computeCaptureScale()` → 渲染」。早期版本先算 `plan` 再展开，导致后代撑高的内容被裁掉（实测：选中包含 `#long-card` 的 `section`，盒高 398、内部展开到 934，输出仍是 398）。
 - `fitBoxToLayout()` 用 `getTargetBox()` 重新量根；变高/变宽时**同时**给根写显式 `height/width`（`documentElement` 除外），否则根的背景和边框会在旧盒子处结束、内容溢出到画布外面。
+- **根元素不横向展开**：`getTargetBox(documentElement)` 宽度只取 `clientWidth`，只有高度取 `scrollHeight`。横向溢出会撑宽画布（还会二次撑宽）、把 `position: fixed` 的视口层留在左上角（复现与数值见 `docs/page-canvas.md`）；要横向内容就选那个元素或用区域截图。
 - 展开是**重排**：展开后代等于替祖先重新排版，所以默认不做。嵌套展开仍然可能被中间的 `overflow: hidden` 面板裁掉——那不是 bug，是页面自己的裁剪（playground 的 `#pick-stage` 就是这种）。
 - 自定义元素的坑：`cloneNode()` 会对克隆出来的自定义元素**跑构造函数**（jsdom 和 Chrome 都是），构造函数里 `attachShadow` + `insertRule` 会在未连接的克隆上抛 `Cannot read properties of null (reading 'insertRule')`，构造函数建出的 shadow 树还会和 `collectShadow()` 收集的内容**重复**。`attachDeferred()` 现在用 `root.replaceChildren(shadow.content)` 覆盖构造函数产物；playground 的 `<shadow-card>` 也加了 `sheet?.insertRule(...)` 兜底。
 - 嵌套展开的开关**已由用户手动验证**：`#nested-demo` 关闭时 520×373 → 1040×746，打开后卡片被撑高、12 行全部出现。自动化里曾读到「设置面板是 true 但渲染收到 false」，那是 Playwright 合成点击/hover 的时序假象（`mouse.click` 会补发 `mousemove` 把键盘选中的层级重置回最深，且截图调用会打断 hover 栈），不是产品问题。
@@ -356,7 +357,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 不要用 `transform` 做根偏移：它会让克隆根成为 `fixed` 后代的包含块，固定弹窗/浮层会跟着被移出画布；`relative` 不会；
 - 渲染面必须等于视口而不是拖拽矩形：`position: fixed` 元素以 `foreignObject` 为包含块，只有渲染面=视口时它的坐标才和屏幕上一致；
 - 裁剪用 `core/crop.ts` 的 `planCrop()` 把 CSS 像素映射到设备像素：只做一次 `round`，再夹到位图范围内；
-- 交互：拖拽超过 4px 进入框选，区域小于 8×8 视为点击；`Esc` 先取消拖拽再退出；`window.blur` 取消拖拽；区域模式强制 `expandNested=false`（要的是所见即所得）；`suppressClick` 用来吃掉拖拽后浏览器补发的 `click`；
+- 交互：拖拽超过 4px 进入框选，区域小于 8×8 视为点击；`Esc` 先取消拖拽再退出；`window.blur` 取消拖拽；区域模式强制 `expandNested=false`；`suppressClick` 用来吃掉拖拽后浏览器补发的 `click`；
 - 已知边界：只在视口内框选；容器自身的伪元素覆盖层会被切片和整页各画一次（位置差一个滚动量）；容器内 `mix-blend-mode` 与「包含块在容器外、逃出裁剪」的后代可能与实际有差异；
 - 区域截图里的 iframe（`36bc973`）：`framesInRegion()` 挑出与选区相交的帧，`paintFrames()` 把帧视口图写进帧盒子背景，**顺序必须在切片替换之前**：切片以容器为根渲染时子元素还在（渲染完才 `hideSliceContent()`），帧图只有先写进去才会出现在切片里；放在之后就会被藏在 `visibility: hidden` 的盒子上，那一格是空的。区域截图是所见即所得，**不展开**帧；只渲染相交的帧（每个帧都是一次完整渲染）；
 - 验证页：`playground/region.html`（三个独立面板 + 嵌套面板 + 渐变/圆角 + 面板内 fixed 元素 + 吸顶表头 + 页面滚动 + 滚动面板里的同源/跨域帧），`pnpm playground` 后访问 `http://127.0.0.1:4176/region.html`；页面把初始滚动位置写死，方便反复对比；
@@ -456,7 +457,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 已验证（真实浏览器）
 
-像素级证据、测量数字与自动化坑都放在 `docs/frame-verification.md`：首轮（2026-11-11）验证了同源/跨域帧出图、鉴权、选中帧=展开、帧内快捷键、穿透选取；之后每轮新增的验证都追加在那里。
+像素级证据、测量数字与自动化坑都在 `docs/frame-verification.md`，每轮新增的验证追加在那里。
 
 ### 下一步（按顺序）
 
@@ -467,7 +468,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - html-to-image 克隆 `<iframe>` 时**不带浏览上下文**：`cloneIFrameElement()` 会退化成「克隆 `contentDocument.body` 并把 iframe 的 computed style 扣到那个 `<body>` 上」。所以副本里的空 iframe 仍会保留正确尺寸/边框/圆角/背景——我们的帧图正是作为它的 `background-image` 画出来的。
 - 帧渲染用的是**帧自己的文档**：背景、`color-scheme`、`@font-face` 都跟帧走（兜底路径也靠 `native.fontSource` 切过去，见「帧的字体与并行渲染」）。
 - 展开语义（2026-11-12 用户确认，是设计不是缺口）：只有**被选中的截图根元素**被展开撑高；子元素默认不展开，除非用户打开「递归展开子元素」。iframe 同理——只有 iframe 自己是根时才展开、撑高、整页渲染，否则只画当前可见视口。
-- 每个帧都是一次独立 html-to-image 渲染：整页截图里有 N 个帧就多 N 次渲染（实测小帧 1～1.5 秒/个）；没有 helper 的帧只多等一次 400ms 探测窗口。日志里出现 `[element-screenshot] frame render failed:` / `frame helper failed:` 表示该帧降级成空盒。
+- 每个帧都是一次独立 html-to-image 渲染：整页截图里有 N 个帧就多 N 次渲染；没有 helper 的帧只多等一次 400ms 探测窗口。日志里出现 `[element-screenshot] frame render failed:` / `frame helper failed:` 表示该帧降级成空盒。
 - 去掉了 `@noframes`：脚本会在**每个** iframe 里执行一遍（解析 610KB bundle、读一次密钥），但帧实例不挂 UI、不注册菜单、不建设置，开销只在这个量级。不要给它加「顺手」的初始化逻辑。
 - playground 的坑：`/frame.html` 只有在帧里也装了这个脚本时才有 helper。用 **VM 安装**（`?vm=1` 或不带参数都行，VM 会注入每个帧）时跨域那格也能出图；完全不装 VM 时 playground 的 stub 只注入顶层页面，`/frame.html` 没有实例 → 同源帧走兜底、跨域帧只能空白。
 
@@ -476,7 +477,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 同源：`http://127.0.0.1:4176/?vm=1` 的 `#frame-demo`。
 - 跨域：先 `PLAYGROUND_PORT=4177 pnpm playground`，再访问 4176 页面的 `#cross-frame-demo`。
 - 兜底：`about:blank` + `document.write` 的临时 iframe（VM 不注入这种帧）。
-- 区域 + 帧：`region.html` 的 `#panel-d`（同源）/`#panel-e`（跨域 4177）；这一格出图才说明「帧图先于切片写回」生效（jsdom 侧由 `capture.test.ts` 的顺序用例锁定）。
+- 区域 + 帧：`region.html` 的 `#panel-d`（同源）/`#panel-e`（跨域 4177）；这一格出图才说明「帧图先于切片写回」生效。
 - 多层：`#split-frame-demo` → `frame-split.html` → `/frame.html`；三层用 `#deep-frame-demo` → `frame-deep.html`。悬停应看到对应层数的 `帧内`；层数设为 2 时最内层是空盒，设为 3 才出图。
 - 鼠标穿透：打开设置后悬停 `#frame-demo` 内部，选框应跟手、点击直接出图。
 - 还缺：「帧在可滚动祖先里、祖先展开后帧位置是否跟得上」。

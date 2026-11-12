@@ -95,7 +95,16 @@ export function getTargetBox(element: Element): TargetBox {
   const rect = native.getBoundingClientRect(element)
 
   if (element === doc.documentElement) {
-    const width = Math.max(doc.documentElement.scrollWidth, doc.documentElement.clientWidth)
+    /*
+     * A full-page capture is the page as it is laid out in the viewport: the
+     * whole height, but not the horizontal overflow. Widening it past the
+     * viewport is not a window onto the page — the copy reflows (tables with
+     * wide content grow even further) and viewport-fixed layers stay at the
+     * left edge, so the picture stops describing what the user sees. A page
+     * that really is wider than the viewport has to be captured through the
+     * element or region that overflows.
+     */
+    const width = Math.max(1, Math.ceil(doc.documentElement.clientWidth || rect.width))
     const height = Math.max(doc.documentElement.scrollHeight, doc.documentElement.clientHeight)
     return { left: 0, top: 0, width, height }
   }

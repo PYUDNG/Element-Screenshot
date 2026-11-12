@@ -4,6 +4,7 @@ import { parseCssColor, resolveBackdropColor, resolvePageBackground } from '../s
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   document.body.innerHTML = ''
 })
 
@@ -233,5 +234,56 @@ describe('page background resolution', () => {
     vi.spyOn(native, 'elementsFromPoint').mockReturnValue([card])
 
     expect(resolveBackdropColor(card)).toBe('rgb(60, 60, 70)')
+  })
+
+  it('starts from the dark canvas of a page that only sets color-scheme', () => {
+    // A page like this never sets a background colour: the canvas itself is
+    // dark because `color-scheme: dark` asks the browser for it.
+    vi.spyOn(native, 'getComputedStyle').mockImplementation(
+      (element) =>
+        ({
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+          colorScheme: element === document.documentElement ? 'dark' : 'normal'
+        }) as CSSStyleDeclaration
+    )
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([])
+
+    expect(resolveBackdropColor(document.documentElement)).toBe('rgb(18, 18, 18)')
+    expect(resolvePageBackground()).toBe('rgb(18, 18, 18)')
+  })
+
+  it('keeps the light canvas for a light colour scheme', () => {
+    vi.spyOn(native, 'getComputedStyle').mockImplementation(
+      () =>
+        ({
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+          colorScheme: 'light'
+        }) as CSSStyleDeclaration
+    )
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([])
+
+    expect(resolvePageBackground()).toBe('rgb(255, 255, 255)')
+  })
+
+  it('follows the user preference when the page allows both schemes', () => {
+    vi.spyOn(native, 'getComputedStyle').mockImplementation(
+      () =>
+        ({
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+          colorScheme: 'light dark'
+        }) as CSSStyleDeclaration
+    )
+
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('dark'),
+      media: query
+    }))
+    expect(resolvePageBackground()).toBe('rgb(18, 18, 18)')
+
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query
+    }))
+    expect(resolvePageBackground()).toBe('rgb(255, 255, 255)')
   })
 })
