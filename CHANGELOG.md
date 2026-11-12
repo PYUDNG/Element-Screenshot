@@ -19,13 +19,16 @@ All notable changes to this project are documented here. The format follows
   helper, still starting up, busy) is skipped for two seconds instead of making
   every mouse move wait, and the picker falls back to the frame itself.
 - The picker can pierce more than one frame, up to “Frame depth” in the settings
-  (1–3, default 2). A hover that lands on a frame is answered by that frame, which
+  (1–6, default 2). A hover that lands on a frame is answered by that frame, which
   — if it finds one of *its* frames under the pointer — asks that frame in turn and
   merges the answer into its own coordinates. Layers below name the frames the
   answer travelled through, so picking one walks the same doors back down to the
   frame that owns the element and renders it there. Every extra level costs one
   more round trip inside that frame's own realm, which is why this is a setting
-  instead of an unconditional recursion.
+  instead of an unconditional recursion. The whole chain shares one deadline of
+  250 ms, so a deep pick is never slower than a shallow one: each hop only gets
+  what is left, and a hop with less than 40 ms left stops instead of adding
+  another round trip. Layers show their level as `帧内×2`, `帧内×3`.
 - Picking works with mouse passthrough on. With the transparent layer gone the
   pointer enters the frame and the top window stops seeing it, so a frame reports
   its pointer positions (and swallows the click, which is the capture gesture) while

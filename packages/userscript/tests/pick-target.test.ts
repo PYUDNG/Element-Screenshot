@@ -117,12 +117,15 @@ describe('pick targets', () => {
     const frame = fakeFrame()
     const [target] = frameTargets(frame, [item({ via: [4, 9] })])
     expect(target?.path).toEqual([4, 9])
+    // One frame plus the two hops the answer travelled through.
+    expect(target?.frameLevel).toBe(3)
   })
 
   it('gives a layer of the frame itself an empty path', () => {
     const frame = fakeFrame()
     const [target] = frameTargets(frame, [item()])
     expect(target?.path).toEqual([])
+    expect(target?.frameLevel).toBe(1)
   })
 
   it('prepends the hop a nested answer came through', () => {

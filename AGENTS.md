@@ -438,7 +438,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 选中帧内图层 → `capture{elementId}` 让**帧自己**渲染：helper 直接调 `captureElement()`，回 `captured{blob,width,height,limited}`。父级读不到跨域文档，同源也不该用父级 realm 的字体，所以不走父级兜底。
 - `elementId` 是 helper 侧的 `WeakMap<Element, number>` 编号（不复用、跨 hover 稳定、超 2000 条裁剪），父级**不传选择器**：跨域文档里的选择器既不可信也不可靠；capture 时再校验 `isConnected`。
 - 没有 helper 的帧不参与穿透：`hover` 250ms 超时 → 该帧进 `framePickRetry`（2 秒），期间悬停直接退回 `iframe` 图层，不会让光标卡住；`startPicker()` 清空这张表。
-- 多层（`picker.frameDepth`，设置里 1–3、默认 2）：帧发现自己的最内层又是 `<iframe>` 时，**它自己**向下问一层（`depth-1`），把子帧条目换算进自己的坐标、给 `via` 加上这一跳的帧编号，再并到自己上面。`via` 是「还要穿过哪些子帧」的编号链，capture 时每层按 `via[0]` 转发、`via.slice(1)` 下传，最后一层才用 `elementId`；帧编号是 helper 自己的 `WeakMap<HTMLIFrameElement, number>`（上限 64）。每层的超时预算 `FRAME_PICK_TIMEOUT × depth`，所以深一层就多一跳 RTT、选择器栈也多 3–5 项。
+- 多层（`picker.frameDepth`，设置里 1–6、默认 2）：帧发现自己的最内层又是 `<iframe>` 时，**它自己**向下问一层（`depth-1`），把子帧条目换算进自己的坐标、给 `via` 加上这一跳的帧编号，再并到自己上面。`via` 是「还要穿过哪些子帧」的编号链，capture 时每层按 `via[0]` 转发、`via.slice(1)` 下传，最后一层才用 `elementId`；帧编号是 helper 自己的 `WeakMap<HTMLIFrameElement, number>`（上限 64）。整条链共用一个绝对 `deadline`（`FRAME_PICK_TIMEOUT` = 250ms），每层只拿剩余预算，剩余 < `FRAME_PICK_MIN_BUDGET`(40ms) 就不再往下问——所以深度不影响最坏延迟，只多一跳 RTT；选择器栈每层多 3–5 项，徽标写 `帧内×N`。
 - 鼠标穿透开着时也能量：帧收到 `ui{active, passthrough}` 后自己上报 `pointer{kind,x,y}`（`core/frame-pointer.ts`，只报 move、click 吞掉并上报），顶层 `installFramePointerBridge()` 换算成视口坐标、在 `document.body` 上重放 `mousemove`/`click` 给 picker——同一个十字线、同一份栈、同一条截图路径。mousemove 不 `preventDefault`（页面的 hover 要保留），嵌套帧的上报由父帧换算后再转发。帧内滚轮仍归页面，所以只能选帧当前视口里的部分。
 
 ### 帧的字体与并行渲染
@@ -455,8 +455,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 下一步（按顺序）
 
-1. **选取深度 ≠ 渲染深度**：`picker.frameDepth` 可以到 3，但 `MAX_FRAME_DEPTH = 2` 管的是渲染——第 3 层帧里的再下一层帧渲染出来仍是空盒。要加深得先算清「每层一次完整渲染」的时间。
-2. 预览阶段的帧内按键没有回传（`ui` 只在 `picking` 时置位，`handleSelect()` 靠 blur 把焦点带出帧）；实测如果发现预览里 `Esc` 无效，再把 `ui` 扩到 `selected`。
+1. **选取深度 ≠ 渲染深度**：`picker.frameDepth` 可以到 6，但 `MAX_FRAME_DEPTH = 2` 管的是渲染——第 3 层帧里的再下一层帧渲染出来仍是空盒。要加深得先算清「每层一次完整渲染」的时间。
+2. 预览阶段的帧内按键：**已验证不需要回传**——`handleSelect()` 的 `blur()` 把焦点带出帧，预览的 `Esc` / `Ctrl+C` 由顶层 window 直接收到（用户手动验证：开关穿透、焦点在不在帧内都正常）。
 
 ### 关键约束（别踩）
 

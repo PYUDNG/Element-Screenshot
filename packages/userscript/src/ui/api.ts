@@ -36,6 +36,11 @@ export interface PickerHover {
   fullPage: boolean
   /** True when the layer lives inside an iframe rather than this document. */
   inFrame: boolean
+  /**
+   * How many frames deep that layer is: 1 for a frame the page embeds, 2 for a
+   * frame inside that frame. Zero outside frames.
+   */
+  frameLevel: number
 }
 
 export interface CaptureSize {

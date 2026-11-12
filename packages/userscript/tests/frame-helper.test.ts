@@ -508,12 +508,12 @@ describe('piercing a nested frame', () => {
     const view = frameContentBox(frame)
     expect(view).not.toBeNull()
     // The point is handed over in the child's own coordinates, with one level of
-    // budget spent.
+    // budget spent; the deadline is the one the parent set, not a fresh timeout.
     expect(childPick).toHaveBeenCalledWith(frame, {
       x: 120 - (view?.left ?? 0),
       y: 70 - (view?.top ?? 0),
       depth: 1,
-      timeout: 250
+      deadline: expect.any(Number)
     })
     const stack = postedStack(post)
     expect(stack.items).toHaveLength(3)
@@ -632,5 +632,48 @@ describe('piercing a nested frame', () => {
       expect.objectContaining({ type: 'captured', nonce: 'c7', error: 'The element path is invalid' }),
       '*'
     )
+  })
+
+  it('forwards the deadline it was given and skips a child when it has expired', async () => {
+    const frame = nestedFrame()
+    const childPick = vi.fn(async () => [{ ...pickItem('div.inner') }])
+    const helper = createFrameHelper({
+      pick: () => [{ element: frame, item: pickItem('iframe') }],
+      childPick
+    })
+    const deadline = Date.now() + 5000
+
+    helper.handleMessage(
+      messageEvent({
+        protocol: FRAME_PROTOCOL,
+        type: 'hover',
+        token: 'test-token',
+        nonce: 'h20',
+        x: 120,
+        y: 70,
+        depth: 3,
+        deadline
+      })
+    )
+    await settle()
+
+    expect(childPick).toHaveBeenCalledWith(frame, expect.objectContaining({ depth: 2, deadline }))
+
+    childPick.mockClear()
+    helper.handleMessage(
+      messageEvent({
+        protocol: FRAME_PROTOCOL,
+        type: 'hover',
+        token: 'test-token',
+        nonce: 'h21',
+        x: 120,
+        y: 70,
+        depth: 3,
+        deadline: Date.now() - 1
+      })
+    )
+    await settle()
+
+    expect(childPick).not.toHaveBeenCalled()
   })
 })

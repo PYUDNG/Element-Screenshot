@@ -6,6 +6,7 @@ import type { FrameSize } from './frame-size'
 import { collectFramePickCandidates } from './frame-pick'
 import type { FramePickCandidate } from './frame-pick'
 import {
+  FRAME_PICK_MIN_BUDGET,
   FRAME_PICK_TIMEOUT,
   FRAME_PROTOCOL,
   MAX_FRAME_PIERCE,
@@ -93,7 +94,8 @@ export interface FrameChildPickRequest {
   x: number
   y: number
   depth: number
-  timeout: number
+  /** Absolute `Date.now()` the whole chain has to answer by. */
+  deadline: number
 }
 
 export interface FrameHelper {
@@ -261,17 +263,23 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
         Number.isFinite(message.depth) && message.depth > 0
           ? Math.min(Math.floor(message.depth), MAX_FRAME_PIERCE)
           : 1
+      const deadline = Number.isFinite(message.deadline)
+        ? message.deadline
+        : Date.now() + FRAME_PICK_TIMEOUT
+      const remaining = deadline - Date.now()
       const innermost = candidates[0]?.element
-      if (depth > 1 && innermost && innermost.tagName === 'IFRAME') {
+      if (depth > 1 && remaining > FRAME_PICK_MIN_BUDGET && innermost && innermost.tagName === 'IFRAME') {
         const frame = innermost as HTMLIFrameElement
         const view = frameContentBox(frame)
         if (view) {
           const hop = registerFrame(frame)
+          // The child gets whatever is left of the one budget, not a fresh
+          // timeout: a deep chain must not outlast a shallow one.
           const nested = await childPick(frame, {
             x: message.x - view.left,
             y: message.y - view.top,
             depth: depth - 1,
-            timeout: FRAME_PICK_TIMEOUT * (depth - 1)
+            deadline
           })
           if (nested && nested.length > 0) {
             items = [...liftFrameItems(view, nested, hop), ...items]

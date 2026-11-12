@@ -38,7 +38,9 @@ export const FRAME_READY_TIMEOUT = 400
 /** A hover answer is one hit test; a slow frame must not stall the crosshair. */
 export const FRAME_PICK_TIMEOUT = 250
 /** How many frames deep one hover answer may travel. */
-export const MAX_FRAME_PIERCE = 3
+export const MAX_FRAME_PIERCE = 6
+/** A chain this short is not worth another round trip. */
+export const FRAME_PICK_MIN_BUDGET = 40
 /** How long one helper render may take before the parent stops waiting. */
 export const FRAME_RESULT_TIMEOUT = 10_000
 /** An element capture is a full render, so it gets the render budget. */
@@ -204,6 +206,14 @@ export interface FrameHoverMessage {
   y: number
   /** How many frames below this one may still be pierced. */
   depth: number
+  /**
+   * When the whole answer is due, as an absolute `Date.now()`.
+   *
+   * Every frame runs on the same clock, so one deadline shared down the chain
+   * keeps a deep pick as fast as a shallow one: a hop only gets the budget that
+   * is left, instead of another full timeout of its own.
+   */
+  deadline: number
 }
 
 /** The frame's answer: topmost layer first, like `getElementStack`. */
@@ -766,6 +776,9 @@ export interface FramePickRequest {
   y: number
   /** How many frames below this one may still be pierced. */
   depth?: number
+  /** Absolute `Date.now()` the whole chain has to answer by. */
+  deadline?: number
+  /** Override for tests; otherwise the deadline decides. */
   timeout?: number
 }
 
@@ -785,6 +798,7 @@ export async function requestFramePick(
   if (!token || !win) return null
 
   const depth = Math.min(Math.max(Math.floor(request.depth ?? 1), 1), MAX_FRAME_PIERCE)
+  const deadline = request.deadline ?? Date.now() + FRAME_PICK_TIMEOUT
   const nonce = createNonce()
   let items: FramePickItem[] | null = null
   let failure = ''
@@ -795,14 +809,15 @@ export async function requestFramePick(
     nonce,
     x: request.x,
     y: request.y,
-    depth
+    depth,
+    deadline
   })
   if (!sent) return null
 
   await waitForMessages({
-    // Every hop below this one gets its own budget, so the deepest answer still
-    // fits inside the wait.
-    timeout: request.timeout ?? FRAME_PICK_TIMEOUT * depth,
+    // One budget for the whole chain, not one per hop: the answer arrives either
+    // in time or not, however many frames it had to walk through.
+    timeout: request.timeout ?? Math.max(0, deadline - Date.now()),
     onMessage: (message, event) => {
       if (message.type !== 'stack') return false
       if (message.nonce !== nonce || event.source !== win) return false

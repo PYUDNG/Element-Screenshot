@@ -15,6 +15,7 @@ function target(): PickTarget {
     frame: null,
     frameElementId: null,
     path: [],
+    frameLevel: 0,
     label: 'div',
     rect: { left: 0, top: 0, width: 10, height: 10 },
     box: { left: 0, top: 0, width: 10, height: 10 },

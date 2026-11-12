@@ -495,7 +495,8 @@ export class ShotApp implements ShotAppApi {
       depth: index + 1,
       total,
       fullPage: target.fullPage,
-      inFrame: target.frame !== null
+      inFrame: target.frame !== null,
+      frameLevel: target.frameLevel
     }
     this.state.box = target.box
   }

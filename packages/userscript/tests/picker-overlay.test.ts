@@ -59,6 +59,7 @@ function hover(overrides: Partial<PickerHover> = {}): PickerHover {
     total: 10,
     fullPage: false,
     inFrame: false,
+    frameLevel: 0,
     ...overrides
   }
 }

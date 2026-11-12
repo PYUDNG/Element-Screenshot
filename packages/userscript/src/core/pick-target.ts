@@ -30,6 +30,11 @@ export interface PickTarget {
    * itself; two entries for a layer of a frame two levels down.
    */
   path: readonly number[]
+  /**
+   * How many frames deep this layer sits: 0 in the top document, 1 for a frame
+   * the page embeds, 2 for a frame inside that frame.
+   */
+  frameLevel: number
   label: string
   /** The element's border box on screen, in top viewport coordinates. */
   rect: TargetBox
@@ -106,6 +111,7 @@ export function elementTarget(element: Element): PickTarget {
     frame: null,
     frameElementId: null,
     path: [],
+    frameLevel: 0,
     label: info.label,
     rect: info.rect,
     box: info.box,
@@ -134,6 +140,7 @@ export function frameTargets(
     frame,
     frameElementId: item.id,
     path: item.via ?? [],
+    frameLevel: 1 + (item.via?.length ?? 0),
     label: item.label,
     rect: { left: item.left, top: item.top, width: item.width, height: item.height },
     box: {

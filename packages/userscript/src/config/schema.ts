@@ -33,7 +33,10 @@ export function createSettingsTabs(): SettingsTab[] {
               options: [
                 { value: '1', label: 'app.field.frameDepth1' },
                 { value: '2', label: 'app.field.frameDepth2' },
-                { value: '3', label: 'app.field.frameDepth3' }
+                { value: '3', label: 'app.field.frameDepth3' },
+                { value: '4', label: 'app.field.frameDepth4' },
+                { value: '5', label: 'app.field.frameDepth5' },
+                { value: '6', label: 'app.field.frameDepth6' }
               ]
             }
           ]
