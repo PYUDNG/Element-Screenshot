@@ -4,20 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Fixed
-
-- Pages that only declare `color-scheme: dark` get the dark canvas they show in
-  the browser (`#121212`) instead of a white fill, so their full-page capture is
-  no longer white below the content.
-- Full-page captures keep the page background colour. A `body` background is
-  propagated to the browser's canvas instead of being painted on the body's own
-  box, and a cloned `<html>` has no canvas to propagate it to, so a dark page
-  came out white below the body box — usually just past the first viewport,
-  which left white gaps around the content, a white footer with pale text, and
-  white columns under a virtualised timeline. The canvas colour is now resolved
-  from the root and body backgrounds and painted behind the clone.
+## [0.9.0] - 2026-11-12
 
 ### Added
 
@@ -146,25 +133,18 @@ All notable changes to this project are documented here. The format follows
 - `createSnapshot()` accepts a `doc` option and copies that document instead of
   the top page, which is what lets a frame be rendered on its own.
 
-### Security
-
-- Everything the frame bridge sends is sealed instead of carrying a shared install
-  token. Each realm keeps one 32-byte key in the userscript storage and seals the
-  whole body with XChaCha20-Poly1305 (`core/frame-crypto.ts`), so the wire only
-  ever carries `{protocol, type, box}` — a message type, a nonce, ciphertext and a
-  tag. A page can see that frames talk and how much they send, but not a
-  coordinate, an element id, a DOM layer, a shortcut or a PNG, and it cannot forge
-  a request without the key, which never leaves storage. The token model is gone:
-  a frame's own page used to be able to read the token out of any downward message
-  and reuse it later against a frame it embedded, which was a real chain. Sealing
-  closes the upward direction too — presses and pointer reports travel encrypted —
-  and a replayed message is now dropped by its sequence number instead of merely
-  being useless. The protocol is `/7`; `/6` builds do not interoperate, so refresh
-  every tab after upgrading (an old frame simply reads as “no helper”, which falls
-  back safely).
-
 ### Fixed
 
+- Full-page captures keep the page background colour. A `body` background is
+  propagated to the browser's canvas instead of being painted on the body's own
+  box, and a cloned `<html>` has no canvas to propagate it to, so a dark page
+  came out white below the body box — usually just past the first viewport,
+  which left white gaps around the content, a white footer with pale text, and
+  white columns under a virtualised timeline. The canvas colour is now resolved
+  from the root and body backgrounds and painted behind the clone.
+- Pages that only declare `color-scheme: dark` get the dark canvas they show in
+  the browser (`#121212`) instead of a white fill, so their full-page capture is
+  no longer white below the content.
 - The picker installs its window listeners at document-start instead of when
   picking begins. `stopImmediatePropagation()` only stops listeners that run after
   it, so a page listening on `window` (capture) used to see the clicks the picker
@@ -192,7 +172,7 @@ All notable changes to this project are documented here. The format follows
   where the picker listens, never saw it; the picker could only be left by clicking
   the page first. The focus is left alone: while the picker is open, a frame now
   reports the keys the picker consumes (`Esc`, `Enter`, arrows, `PageUp`/`PageDown`,
-  `+`/`-`, `Tab`, `Ctrl+A`) over the same token-gated bridge, swallows them locally
+  `+`/`-`, `Tab`, `Ctrl+A`) over the same sealed bridge, swallows them locally
   and the top document replays each one into its own listeners. Only those keys
   travel — no plain letters or digits — and the page never sees the replayed event.
 - A cloned custom element no longer duplicates the shadow tree its constructor
@@ -200,18 +180,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
-- A frame no longer hands the install token to the page that embeds it. Frames
-  report presses and pointer positions upward (`subscribe`, `trigger`, `key`), and
-  a message sent to the parent window is readable by the parent's own scripts —
-  which is exactly the window the token has to stay hidden from. Every page that
-  embedded a frame therefore learned the token from the first `subscribe` and could
-  then ask the frame for a picture of itself: a cross-origin screenshot that the
-  token was there to prevent. Upward messages now carry no token at all; downward
-  requests still do, so a helper keeps refusing strangers. Losing the token also
-  means those upward presses cannot be authenticated any more — a frame can open
-  the picker or press a key the picker already handles, which is a nuisance, not a
-  leak. The full model, including what still leaks and why it cannot be fixed in a
-  userscript, is written down in `docs/frame-bridge-security.md`.
+- Everything the frame bridge sends is sealed instead of carrying a shared install
+  token. Each realm keeps one 32-byte key in the userscript storage and seals the
+  whole body with XChaCha20-Poly1305 (`core/frame-crypto.ts`), so the wire only
+  ever carries `{protocol, type, box}` — a message type, a nonce, ciphertext and a
+  tag. A page can see that frames talk and how much they send, but not a
+  coordinate, an element id, a DOM layer, a shortcut or a PNG, and it cannot forge
+  a request without the key, which never leaves storage. The token model is gone:
+  a frame's own page used to be able to read the token out of any downward message
+  and reuse it later against a frame it embedded, which was a real chain. Sealing
+  closes the upward direction too — presses and pointer reports travel encrypted —
+  and a replayed message is now dropped by its sequence number instead of merely
+  being useless. An earlier iteration only dropped the token from upward messages,
+  because a message sent to the parent window is readable by the parent's own
+  scripts; sealing both directions removes that asymmetry, so no message has to be
+  trusted or distrusted by the direction it travels. The protocol is `/7`; `/6`
+  builds do not interoperate, so refresh every tab after upgrading (an old frame
+  simply reads as “no helper”, which falls back safely).
 
 ## [0.7.1] - 2026-11-10
 

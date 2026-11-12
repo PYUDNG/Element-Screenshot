@@ -10,48 +10,29 @@
 - 构建产物：`packages/userscript/dist/script.user.js`（`dist/` 被 git 忽略）
 - 包管理器：pnpm 10；Node.js >= 22.12。
 
-## 当前发布状态（2026-11-10）
+## 当前发布状态（2026-11-12）
 
 - 公开名称：**Element Screenshot**
 - 仓库：<https://github.com/PYUDNG/Element-Screenshot>
-- 当前版本：`0.7.1`（shadow root 内 `<style>` 的 CSSOM 重放）
-- 当前 tag：`v0.7.1`（commit `417ad01`，发布 2026-11-10；release 资产与本地 `pnpm build` 产物字节一致，506,322 B，`sha256 EB839907…`）
-- Release 资产：
-  - `script.user.js`
-  - `script.meta.js`
-- 最新脚本直链：
+- 当前版本：`0.9.0`（iframe 视口合成 + 多层帧渲染）
+- 当前 tag：`v0.9.0`（发布 2026-11-12；release 资产 = `pnpm build` 产物，611,562 B，`sha256 C47FD1CC…`）
+- Release 资产：`script.user.js`、`script.meta.js`；最新直链
   <https://github.com/PYUDNG/Element-Screenshot/releases/latest/download/script.user.js>
 - Greasyfork 的 GitHub webhook 依赖 release 资产名 **`script.user.js`**，不要改回其他文件名。
-- GitHub Actions：
-  - push / PR 跑 `ci.yml`
-  - push `v*` tag 跑 `release.yml`
-  - release notes 从 `CHANGELOG.md` 对应版本段落提取
-- Greasyfork README 直链：
-  - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_en.md`
-  - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-CN.md`
-  - `https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/greasyfork/README_zh-TW.md`
-- Greasyfork 脚本页：<https://greasyfork.org/scripts/604334>（GitHub README 的安装表格已指向它）
-  - 2026-11-10 已同步到 `Version 0.7.1`、494.5 KB；平台侧会缓存页面内容，说明文字没跟上时在脚本页手动 Sync / Update description。
+- GitHub Actions：push / PR 跑 `ci.yml`；push `v*` tag 跑 `release.yml`，release notes 从 `CHANGELOG.md` 对应版本段落提取。
+- Greasyfork 脚本页：<https://greasyfork.org/scripts/604334>（README 安装表格已指向它）；三个 `greasyfork/README_*.md` 直链见仓库 README。平台会缓存页面内容，说明没跟上时在脚本页手动 Sync / Update description。
 
-### main 上的未发布改动（截至 2026-11-11，无 tag）
+### 0.9.0 包含什么（已发布）
 
-按顺序，都是 0.8.0 / 0.9.0 的组成部分。详细行为见 `CHANGELOG.md` 的 `[Unreleased]` 与本文件对应小节：
+改动细节看 `CHANGELOG.md` 的 `[0.9.0]`，行为规则看本文件下文各小节：
 
-1. `77831ea` / `4bc826e` picker 双层框、`可滚动 ↓Npx` 徽标、`Shift+滚轮` 跳滚动层、`scrollContainerInfo()` 统一判定；默认只展开根 + `fitBoxToLayout()` 重测画布 + 自定义元素 shadow 去重；
-2. `8ad160d` playground：`#nested-demo` / `#frame-demo` 加 `align-self: start`；`d491bc8` + `cbb0ad0` iframe 记录（`FrameRecord`）与 `/frame.html` 夹具；`c5ec8a8` playground 的 `index.html` 也认 `?vm=1`；
-3. `38b1696` + `770e9be` + `f00cdad` + `36bc973` 帧渲染：`createSnapshot({doc})`、帧图写回帧盒子背景、帧内 sticky、深度 2、每帧装 helper（token 鉴权、去 `@noframes`）、选中帧本身 = 展开、区域截图里的帧；
-4. `25b4443` 帧内快捷键：`core/hotkey-bridge.ts`（`subscribe` / `hotkey` / `trigger`，协议 `/3`），帧内按键回到顶层再复核；
-5. `d02ba88` 设置项归位：`触发快捷键` 从「截图 → 触发方式」搬到「触发 → 快捷键」；`b17e4d5` 文档；
-6. `71f05c0` 帧内选择器按键：**不动焦点**，帧把选择器用得上的键经桥上报（`ui` + `key`，协议 `/4`，`core/relay-key.ts`），顶层在 `document.body` 上重放给 picker；
-7. 穿透选取：picker 能选到 iframe 内部任意元素（`hover`/`stack` + `capture`/`captured`，协议 `/5`，`core/pick-target.ts`、`core/frame-pick.ts`），帧内元素由该帧自己渲染；
-8. 帧的字体与并行渲染：`native.fontSource` / `setFontSource()` 把字体嵌入指向帧自己的文档（`patchFontSourceBase`、`patchFontUsageScan`），`paintFrames()` 并行请求 helper、取消时逐个发 `cancel`。
-9. 选择器监听提前到 `document-start`（`installEarlyPickerListeners()`，13 个事件常驻 + `active` 门控），页面在 window 捕获阶段再也看不到、也拦不住拾取期间的点击；`wheel` 仍在开始拾取时才挂。设置反过来改成「鼠标穿透」（默认关），并改为**版本化信封** `{version, value}` 存在同一条 GM 值里（`createDomain`，世代 1 = 旧键迁移），规则见 `docs/settings-migrations.md`。
+- 选择器：双层框 + `可滚动 ↓Npx` 徽标 + `Shift+滚轮` 跳滚动层，判定统一走 `scrollContainerInfo()`；默认只展开根，`fitBoxToLayout()` 在展开后重测画布。
+- iframe：`createSnapshot({doc})`、帧图写回帧盒子背景、帧内 sticky、选中帧本身 = 展开、区域截图里的帧、跨域 helper（协议 `/7` 密封）。
+- 多层：`picker.frameDepth`（「帧层级」）同时管选取与渲染，`core/frame-levels.ts` cap 到 6、默认 2。
+- 帧内输入：快捷键与选择器按键经桥回到顶层复核（`hotkey-bridge.ts`、`relay-key.ts`）；鼠标穿透下的穿透选取（`pick-target.ts`、`frame-pick.ts`）。
+- 设置：版本化信封 `{version, value}`（`createDomain`，世代 1 = 旧键迁移，见 `docs/settings-migrations.md`）；「鼠标穿透」默认关。
 
-10. 帧桥全面密封（已完成）：协议 `/7`，信封 `{protocol, type, box}`，XChaCha20-Poly1305，密钥只在管理器存储里；`core/frame-crypto.ts` + `core/frame-bridge.ts`，模型与残余风险见 `docs/frame-bridge-security.md`。
-
-11. 渲染深度跟随设置（已完成）：`picker.frameDepth`（界面改名「帧层级」）同时是选取与渲染的层数，`core/frame-levels.ts` 统一 cap 到 6、默认 2；`render`/`capture` 带可选 `maxDepth`。
-
-`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
+`FrameRecord` 的几何字段（`rect` / `radius`）在 `38b1696` 删掉，改成渲染时从 `copy` 量。
 
 ## 文档同步规则
 
@@ -318,7 +299,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - `inline` / `inline-*` 根会进入行盒，要改成对应的块级 display；
 - 元素内部滚动容器需要在截图前展开，截完恢复。
 
-### 展开语义与画布尺寸（0.8.0）
+### 展开语义与画布尺寸（0.9.0）
 
 - **默认只展开根**：`capture.expandNested` 默认 `false`。根自己的滚动内容永远展开（`getTargetBox()` 已经把 `max(rect, scrollHeight)` 当截图框）；开启设置后才会递归展开后代滚动容器。
 - **画布跟着布局走**：`renderElement()` 的顺序必须是「展开 → 重新测量（`fitBoxToLayout()`）→ `computeCaptureScale()` → 渲染」。早期版本先算 `plan` 再展开，导致后代撑高的内容被裁掉（实测：选中包含 `#long-card` 的 `section`，盒高 398、内部展开到 934，输出仍是 398）。
@@ -414,7 +395,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 语义：**直接选中 iframe** 时帧文档就是根（整页展开、从顶部画），**选中包含 iframe 的祖先**时只画帧的当前视口。和普通滚动容器同一套规则，只是低一层。
 - 顺序（`renderElement()`）：`expandForCapture(root)` → `planFrameExpansion(rootFrame)` →
   `fitBoxToLayout()` → `computeCaptureScale()` → `paintFrames(..., expansion)` → 页面渲染。
-  `planFrameExpansion()` 必须在前两步之间，因为画布尺寸要等副本里的 iframe 被撑高、父级重排之后才准（和 0.8.0 的「展开 → 重测 → 算比例」一致）。
+  `planFrameExpansion()` 必须在前两步之间，因为画布尺寸要等副本里的 iframe 被撑高、父级重排之后才准（和「展开 → 重测 → 算比例」一致）。
 - 测量：`frameContentSize(doc)` 只读 `documentElement` / `body` 的 `scrollWidth`/`scrollHeight`（浏览器里这两个值天然 ≥ 视口），**不建快照、不改样式**，所以 picker 悬停时也能同步算。
   - 不要给它加「至少一个视口」的下限：`getTargetBox()` 也会对 iframe 调它，而副本里那个空 iframe 在 jsdom 下的 `contentWindow.innerWidth` 是**父窗口的 1024**（jsdom 没有独立视口），加下限会让 `fitBoxToLayout()` 把盒子撑到 1024 宽。视口下限只放在 `planFrameExpansion()` 里（`max(viewport, measured)`）。
 - 跨域：父级读不到 `frame.doc`，`frameContentSize()` 返回 null → `probeFrameHelpers([live])` + `requestFrameSize()`；探测结果会随 `FrameExpansion` 传给 `paintFrames()`，别重复探测。测量失败（无 helper、超时、0×0）就当「不需要展开」，退回旧的视口渲染。
@@ -461,7 +442,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 下一步（按顺序）
 
-1. 发版准备（0.8/0.9）：CHANGELOG、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。
+1. 0.9.0 已发布：上线后确认 Greasyfork 拿到的是 611,562 B 的 `0.9.0`（webhook 偶尔要手动 Sync / Update description）。
+2. 下一个功能或修复从这个 tag 起算，仍然走「`pnpm check` + 真实页面验证 + CHANGELOG/文档同步」。
 
 ### 关键约束（别踩）
 
@@ -480,7 +462,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 区域 + 帧：`region.html` 的 `#panel-d`（同源）/`#panel-e`（跨域 4177）；这一格出图才说明「帧图先于切片写回」生效。
 - 多层：`#split-frame-demo` → `frame-split.html` → `/frame.html`；三层用 `#deep-frame-demo` → `frame-deep.html`。悬停应看到对应层数的 `帧内`；层数设为 2 时最内层是空盒，设为 3 才出图。
 - 鼠标穿透：打开设置后悬停 `#frame-demo` 内部，选框应跟手、点击直接出图。
-- 还缺：「帧在可滚动祖先里、祖先展开后帧位置是否跟得上」。
+- 帧在可滚动祖先里：`#frame-scroll-demo`（240px 滚动口 + 581px 占位 + `/frame.html`）。选中滚动口后输出 482×1043，帧表头出现在 y 582（= border + 占位），说明帧图跟着展开后的盒子走；数字见 `docs/frame-verification.md` 第四轮。
 
 ## 验证建议
 
