@@ -1,6 +1,6 @@
 # 设置迁移：版本化信封（已实现）
 
-> 状态：已实现并验证（`packages/settings/src/domain.ts` + `packages/userscript/src/config/migrate.ts`）。
+> 状态：已实现并验证（`packages/versioned-storage/src/domain.ts` + `packages/userscript/src/config/migrate.ts`）。
 > 改动设置结构前先读本文件；这里记的是判定规则和为什么不能写成别的样子。
 
 ## 存储形态
@@ -18,8 +18,19 @@
 
 | 层 | 职责 |
 | --- | --- |
-| 信封（`createDomain`） | 版本号、写回、判定、诊断 |
+| 信封（`createDomain`，`@element-screenshot/versioned-storage`） | 版本号、写回、判定、诊断 |
 | 载荷（`value`） | 设置本身；读写和每一步迁移的格式由该域自己决定 |
+
+## 归属：引擎是独立包
+
+| 包 | 有什么 |
+| --- | --- |
+| `@element-screenshot/versioned-storage`（`packages/versioned-storage`） | `createDomain`、`DomainStep` / `DomainValueStorage` / `DomainStorage` 类型、判定与写回规则。零依赖，不认识任何设置键。 |
+| `@element-screenshot/settings`（`packages/settings`） | 设置面板。**不依赖**升级器，也不导出 `createDomain`；`createSettings({ storage })` 只要求 `getItem` / `setItem` / `removeItem`。 |
+| 用户脚本（`packages/userscript`） | `SETTINGS_STEPS` 与本脚本的存储键（`config/migrate.ts`），只写自己的历史。 |
+
+`Domain.storage` 的形状与 `SettingsStorage` 相同，所以两边可以直接拼：`createSettings({ storage: domain.storage })`。拆分的目的就是让任意一边可以单独使用——别的脚本可能只要版本化存储（没有面板），也可能只要面板（没有迁移）。因此 **`domain.ts` 里不能 import 设置库的任何东西**，加功能时保持这个约束。
+
 
 ## 判定（`readDomain`）
 
@@ -85,8 +96,9 @@ for step in steps（按 id 升序）
 - 种 `{"foo":1}`（对象但无版本号）→ 原样不动，控制台 `unrecognised stored value; left untouched`。
 - 种 `{version:1, value:"{\"trigger.fabSize\":64}"}` → FAB 渲染成 64×64（store 拿到的是载荷而不是信封），且启动未重写该值。
 - VM 里旧版本的裸 blob 静默升级，无任何告警。
+- 拆包后（2026-11-12）重跑：469 个用例全绿；用户脚本产物仍是 619,110 B，与拆包前逐行比对只有一段 96 行的模块搬移（内容逐行相同），说明拆分是纯代码移动。
 
 ## 与迁移无关、但记在这里免得丢
 
-- `AGENTS.md` 只剩极小的指令预算余量（65,0xx / 65,536 B），加内容前先等量删除；长文放 `docs/`。
+- `AGENTS.md` 已接近指令预算上限（约 64,900 / 65,536 B），加内容前先等量删除；长文放 `docs/`。
 - 穿透选取的三个已知缺口见 `AGENTS.md` 的「下一步」。

@@ -208,7 +208,8 @@ describe('versioned settings domain', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
-  it('falls back to a null value when the manager cannot delete', () => {    const values = new Map<string, string>()
+  it('falls back to a null value when the manager cannot delete', () => {
+    const values = new Map<string, string>()
     const api: DomainValueStorage = {
       getValue: (key) => {
         const raw = values.get(key)

@@ -9,6 +9,9 @@ export default defineConfig({
       '@element-screenshot/settings': fileURLToPath(
         new URL('./packages/settings/src/index.ts', import.meta.url)
       ),
+      '@element-screenshot/versioned-storage': fileURLToPath(
+        new URL('./packages/versioned-storage/src/index.ts', import.meta.url)
+      ),
       '@': fileURLToPath(new URL('./packages/userscript/src', import.meta.url))
     }
   },
@@ -29,6 +32,7 @@ export default defineConfig({
         'packages/settings/src/types.ts',
         'packages/settings/src/icons.ts',
         'packages/settings/src/messages.ts',
+        'packages/versioned-storage/src/index.ts',
         'packages/userscript/src/main.ts',
         'packages/userscript/src/app.ts',
         'packages/userscript/src/messages.ts',

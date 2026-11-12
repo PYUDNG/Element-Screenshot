@@ -31,6 +31,15 @@ All notable changes to this project are documented here. The format follows
   that exist only as CSS `:hover` rules cannot be), plus “iframe depth”, which is
   advanced. General's “Appearance” group is now “Language”, since the theme moved
   out.
+- The storage-migration engine is now a package of its own,
+  **`@element-screenshot/versioned-storage`**, with no dependencies:
+  `createDomain`, its `DomainStep` / `DomainValueStorage` / `DomainStorage` types
+  and the envelope rules moved out of the settings library, which no longer
+  exports them and no longer knows that migrations exist. The userscript imports
+  both packages and hands the domain's storage view to `createSettings`; the two
+  views are structurally compatible, so either package can be adopted alone. The
+  built userscript is unchanged in size and content — only the moved module sits
+  at a different place in the bundle.
 
 ### Fixed
 

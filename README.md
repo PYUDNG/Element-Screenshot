@@ -141,6 +141,8 @@ pnpm check          # lint + typecheck + coverage + build
 ```text
 packages/userscript/   用户脚本：截图、选择器、背景、原生 API 快照、UI
 packages/settings/     独立设置库：schema、存储、i18n、Vue 组件
+packages/versioned-storage/
+                       独立存储升级器：版本化信封 + 有序迁移步骤，零依赖
 packages/userscript/src/plugin/
                        Vite 插件：把 html-to-image 的 fetch/XHR 接到 GM 适配器
 playground/            本地验收页与 GM 桩

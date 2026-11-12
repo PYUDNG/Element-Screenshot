@@ -141,6 +141,9 @@ Run `pnpm check` before committing. See [AGENTS.md](AGENTS.md) for the real-brow
 ```text
 packages/userscript/   userscript: capture, picker, background, native API snapshot, UI
 packages/settings/     reusable settings library: schema, storage, i18n, Vue components
+packages/versioned-storage/
+                       standalone storage upgrader: versioned envelope + ordered
+                       migration steps, no dependencies
 packages/userscript/src/plugin/
                        Vite plugin wiring html-to-image fetch/XHR to the GM adapter
 playground/            local acceptance pages and a GM stub

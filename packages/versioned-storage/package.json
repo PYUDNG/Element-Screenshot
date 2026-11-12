@@ -1,0 +1,22 @@
+{
+  "name": "@element-screenshot/versioned-storage",
+  "version": "0.9.0",
+  "description": "Versioned storage for userscripts: one manager value holding a schema generation plus its payload, migrated by ordered steps.",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

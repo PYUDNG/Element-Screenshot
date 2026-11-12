@@ -7,6 +7,7 @@
 - 这是一个 pnpm workspace，目标是构建一个 Vue 3 + TypeScript + Tailwind CSS 4 的用户脚本：对任意网页元素做完整滚动截图。
 - 用户脚本入口：`packages/userscript/src/main.ts`
 - 设置库：`packages/settings`
+- 存储升级器：`packages/versioned-storage`（零依赖，可单独使用）
 - 构建产物：`packages/userscript/dist/script.user.js`（`dist/` 被 git 忽略）
 - 包管理器：pnpm 10；Node.js >= 22.12。
 
@@ -24,13 +25,7 @@
 
 ### 0.9.0 包含什么（已发布）
 
-改动细节看 `CHANGELOG.md` 的 `[0.9.0]`，行为规则看本文件下文各小节：
-
-- 选择器：双层框 + `可滚动 ↓Npx` 徽标 + `Shift+滚轮` 跳滚动层，判定统一走 `scrollContainerInfo()`；默认只展开根，`fitBoxToLayout()` 在展开后重测画布。
-- iframe：`createSnapshot({doc})`、帧图写回帧盒子背景、帧内 sticky、选中帧本身 = 展开、区域截图里的帧、跨域 helper（协议 `/7` 密封）。
-- 多层：`picker.frameDepth`（「iframe深度」，高级设置项）同时管选取与渲染，`core/frame-levels.ts` cap 到 6、默认 2。
-- 帧内输入：快捷键与选择器按键经桥回到顶层复核（`hotkey-bridge.ts`、`relay-key.ts`）；鼠标穿透下的穿透选取（`pick-target.ts`、`frame-pick.ts`）。
-- 设置：版本化信封 `{version, value}`（`createDomain`，世代 1 = 旧键迁移，见 `docs/settings-migrations.md`）；「鼠标穿透」默认关。
+完整清单看 `CHANGELOG.md` 的 `[0.9.0]`，行为规则见下文各小节。先记住这四条：选择器双层框与 `scrollContainerInfo()`；iframe 视口合成 + helper 桥（协议 `/7` 密封）；`picker.frameDepth` 同时管选取与渲染（默认 2、上限 6）；版本化信封（`packages/versioned-storage` 的 `createDomain`，见 `docs/settings-migrations.md`）。
 
 `FrameRecord` 的几何字段（`rect` / `radius`）在 `38b1696` 删掉，改成渲染时从 `copy` 量。
 
@@ -52,7 +47,7 @@
 pnpm install
 pnpm dev:settings     # 设置库演示页
 pnpm playground       # 用户脚本本地测试页 http://127.0.0.1:4176/
-pnpm build            # 构建设置库（ESM + IIFE）和用户脚本
+pnpm build            # 构建升级器、设置库和用户脚本
 pnpm lint
 pnpm typecheck
 pnpm test
@@ -66,6 +61,7 @@ pnpm check            # lint + typecheck + coverage + build，提交前必须通
 
 ```text
 packages/settings/                可复用设置库（schema、存储、快捷键、i18n、Vue 组件）
+packages/versioned-storage/       可复用存储升级器（版本化信封 + 迁移步骤，零依赖）
 packages/userscript/src/main.ts   用户脚本入口
 packages/userscript/src/core/     截图、选择器、背景、原生 API 快照、XML/SVG 清理
                                   区域截图：region.ts / scroll-slice.ts / crop.ts / canvas.ts
@@ -166,6 +162,7 @@ Playwright 的 `page.addInitScript(() => { HTMLCanvasElement.prototype.toBlob = 
 3. 同步修改：
    - 根 `package.json`
    - `packages/settings/package.json`
+   - `packages/versioned-storage/package.json`
    - `packages/userscript/package.json`
    - `CHANGELOG.md`
    - README 中若有版本号、安装链接或 Greasyfork 链接，一并同步

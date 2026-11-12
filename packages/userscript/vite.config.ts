@@ -115,6 +115,9 @@ export default defineConfig({
       '@element-screenshot/settings': fileURLToPath(
         new URL('../settings/src/index.ts', import.meta.url)
       ),
+      '@element-screenshot/versioned-storage': fileURLToPath(
+        new URL('../versioned-storage/src/index.ts', import.meta.url)
+      ),
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       'virtual:gm-fetch-adapter': fileURLToPath(
         new URL('./src/net/gm-adapter.ts', import.meta.url)

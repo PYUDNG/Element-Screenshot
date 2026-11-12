@@ -5,7 +5,8 @@
     "types": ["node", "vite/client"],
     "paths": {
       "@/*": ["./src/*"],
-      "@element-screenshot/settings": ["../settings/src/index.ts"]
+      "@element-screenshot/settings": ["../settings/src/index.ts"],
+      "@element-screenshot/versioned-storage": ["../versioned-storage/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "tests/**/*.ts", "vite.config.ts"]

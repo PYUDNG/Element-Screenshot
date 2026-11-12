@@ -1,4 +1,4 @@
-import type { DomainStep } from '@element-screenshot/settings'
+import type { DomainStep } from '@element-screenshot/versioned-storage'
 
 /** Storage key of the settings blob, without the `element-screenshot:` prefix. */
 export const SETTINGS_DOMAIN_KEY = 'settings'

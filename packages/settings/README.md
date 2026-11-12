@@ -297,6 +297,8 @@ interface SettingsStorage {
 
 Values are stored as one JSON object under `storageKey`. Hydration only accepts keys that exist in the schema and values whose type matches the default.
 
+Schema migrations are **not** part of this package. Versioning the stored payload is a separate, dependency-free package — [`@element-screenshot/versioned-storage`](../versioned-storage/README.md) — whose `DomainStorage` view plugs into `storage` above. Use it when settings keys need to be renamed; you can also use it on its own, without this library.
+
 ## i18n
 
 ```ts

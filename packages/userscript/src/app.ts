@@ -7,12 +7,8 @@ import {
   GM_setValue,
   GM_unregisterMenuCommand
 } from '$'
-import {
-  DEFAULT_SHORTCUT,
-  createDomain,
-  createI18n,
-  createSettings
-} from '@element-screenshot/settings'
+import { DEFAULT_SHORTCUT, createI18n, createSettings } from '@element-screenshot/settings'
+import { createDomain } from '@element-screenshot/versioned-storage'
 import cssText from './styles.css?inline'
 import { appMessages } from './messages'
 import { projectLinks } from './config/links'

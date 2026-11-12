@@ -1,5 +1,3 @@
-import type { SettingsStorage } from './storage'
-
 /**
  * A versioned storage domain: one userscript-manager value that carries both the
  * schema generation and the payload, so the two can never drift apart.
@@ -19,12 +17,28 @@ import type { SettingsStorage } from './storage'
  * Generation only moves forward. A value stored by a newer script than this one
  * runs (a downgrade) is left untouched and keeps its version, so upgrading again
  * does not re-run steps against data that already went through them.
+ *
+ * This module deliberately imports nothing: it must be usable on its own, by
+ * scripts that have no settings panel at all.
  */
 
+/** Manager-facing storage: raw values in, raw values out. */
 export interface DomainValueStorage {
   getValue(key: string): unknown
   setValue(key: string, value: unknown): void
   deleteValue?(key: string): void
+}
+
+/**
+ * String view over a domain's payload. The shape is structural on purpose: it
+ * matches `SettingsStorage` from `@element-screenshot/settings`, so a domain can
+ * be passed straight to `createSettings({ storage })` without this package
+ * depending on the settings library.
+ */
+export interface DomainStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+  removeItem(key: string): void
 }
 
 export interface DomainStep {
@@ -51,8 +65,8 @@ export interface Domain {
   readonly version: number
   /** Payload after migration; `null` when the domain holds nothing. */
   readonly value: string | null
-  /** View over the payload for consumers that speak `SettingsStorage`. */
-  readonly storage: SettingsStorage
+  /** View over the payload for consumers that speak `DomainStorage`. */
+  readonly storage: DomainStorage
 }
 
 type Stored =
@@ -100,9 +114,9 @@ export function createDomain(options: DomainOptions): Domain {
     }
   }
 
-  const view: SettingsStorage = {
+  const view: DomainStorage = {
     // The view is bound to this domain's key; the parameter only exists because
-    // `SettingsStorage` is shared with the plain adapters.
+    // `DomainStorage` is the shape the settings library expects.
     getItem: () => payload,
     setItem: (_key, value) => {
       payload = value
