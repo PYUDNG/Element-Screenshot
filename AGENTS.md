@@ -323,7 +323,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - **默认只展开根**：`capture.expandNested` 默认 `false`。根自己的滚动内容永远展开（`getTargetBox()` 已经把 `max(rect, scrollHeight)` 当截图框）；开启设置后才会递归展开后代滚动容器。
 - **画布跟着布局走**：`renderElement()` 的顺序必须是「展开 → 重新测量（`fitBoxToLayout()`）→ `computeCaptureScale()` → 渲染」。早期版本先算 `plan` 再展开，导致后代撑高的内容被裁掉（实测：选中包含 `#long-card` 的 `section`，盒高 398、内部展开到 934，输出仍是 398）。
 - `fitBoxToLayout()` 用 `getTargetBox()` 重新量根；变高/变宽时**同时**给根写显式 `height/width`（`documentElement` 除外），否则根的背景和边框会在旧盒子处结束、内容溢出到画布外面。
-- **根元素不横向展开**：`getTargetBox(documentElement)` 宽度只取 `clientWidth`，只有高度取 `scrollHeight`。横向溢出会撑宽画布（还会二次撑宽）、把 `position: fixed` 的视口层留在左上角（复现与数值见 `docs/page-canvas.md`）；要横向内容就选那个元素或用区域截图。
+- **根元素含横向溢出**：宽度 `max(scrollWidth, clientWidth)`、高度 `max(scrollHeight, clientHeight)`。画布比视口宽时 `position: fixed` 层只停在左上角、内容被挤到左侧（wenku8 实测 4090→5427，见 `docs/page-canvas.md`），这是页面自己的布局，别改成只取 `clientWidth`（用户 2026-11-12 拍板）。
 - 展开是**重排**：展开后代等于替祖先重新排版，所以默认不做。嵌套展开仍然可能被中间的 `overflow: hidden` 面板裁掉——那不是 bug，是页面自己的裁剪（playground 的 `#pick-stage` 就是这种）。
 - 自定义元素的坑：`cloneNode()` 会对克隆出来的自定义元素**跑构造函数**（jsdom 和 Chrome 都是），构造函数里 `attachShadow` + `insertRule` 会在未连接的克隆上抛 `Cannot read properties of null (reading 'insertRule')`，构造函数建出的 shadow 树还会和 `collectShadow()` 收集的内容**重复**。`attachDeferred()` 现在用 `root.replaceChildren(shadow.content)` 覆盖构造函数产物；playground 的 `<shadow-card>` 也加了 `sheet?.insertRule(...)` 兜底。
 - 嵌套展开的开关**已由用户手动验证**：`#nested-demo` 关闭时 520×373 → 1040×746，打开后卡片被撑高、12 行全部出现。自动化里曾读到「设置面板是 true 但渲染收到 false」，那是 Playwright 合成点击/hover 的时序假象（`mouse.click` 会补发 `mousemove` 把键盘选中的层级重置回最深，且截图调用会打断 hover 栈），不是产品问题。

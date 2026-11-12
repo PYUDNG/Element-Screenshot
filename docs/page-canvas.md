@@ -33,23 +33,26 @@
 
 然后再按顺序叠 html、body 的背景色。轻小说文库那页正是这种情况：html/body 背景都是 `rgba(0,0,0,0)`，却因为 `color-scheme: dark` 显示深色。
 
-## 宽度：根元素不横向展开
+## 宽度：根元素包含横向溢出（2026-11-12 决定）
 
-`getTargetBox(documentElement)` 的宽度只取 `clientWidth`（视口宽），高度才取 `scrollHeight`。原因：
+`getTargetBox(documentElement)` 的宽度取 `max(scrollWidth, clientWidth)`，高度取 `max(scrollHeight, clientHeight)`：文档比视口宽时，整页截图就是整份文档，横向内容不会被裁掉。
 
-1. **画布会越撑越宽**。宽度传进副本后内容会重排：轻小说文库那页的 `scrollWidth` 是 4090（用户信息表 3862px 宽），把根宽度设成 4090 后表格继续变宽，`fitBoxToLayout()` 二次测量得到 **5427**，最终画布 5427×4697 CSS。
-2. **视口固定层对不齐**。该页的 `#w8p-background` 是 `position: fixed; inset: 0`、尺寸正好一个视口（1417×679），克隆里它仍锚在左上角；画布宽 5427 时它只覆盖左边 26%，内容又被挤在左侧，看起来就是「背景跑到左上角、和内容不重叠」。
-3. **横向溢出通常不是内容**。这页的溢出是一个 `<table class="grid">`（隐藏的用户信息表）造成的，用户从不会横向滚过去看它。
+这是**用户确认过的取舍**。曾经试过只取 `clientWidth`，被轻小说文库那页证明是错的判断——那页的横向溢出是页面自身异常（一个 3862px 宽的用户信息表），不是"这个工具不该渲染"：
 
-修法：`getTargetBox(documentElement)` 用 `clientWidth`（回退到 `getBoundingClientRect().width`），高度仍取 `scrollHeight`。需要横向内容时，选那个溢出的元素（元素截图会展开它自己的 `scrollWidth`）或用区域截图。
+- 宽度传进副本后内容会重排：该页 `scrollWidth` 4090，把根宽度设成 4090 后表格继续变宽，`fitBoxToLayout()` 二次测量得到 **5427**，最终画布 5427×4697 CSS（`ratio 2` 下 10854×9394）；
+- 该页的 `#w8p-background` 是 `position: fixed; inset: 0`、尺寸正好一个视口（1417×679），克隆里它仍锚在左上角；画布宽 5427 时它只覆盖左边 26%，内容被挤在左侧，看起来就是「背景跑到左上角、和内容不重叠」。
 
-### 实测
+**这两个现象都是把画布撑宽后的必然结果**，不是渲染错误：页面在 1417px 视口下本来就是这样排的，固定层也本来就只覆盖视口。所以现在的策略是「页面有多宽就画多宽」，不替页面裁掉横向溢出；真有内容被裁掉，反而是选择的语义不对。
 
-- 修复前：画布 10854×9394（`ratio 2`，即 5427×4697 CSS），右侧 3/4 是白，背景图只占左边一条。
-- 修复后：2834×9394（1417×4697 CSS）。`y=300` 一行横跨整宽都是背景图颜色（`6,25,31` / `19,61,75` / `122,92,94` …），`y=800` 以下（超出一个视口）是 `18,18,18` 的深色画布。
+如果以后想给 Ctrl+A 一个"只截视口宽"的选项，可以另加开关，但不要改默认——默认必须是完整文档。
+
+### 实测（该页，横向宽度按 scrollWidth）
+
+- 画布 10854×9394（`ratio 2`），右侧 3/4 是白，背景图只占左边一条；`y=800` 以下（超出一个视口）是 `18,18,18` 的深色画布（颜色修复仍然生效）。
+- 背景图只覆盖左边是 1417 视口宽的 `position: fixed` 层，画布再宽它也不会跟着变宽。
 
 ## 相关代码
 
 - `core/background.ts`：`pageBaseColor()`、`canvasColor()`、`resolveBackdropColor()`；
-- `core/target.ts`：`getTargetBox()` 的根元素分支；
+- `core/target.ts`：`getTargetBox()` 的根元素分支（横向取 `scrollWidth`）；
 - 测试：`tests/background.test.ts`、`tests/target.test.ts`、`tests/capture.test.ts`（`document root backdrop`）。

@@ -168,7 +168,7 @@ describe('target helpers', () => {
     })
   })
 
-  it('uses the viewport width and the document height for the root element', () => {
+  it('uses the document scroll size for the root element', () => {
     Object.defineProperty(document.documentElement, 'scrollWidth', {
       configurable: true,
       value: 1280
@@ -186,13 +186,13 @@ describe('target helpers', () => {
       value: 800
     })
 
-    // Horizontal overflow is not part of the page as it is laid out in the
-    // viewport: a wider canvas reflows the copy and strands viewport-fixed
-    // layers at the left edge, so only the height grows.
+    // Horizontal overflow is part of the page: a document that is wider than
+    // the viewport is captured whole, at the cost of viewport-fixed layers
+    // staying at the left edge of the wider canvas.
     expect(getTargetBox(document.documentElement)).toEqual({
       left: 0,
       top: 0,
-      width: 1200,
+      width: 1280,
       height: 5000
     })
   })

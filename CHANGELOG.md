@@ -8,15 +8,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- Full-page captures (`Ctrl+A`) use the width the page is laid out at, not the
-  document's horizontal overflow. A page whose content sticks out sideways (a
-  wide table, a review with an unbreakable string) produced a picture several
-  times wider than the viewport — and, because the copy reflows when the root is
-  widened, even wider than the page — with the content squeezed into the left
-  quarter and viewport-fixed layers (`position: fixed; inset: 0`) stranded at
-  the left edge instead of sitting behind the content. The capture keeps the
-  viewport width and grows only in height; pick the overflowing element or drag
-  a region when the horizontal part matters.
 - Pages that only declare `color-scheme: dark` get the dark canvas they show in
   the browser (`#121212`) instead of a white fill, so their full-page capture is
   no longer white below the content.
