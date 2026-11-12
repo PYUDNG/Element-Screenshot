@@ -28,7 +28,7 @@
 
 - 选择器：双层框 + `可滚动 ↓Npx` 徽标 + `Shift+滚轮` 跳滚动层，判定统一走 `scrollContainerInfo()`；默认只展开根，`fitBoxToLayout()` 在展开后重测画布。
 - iframe：`createSnapshot({doc})`、帧图写回帧盒子背景、帧内 sticky、选中帧本身 = 展开、区域截图里的帧、跨域 helper（协议 `/7` 密封）。
-- 多层：`picker.frameDepth`（「帧层级」）同时管选取与渲染，`core/frame-levels.ts` cap 到 6、默认 2。
+- 多层：`picker.frameDepth`（「iframe深度」，高级设置项）同时管选取与渲染，`core/frame-levels.ts` cap 到 6、默认 2。
 - 帧内输入：快捷键与选择器按键经桥回到顶层复核（`hotkey-bridge.ts`、`relay-key.ts`）；鼠标穿透下的穿透选取（`pick-target.ts`、`frame-pick.ts`）。
 - 设置：版本化信封 `{version, value}`（`createDomain`，世代 1 = 旧键迁移，见 `docs/settings-migrations.md`）；「鼠标穿透」默认关。
 
@@ -277,6 +277,14 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - `Shift+滚轮` / `Shift+↑↓` 由 `picker.cycleScroll()` 直接跳到上/下一个滚动容器。滚轮已经占用普通层级切换，用 Shift 区分；部分平台按住 Shift 会把纵向滚轮挪到 `deltaX`，所以方向取 `deltaY || deltaX`。
 - **监听提前到 document-start**：`installEarlyPickerListeners()`（`main.ts` 调用，构造实例时幂等补一次）在页面脚本之前挂 13 个 window 捕获监听，转发给当前实例的 `handleEvent()`；每个 handler 第一行 `if (!this.active) return`，所以非拾取期页面行为完全不变。这样页面在 window 捕获阶段既看不到拾取期间的点击，也没法用 `stopImmediatePropagation()` 把拾取器搞哑。`wheel` 仍在 `start()`/`stop()` 里挂摘——常驻 `passive:false` 会让所有页面的滚动都等 JS；`mousemove`/`pointermove` 必须常驻，十字线僵住和点击失灵一样糟。
 - **测试陷阱**：picker 的监听挂在 `window` 的捕获阶段，并且会 `stopImmediatePropagation`。一个用例如果在断言失败处抛错、没走到 `picker.stop()`，就会留下一个仍然 active 的实例吞掉后续用例的事件，表现成一串无关用例失败（实测：两个新用例断言写错，导致 4 个拖拽用例全挂）。改断言时先确认 `stop()` 一定会执行。
+
+### 设置面板结构（0.9.0 之后）
+
+- Tab：**通用（库内置）→ 截图 → 触发 → 外观 → 站点**，`createSettingsTabs()` 只给后四个。通用内是 `语言`（内置）→ `高级`（`registerGroup('general', …, 1)` 插中间，索引刻意）→ `重置`。
+- 外观：`主题`（`theme` + `ui.primary`）+ `选择框`。主题字段由 **app 声明** `key: 'theme'` 即从通用搬走（库只在 `hasFieldKey('theme')` 为假时才加），内置组标题随之变成 `settings.builtin.languageGroup`。
+- 高级门控：`isAdvanced(values)`（= `values['ui.advanced'] === true`）挂到字段 `visible`。库会丢掉「字段全隐藏的组」和「组全空」的 Tab，搜索同样遵守；隐藏不重置值。
+- 主题色：只用语义色 `primary-*`，**别再写 `blue-*`**。`packages/settings/src/primary.css` 的 `@theme` 是静态回退，`@layer base` 的 `@supports (color: color-mix(...))` 从 `--es-primary` 混出 6 个 `--color-primary-*`（明度锚点同原来的蓝）；加色阶要改两段。
+- `--es-primary` 只写在自己的根节点：面板用 `createSettings({ variables })`（绑 `.es-root` 的 `:style`），页内 UI 用 `InPageApp.vue` 的 `.es-ui-root`。别写 `document.documentElement`。
 
 ### 设置面板的项目链接
 

@@ -159,8 +159,8 @@ const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.tot
     />
 
     <template v-if="state.mode === 'picking' && !state.marquee">
-      <div class="fixed inset-y-0 w-px bg-blue-500/35" :style="{ left: `${state.cursor.x}px` }" />
-      <div class="fixed inset-x-0 h-px bg-blue-500/35" :style="{ top: `${state.cursor.y}px` }" />
+      <div class="fixed inset-y-0 w-px bg-primary-500/35" :style="{ left: `${state.cursor.x}px` }" />
+      <div class="fixed inset-x-0 h-px bg-primary-500/35" :style="{ top: `${state.cursor.y}px` }" />
     </template>
 
     <div
@@ -203,7 +203,7 @@ const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.tot
       <span class="shrink-0 tabular-nums text-zinc-500 dark:text-zinc-400">{{ dimensions }}</span>
       <span
         v-if="state.hover.fullPage"
-        class="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
+        class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 text-[10px] font-medium text-primary-700 dark:bg-primary-500/15 dark:text-primary-300"
       >
         {{ t('app.hint.fullPage') }}
       </span>
@@ -226,7 +226,7 @@ const canGoDeeper = computed(() => (state.hover?.depth ?? 1) < (state.hover?.tot
     >
       <template v-if="state.mode === 'picking'">
         <span class="flex items-center gap-1.5 font-medium">
-          <CameraIcon :size="14" class="text-blue-600 dark:text-blue-400" />
+          <CameraIcon :size="14" class="text-primary-600 dark:text-primary-400" />
           {{ t('app.hint.pickTitle') }}
         </span>
 

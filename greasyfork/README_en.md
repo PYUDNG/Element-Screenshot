@@ -20,7 +20,7 @@ Capture any element on a web page — including everything hidden inside its scr
 - **High-resolution export** — 1× / 2× / 3×. Very large pages are downscaled automatically when they exceed browser canvas limits.
 - **Faithful backgrounds** — solid colors, gradients, background images and dark themes are preserved; transparent regions no longer default to white.
 - **Leaves the page alone** — by default an interaction shield keeps hover/click effects out of the capture (turn on “mouse passthrough” when you want the page's own hover); the UI lives in Shadow DOM; rendering happens in an off-screen snapshot, so page styles and scroll positions are never touched.
-- **Configurable** — shortcut, border color/width, floating button, site rules, background mode, three UI languages and light/dark themes.
+- **Configurable** — shortcut, border color/width, floating button, site rules, background mode, three UI languages, light/dark modes and an accent colour.
 - **Local processing** — screenshots are not uploaded. Cross-origin images and fonts are requested through the userscript manager only when they need to be inlined.
 
 ## Screenshots
@@ -86,15 +86,16 @@ After selection:
 | `Ctrl+S` / `Cmd+S`    | Save the PNG (file picker first) |
 | `Esc`                 | Close the result UI              |
 
-> “Isolate page interaction” is on by default. While picking, the page receives no hover, click or mousemove events, so temporary hover styles do not appear in the image. Turn it off in Settings → Capture → Picker interaction to capture a hover state.
+> “Mouse passthrough” is off by default. While picking, the page receives no hover, click or mousemove events, so temporary hover styles do not appear in the image. Turn it on in Settings → Capture → Selector to capture a hover state: effects the page's own scripts produce are captured, while effects that exist only as CSS `:hover` rules are not.
 >
 > Clipboard access needs browser permission. The file picker is Chromium-only; other browsers fall back to a normal download.
 
 ### Settings
 
+- **General** — UI language, the “Advanced settings” switch (off by default; it reveals iframe depth and “Expand nested scroll areas”), and restoring defaults.
+- **Capture** — export scale, page/custom/transparent background, mouse passthrough (off by default), iframe depth for picking and rendering (2 by default, advanced).
 - **Trigger** — shortcut, floating button visibility/size and dragged position.
-- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, mouse passthrough (off by default), frame depth for picking and rendering (2 by default).
-- **Appearance** — border color and width, UI language, light/dark theme.
+- **Appearance** — light/dark mode, accent color (the script UI's highlight), selection frame color and width.
 - **Site rules** — only run on, or exclude, specific sites. Excluded pages can still be enabled temporarily from the userscript menu.
 
 ## Known limitations

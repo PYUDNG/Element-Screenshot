@@ -57,8 +57,34 @@ export function startApp(): void {
     styles: cssText,
     version: GM_info?.script?.version ?? '0.1.0',
     links: projectLinks,
-    tabs: createSettingsTabs()
+    tabs: createSettingsTabs(),
+    // The panel draws its accent from `primary` tokens (see `primary.css`); this
+    // is the one value behind them. Re-read on every change, so picking a colour
+    // repaints the open panel.
+    variables: (values) => ({ '--es-primary': String(values['ui.primary'] ?? '#2563eb') })
   })
+
+  // The General tab is the library's; it holds the language group and the reset
+  // action. The "advanced settings" switch belongs between them: it hides fields
+  // in other tabs, so it has to sit above "restore defaults", not below it.
+  settings.registerGroup(
+    'general',
+    {
+      id: 'advanced',
+      title: 'app.group.advanced',
+      defaultOpen: true,
+      fields: [
+        {
+          type: 'switch',
+          key: 'ui.advanced',
+          label: 'app.field.advanced',
+          description: 'app.field.advancedDesc',
+          default: false
+        }
+      ]
+    },
+    1
+  )
 
   let shot: ShotApp | null = null
   let menuIds: Array<string | number> = []

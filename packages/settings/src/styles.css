@@ -1,5 +1,6 @@
 @import 'tailwindcss' source(none);
 @import './tailwind-fallback.css';
+@import './primary.css';
 @source './';
 
 @custom-variant dark (&:where(.dark, .dark *));

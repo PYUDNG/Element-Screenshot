@@ -31,6 +31,17 @@ export interface SettingsControllerOptions {
   version?: string
   /** Icon links rendered next to the version in the footer. */
   links?: SettingsLink[]
+  /**
+   * CSS custom properties applied to the panel root, re-read whenever the values
+   * change.
+   *
+   * The panel renders into its own shadow root, so an app cannot set a variable on
+   * it from the outside. This is the seam for values that move at runtime — the
+   * accent colour behind a `primary` palette, for example. Return custom property
+   * names (`--x`); the panel does not interpret them, it only puts them on the
+   * element its stylesheet is built around.
+   */
+  variables?: (values: SettingsValues) => Record<string, string> | undefined
   onOpen?: () => void
   onClose?: () => void
   onError?: (error: unknown) => void
@@ -46,6 +57,8 @@ export interface SettingsController {
   readonly isOpen: ComputedRef<boolean>
   readonly version?: string
   readonly links: readonly SettingsLink[]
+  /** Panel-root custom properties; see `SettingsControllerOptions.variables`. */
+  readonly variables?: (values: SettingsValues) => Record<string, string> | undefined
   get<T extends SettingValue = SettingValue>(key: string): T
   set(key: string, value: SettingValue): void
   reset(key?: string): void
@@ -317,12 +330,21 @@ export function createSettings(options: SettingsControllerOptions = {}): Setting
       action: resetAll
     }
 
+    /*
+     * The group holding the built-in fields. When the schema declares its own
+     * `theme` field (this app moves it to an Appearance tab), the group ends up
+     * with the language select alone and is titled accordingly.
+     */
+    const builtinGroupTitle = builtinFields.some((field) => field.key === 'theme')
+      ? 'settings.builtin.appearance'
+      : 'settings.builtin.languageGroup'
+
     const generalTab = findTab('general')
     if (generalTab) {
       if (builtinFields.length > 0) {
         addGroup('general', {
           id: 'builtin-appearance',
-          title: 'settings.builtin.appearance',
+          title: builtinGroupTitle,
           defaultOpen: true,
           fields: builtinFields
         })
@@ -345,7 +367,7 @@ export function createSettings(options: SettingsControllerOptions = {}): Setting
               ? [
                   {
                     id: 'builtin-appearance',
-                    title: 'settings.builtin.appearance',
+                    title: builtinGroupTitle,
                     defaultOpen: true,
                     fields: builtinFields
                   }
@@ -452,6 +474,7 @@ export function createSettings(options: SettingsControllerOptions = {}): Setting
     isOpen: isOpenComputed,
     version: options.version,
     links: options.links ?? [],
+    ...(options.variables ? { variables: options.variables } : {}),
     get<T extends SettingValue = SettingValue>(key: string): T {
       return values[key] as T
     },

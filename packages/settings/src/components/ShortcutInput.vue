@@ -95,10 +95,10 @@ onBeforeUnmount(stop)
     <div class="flex items-center gap-1.5">
       <button
         type="button"
-        class="flex min-h-9 flex-1 items-center rounded-md border px-2.5 py-1.5 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex min-h-9 flex-1 items-center rounded-md border px-2.5 py-1.5 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary-500/30 disabled:cursor-not-allowed disabled:opacity-50"
         :class="
           recording
-            ? 'border-blue-500 bg-blue-50/60 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300'
+            ? 'border-primary-500 bg-primary-50/60 text-primary-700 dark:border-primary-400 dark:bg-primary-500/10 dark:text-primary-300'
             : 'border-zinc-300 bg-white text-zinc-900 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-600'
         "
         :aria-pressed="recording"
@@ -107,7 +107,7 @@ onBeforeUnmount(stop)
         @click="toggle"
         @blur="stop"
       >
-        <span v-if="recording" class="text-blue-600 dark:text-blue-300">
+        <span v-if="recording" class="text-primary-600 dark:text-primary-300">
           {{ t('settings.shortcut.recording') }}
         </span>
         <span v-else-if="display" class="font-mono text-[13px] tracking-tight">{{ display }}</span>

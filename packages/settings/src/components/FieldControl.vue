@@ -48,7 +48,7 @@ const selectOptions = computed<SelectOption[]>(() => {
 })
 
 const inputClass =
-  'w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100'
+  'w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100'
 
 const colorText = ref('')
 const actionBusy = ref(false)
@@ -261,10 +261,10 @@ onBeforeUnmount(() => {
           role="switch"
           :aria-checked="switchOn"
           :disabled="disabled"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 disabled:cursor-not-allowed disabled:opacity-50"
           :class="
             switchOn
-              ? 'border-blue-600 bg-blue-600'
+              ? 'border-primary-600 bg-primary-600'
               : 'border-zinc-300 bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-700'
           "
           @click="onSwitch"
@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
             :id="inputId"
             :value="String(currentValue)"
             :disabled="disabled"
-            class="w-full appearance-none rounded-md border border-zinc-300 bg-white py-1.5 pl-3 pr-8 text-sm text-zinc-900 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+            class="w-full appearance-none rounded-md border border-zinc-300 bg-white py-1.5 pl-3 pr-8 text-sm text-zinc-900 outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
             @change="onSelect"
           >
             <option
@@ -346,7 +346,7 @@ onBeforeUnmount(() => {
             :max="field.max"
             :step="field.step"
             :disabled="disabled"
-            class="h-1.5 flex-1 cursor-pointer accent-blue-600 disabled:opacity-50"
+            class="h-1.5 flex-1 cursor-pointer accent-primary-600 disabled:opacity-50"
             @input="onRangeInput"
           />
           <output
@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
               spellcheck="false"
               autocomplete="off"
               :disabled="disabled"
-              class="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 font-mono text-[13px] text-zinc-900 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              class="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 font-mono text-[13px] text-zinc-900 outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               @input="onColorText"
               @blur="commitColor"
               @keydown.enter.prevent="commitColor"
@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
               v-for="swatch in field.swatches"
               :key="swatch"
               type="button"
-              class="h-5 w-5 rounded border border-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-zinc-600"
+              class="h-5 w-5 rounded border border-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:border-zinc-600"
               :style="{ backgroundColor: swatch }"
               :aria-label="swatch"
               :title="swatch"

@@ -271,7 +271,7 @@ onBeforeUnmount(() => {
   >
     <button
       type="button"
-      class="absolute right-3 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-zinc-900/80 text-zinc-200 shadow-lg transition-colors hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 sm:right-5 sm:top-5 sm:h-11 sm:w-11"
+      class="absolute right-3 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-zinc-900/80 text-zinc-200 shadow-lg transition-colors hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400/60 sm:right-5 sm:top-5 sm:h-11 sm:w-11"
       :aria-label="t('app.action.close')"
       :title="t('app.action.close')"
       @click="app.cancel()"
@@ -332,13 +332,13 @@ onBeforeUnmount(() => {
         class="mx-auto flex max-w-[860px] flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white/95 px-3 py-2 text-xs text-zinc-700 shadow-sm backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-200"
       >
         <span class="flex items-center gap-1.5 font-medium">
-          <ImageIcon :size="14" class="text-blue-600 dark:text-blue-400" />
+          <ImageIcon :size="14" class="text-primary-600 dark:text-primary-400" />
           <span class="tabular-nums">{{ dimensions }}</span>
         </span>
 
         <span
           v-if="zoomed"
-          class="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
+          class="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-primary-700 dark:bg-primary-500/15 dark:text-primary-300"
         >
           {{ zoomPercent }}
         </span>

@@ -13,6 +13,8 @@ const props = defineProps<{
 
 const state = props.app.state
 const isDark = computed(() => props.app.settings.resolvedTheme.value === 'dark')
+/** The accent behind the `primary` tokens (`primary.css`); see the app's `variables`. */
+const primary = computed(() => String(props.app.settings.get('ui.primary') ?? '#2563eb'))
 const fabVisible = computed(
   () =>
     state.mode === 'idle' &&
@@ -22,7 +24,11 @@ const fabVisible = computed(
 </script>
 
 <template>
-  <div class="es-ui-root font-sans" :class="isDark ? 'dark' : ''">
+  <div
+    class="es-ui-root font-sans"
+    :class="isDark ? 'dark' : ''"
+    :style="{ '--es-primary': primary }"
+  >
     <Fab v-if="fabVisible" :app="app" />
     <!-- While rendering, the page stays interactive: no overlay, just a chip. -->
     <RenderingChip v-if="state.mode !== 'idle' && state.capturing" :app="app" />

@@ -1,0 +1,39 @@
+/*
+ * The UI accent colour, as a semantic `primary` palette.
+ *
+ * Components only ever name `primary`, never a hue, so whatever the app puts
+ * behind it — one colour picked in the settings — recolours the whole UI without
+ * touching a single class. The value arrives as `--es-primary`, written by the app
+ * on its own roots (`createSettings({ variables })` for the panel, `InPageApp` for
+ * the in-page overlay), so it never reaches the host page.
+ *
+ * Every step is mixed from that one colour with the lightness pins of the palette
+ * this used to be hard-coded to (8% / 45% / 70% / 92% / 100% / 88% black). Mixing
+ * in oklab moves lightness and chroma together, so a pale pick stays a tint of
+ * itself and white-on-`primary-600` keeps the contrast it has today.
+ *
+ * The `@theme` block below is the static fallback: a browser without `color-mix()`
+ * (or an app that sets no colour) keeps exactly the palette the UI always had.
+ */
+@theme {
+  --color-primary-50: oklch(97% 0.014 254.604);
+  --color-primary-300: oklch(80.9% 0.105 251.813);
+  --color-primary-400: oklch(70.7% 0.165 254.624);
+  --color-primary-500: oklch(62.3% 0.214 259.815);
+  --color-primary-600: oklch(54.6% 0.245 262.881);
+  --color-primary-700: oklch(48.8% 0.243 264.376);
+}
+
+@layer base {
+  @supports (color: color-mix(in oklab, red, white)) {
+    .es-root,
+    .es-ui-root {
+      --color-primary-50: color-mix(in oklab, var(--es-primary, #2563eb) 8%, white);
+      --color-primary-300: color-mix(in oklab, var(--es-primary, #2563eb) 45%, white);
+      --color-primary-400: color-mix(in oklab, var(--es-primary, #2563eb) 70%, white);
+      --color-primary-500: color-mix(in oklab, var(--es-primary, #2563eb) 92%, white);
+      --color-primary-600: var(--es-primary, #2563eb);
+      --color-primary-700: color-mix(in oklab, var(--es-primary, #2563eb) 88%, black);
+    }
+  }
+}

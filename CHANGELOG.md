@@ -6,6 +6,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A new **Appearance** tab, fourth in the sidebar, holds the two things that are
+  about how the UI looks rather than what it captures: **Theme** (the light/dark
+  switch that used to sit in General, now named “Light or dark”) and **Selection
+  frame** (the border colour and width that used to live under Capture). A second
+  setting, **Accent color**, recolours the script's own UI — settings panel,
+  floating button, picker and result viewer — without touching the page or the
+  capture. The whole UI now draws from a semantic `primary` palette, so the
+  components no longer name a hue; the steps are mixed from the one chosen colour
+  with pinned lightnesses, so white-on-accent keeps the contrast it always had.
+- General has an **Advanced settings** switch (off by default). The two technical
+  fields — “iframe depth” and “Expand nested scroll areas” — only appear while it
+  is on; a group whose fields are all hidden disappears, and so does a tab whose
+  groups are all gone. Hidden is not reset: the values stay, and “Restore
+  defaults” still clears them.
+
+### Changed
+
+- Settings were regrouped. The picker group is now titled “Selector” and carries
+  “Mouse passthrough” (whose description now says what it actually does: picking
+  can trigger hover effects, and the ones the page renders are captured — effects
+  that exist only as CSS `:hover` rules cannot be), plus “iframe depth”, which is
+  advanced. General's “Appearance” group is now “Language”, since the theme moved
+  out.
+
 ### Fixed
 
 - The picker now previews the capture size of a cross-origin frame. Hovering one

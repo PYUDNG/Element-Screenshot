@@ -18,7 +18,7 @@ const t = (key: string): string => props.app.i18n.t(key)
       class="pointer-events-auto flex items-center gap-2.5 rounded-full border border-zinc-200 bg-white/95 px-3.5 py-2 text-xs font-medium text-zinc-700 shadow-lg backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-200"
     >
       <span
-        class="h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"
+        class="h-3 w-3 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
         aria-hidden="true"
       />
       <span>{{ t('app.hint.rendering') }}</span>

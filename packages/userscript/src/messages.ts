@@ -13,11 +13,14 @@ const zhCN: LocaleDefinition = {
       tab: {
         capture: '截图',
         trigger: '触发',
+        appearance: '外观',
         sites: '站点'
       },
       group: {
-        picker: '选择交互',
-        frame: '选框外观',
+        picker: '选择器',
+        frame: '选择框',
+        theme: '主题',
+        advanced: '高级',
         output: '输出',
         shortcut: '快捷键',
         fab: '悬浮按钮',
@@ -28,10 +31,10 @@ const zhCN: LocaleDefinition = {
         shortcutDesc: '在任意页面按下该组合键即可进入元素选择模式。',
         pointerPassthrough: '鼠标穿透',
         pointerPassthroughDesc:
-          '默认关闭：选择时用透明层拦住指针，页面 hover 与点击效果不会进入截图。打开后指针直接落在页面上，可以截取 hover 展开的菜单/浮层；代价是纯 CSS :hover 样式不会被复制进截图。',
-        frameDepth: '帧层级',
+          '允许触发并截图渲染部分悬浮效果（受技术所限，纯 CSS 悬浮效果无法渲染进截图）。',
+        frameDepth: 'iframe深度',
         frameDepthDesc:
-          '选择器最多能钻进几层 iframe，截图时也按这个层数渲染帧里的帧。每多一层，悬停要多走一次帧内查询、截图要多一次完整渲染；层数越多越慢，默认 2 层。',
+          '页面中存在嵌套的多层iframe时，最多处理几层iframe。层级越多，渲染时间越长。',
         frameDepth1: '1 层',
         frameDepth2: '2 层',
         frameDepth3: '3 层',
@@ -54,6 +57,10 @@ const zhCN: LocaleDefinition = {
         expandNested: '展开内部滚动区域',
         expandNestedDesc:
           '默认只展开选中元素自己的滚动内容。开启后还会递归展开内部的滚动子区域，外层元素会被撑高、重新排版。',
+        primaryColor: '主题色',
+        primaryColorDesc: '脚本界面的强调色，影响设置面板、悬浮按钮、选择器和结果预览。',
+        advanced: '高级设置',
+        advancedDesc: '显示偏技术向的设置项，例如 iframe 深度与展开内部滚动区域。',
         fabShow: '显示悬浮按钮',
         fabShowDesc: '在页面边缘显示可拖动的截图按钮。',
         fabSize: '悬浮按钮尺寸',
@@ -128,11 +135,14 @@ const zhTW: LocaleDefinition = {
       tab: {
         capture: '截圖',
         trigger: '觸發',
+        appearance: '外觀',
         sites: '站點'
       },
       group: {
-        picker: '選擇互動',
-        frame: '選框外觀',
+        picker: '選擇器',
+        frame: '選擇框',
+        theme: '主題',
+        advanced: '進階',
         output: '輸出',
         shortcut: '快速鍵',
         fab: '懸浮按鈕',
@@ -143,10 +153,10 @@ const zhTW: LocaleDefinition = {
         shortcutDesc: '在任何頁面按下此組合鍵即可進入元素選擇模式。',
         pointerPassthrough: '滑鼠穿透',
         pointerPassthroughDesc:
-          '預設關閉：選擇時用透明層攔住指標，頁面 hover 與點擊效果不會進入截圖。打開後指標直接落在頁面上，可以截取 hover 展開的選單/浮層；代價是純 CSS :hover 樣式不會被複製進截圖。',
-        frameDepth: '幀層級',
+          '允許觸發並截圖渲染部分懸浮效果（受技術所限，純 CSS 懸浮效果無法渲染進截圖）。',
+        frameDepth: 'iframe深度',
         frameDepthDesc:
-          '選擇器最多能鑽進幾層 iframe，截圖時也依這個層數渲染幀裡的幀。每多一層，懸停要多走一次幀內查詢、截圖要多一次完整渲染；層數越多越慢，預設 2 層。',
+          '頁面中存在巢狀的多層iframe時，最多處理幾層iframe。層級越多，轉譯時間越長。',
         frameDepth1: '1 層',
         frameDepth2: '2 層',
         frameDepth3: '3 層',
@@ -169,6 +179,10 @@ const zhTW: LocaleDefinition = {
         expandNested: '展開內部捲動區域',
         expandNestedDesc:
           '預設只展開選取元素自己的捲動內容。開啟後還會遞迴展開內部的捲動子區域，外層元素會被撐高、重新排版。',
+        primaryColor: '主題色',
+        primaryColorDesc: '腳本介面的強調色，影響設定面板、懸浮按鈕、選擇器與結果預覽。',
+        advanced: '進階設定',
+        advancedDesc: '顯示偏技術向的設定項目，例如 iframe 深度與展開內部捲動區域。',
         fabShow: '顯示懸浮按鈕',
         fabShowDesc: '在頁面邊緣顯示可拖曳的截圖按鈕。',
         fabSize: '懸浮按鈕尺寸',
@@ -243,11 +257,14 @@ const en: LocaleDefinition = {
       tab: {
         capture: 'Capture',
         trigger: 'Trigger',
+        appearance: 'Appearance',
         sites: 'Sites'
       },
       group: {
-        picker: 'Picker interaction',
+        picker: 'Selector',
         frame: 'Selection frame',
+        theme: 'Theme',
+        advanced: 'Advanced',
         output: 'Output',
         shortcut: 'Shortcut',
         fab: 'Floating button',
@@ -258,10 +275,10 @@ const en: LocaleDefinition = {
         shortcutDesc: 'Press this combination on any page to start picking an element.',
         pointerPassthrough: 'Mouse passthrough',
         pointerPassthroughDesc:
-          'Off by default: a transparent layer swallows the pointer, so page hover and click effects stay out of the capture. Turn it on to let the pointer reach the page and pick hover-opened menus — pure CSS :hover styling is still not copied into the picture.',
-        frameDepth: 'Frame depth',
+          'Let picking trigger hover effects, and capture the ones the page renders. Effects that exist only as CSS :hover rules cannot be rendered into the capture.',
+        frameDepth: 'iframe depth',
         frameDepthDesc:
-          'How many iframe levels the picker may reach into, and how many levels of frames a capture paints. Every extra level costs one more round trip while picking and one more full render while capturing, so deeper is slower; the default is 2.',
+          'How many levels of nested iframes to handle. Every extra level takes longer to render.',
         frameDepth1: '1 level',
         frameDepth2: '2 levels',
         frameDepth3: '3 levels',
@@ -286,6 +303,12 @@ const en: LocaleDefinition = {
         expandNested: 'Expand nested scroll areas',
         expandNestedDesc:
           'Only the selected element’s own scroll content is expanded. Turning this on also expands scrollable descendants, which reflows and grows the outer element.',
+        primaryColor: 'Accent color',
+        primaryColorDesc:
+          'Accent used across the script UI: settings panel, floating button, picker and result viewer.',
+        advanced: 'Advanced settings',
+        advancedDesc:
+          'Show the technical settings, such as iframe depth and expanding nested scroll areas.',
         fabShow: 'Show floating button',
         fabShowDesc: 'Show a draggable capture button at the edge of the page.',
         fabSize: 'Floating button size',

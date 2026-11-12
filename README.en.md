@@ -18,7 +18,7 @@ Capture any element on a web page — including everything hidden inside its scr
 - **High-resolution export** — export at 1× / 2× / 3×. Very large pages are downscaled automatically when they exceed the browser's canvas limits.
 - **Faithful backgrounds** — solid colors, gradients, background images and dark themes are preserved; transparent regions no longer default to white.
 - **Leaves the page alone** — by default an interaction shield keeps hover/click effects out of the capture (turn on “mouse passthrough” when you want the page's own hover); the UI lives in Shadow DOM; rendering happens in an off-screen snapshot, so page styles and scroll positions are never touched.
-- **Configurable** — shortcut, border color/width, floating button, site rules, page/custom/transparent background, three UI languages and light/dark themes.
+- **Configurable** — shortcut, border color/width, floating button, site rules, page/custom/transparent background, three UI languages, light/dark modes and an accent colour.
 - **Local processing** — screenshots are not uploaded. Cross-origin images and fonts are requested through the userscript manager only when they need to be inlined.
 
 ## Screenshots
@@ -95,15 +95,16 @@ After selection:
 
 > Rendering does **not** lock the page: the capture is rendered from an off-screen copy, so you can keep clicking, scrolling and typing while it runs, and the result is unaffected. While it renders you only see a small “Rendering…” chip (with a cancel button, `Esc` also cancels); when the image is ready the result opens as a centred preview — a lightbox with copy / save / close underneath. The page may have scrolled or changed while it rendered, so the result is no longer pinned to the original selection frame. Click the image to toggle between fit and 3×, use the wheel to step the zoom (never below fit), press `+` / `-` for coarser steps and `0` to reset, and drag to pan while zoomed. The close button sits in the top-right corner and clicking the backdrop deliberately does **not** close the preview, so a long render cannot be lost to a stray click.
 >
-> “Isolate page interaction” is on by default. While picking, the page receives no hover, click or mousemove events, so temporary hover styles do not appear in the image. Turn it off in Settings → Capture → Picker interaction to capture a hover state.
+> “Mouse passthrough” is off by default. While picking, the page receives no hover, click or mousemove events, so temporary hover styles do not appear in the image. Turn it on in Settings → Capture → Selector to capture a hover state: effects the page's own scripts produce are captured, while effects that exist only as CSS `:hover` rules are not.
 >
 > Clipboard access needs browser permission. The file picker is Chromium-only; other browsers fall back to a normal download.
 
 ### Settings
 
+- **General** — UI language (简体中文 / 繁體中文 / English), the “Advanced settings” switch (off by default; it reveals iframe depth and “Expand nested scroll areas”), and restoring defaults.
+- **Capture** — export scale, page/custom/transparent background, mouse passthrough (off by default), iframe depth for picking and rendering (2 by default, advanced).
 - **Trigger** — shortcut, floating button visibility/size and dragged position.
-- **Capture** — export scale, page/custom/transparent background, expand nested scroll areas, mouse passthrough (off by default), frame depth for picking and rendering (2 by default).
-- **Appearance** — border color and width, UI language (简体中文 / 繁體中文 / English), light/dark theme.
+- **Appearance** — light/dark mode, accent color, selection frame color and width.
 - **Site rules** — only run on, or exclude, specific sites. Excluded pages can still be enabled temporarily from the userscript menu.
 
 ## Known limitations

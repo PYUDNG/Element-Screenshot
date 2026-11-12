@@ -131,7 +131,7 @@ watch(size, () => props.app.repositionFab())
 <template>
   <button
     type="button"
-    class="pointer-events-auto fixed flex cursor-grab touch-none select-none items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-700 outline-none transition duration-150 ease-out hover:border-blue-400 hover:text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500/50 active:cursor-grabbing dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-blue-500 dark:hover:text-blue-400"
+    class="pointer-events-auto fixed flex cursor-grab touch-none select-none items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-700 outline-none transition duration-150 ease-out hover:border-primary-400 hover:text-primary-600 focus-visible:ring-2 focus-visible:ring-primary-500/50 active:cursor-grabbing dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-primary-500 dark:hover:text-primary-400"
     :style="style"
     :aria-label="label"
     :title="label"

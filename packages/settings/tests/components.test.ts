@@ -126,6 +126,84 @@ describe('settings components', () => {
     controller.dispose()
   })
 
+  it('puts the variables the app asks for on the panel root', async () => {
+    const controller = createSettings({
+      tabs,
+      i18n,
+      builtins: false,
+      variables: (values) => ({ '--es-primary': String(values['name']) })
+    })
+    const wrapper = mount(SettingsRoot, { props: { controller }, attachTo: document.body })
+
+    const root = wrapper.get('.es-root')
+    expect(root.attributes('style')).toContain('--es-primary: Ada')
+
+    // A value change repaints the open panel instead of waiting for the next open.
+    controller.set('name', 'Grace')
+    await nextTick()
+    expect(wrapper.get('.es-root').attributes('style')).toContain('--es-primary: Grace')
+    controller.dispose()
+  })
+
+  it('drops a group and a tab whose fields are all hidden', async () => {
+    const gatedTabs: SettingsTab[] = [
+      {
+        id: 'gated',
+        title: 'Gated',
+        groups: [
+          {
+            id: 'always',
+            title: 'Always',
+            defaultOpen: true,
+            fields: [{ type: 'switch', key: 'show', label: 'Always here', default: false }]
+          },
+          {
+            id: 'sometimes',
+            title: 'Sometimes',
+            fields: [
+              {
+                type: 'switch',
+                key: 'gated',
+                label: 'Only sometimes',
+                default: false,
+                visible: (values) => values['show'] === true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        id: 'hidden',
+        title: 'Hidden tab',
+        groups: [
+          {
+            id: 'hidden-group',
+            title: 'Hidden group',
+            fields: [
+              {
+                type: 'switch',
+                key: 'never',
+                label: 'Never shown',
+                default: false,
+                visible: () => false
+              }
+            ]
+          }
+        ]
+      }
+    ]
+    const controller = createSettings({ tabs: gatedTabs, i18n, builtins: false })
+    const wrapper = mount(SettingsRoot, { props: { controller }, attachTo: document.body })
+
+    expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(['Gated'])
+    expect(wrapper.text()).toContain('Always here')
+    expect(wrapper.text()).not.toContain('Sometimes')
+
+    await wrapper.get('[role="switch"]').trigger('click')
+    expect(wrapper.text()).toContain('Sometimes')
+    controller.dispose()
+  })
+
   it('closes on Escape', async () => {
     const controller = createSettings({ tabs, i18n, builtins: false })
     const closeSpy = vi.spyOn(controller, 'close')

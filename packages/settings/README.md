@@ -256,6 +256,21 @@ settings.i18n
 
 If your schema already contains a tab named `general`, the built-ins are merged into it.
 
+A schema that declares its own `theme` field (anywhere) keeps the library from adding a second one, so an app can move the switch into another tab; the built-in group then holds the language select alone and is titled `settings.builtin.languageGroup` instead of `settings.builtin.appearance`.
+
+## Panel variables
+
+`variables` is the seam for values that change at runtime. It returns CSS custom properties for the panel root, and it is re-evaluated whenever `values` change, so the open panel repaints without being reopened:
+
+```ts
+const settings = createSettings({
+  // ...
+  variables: (values) => ({ '--es-primary': String(values['ui.primary'] ?? '#2563eb') })
+})
+```
+
+The panel does not interpret the names; it only puts them on `.es-root`, the element its stylesheet is built around. The library's own stylesheet uses them for the `primary` palette (see below).
+
 ## Storage
 
 ```ts
@@ -324,7 +339,16 @@ Use `icon: 'camera'` in a tab and `icon: 'reset'` on an action field. Add your o
 - The embedded Tailwind build uses `@custom-variant dark (&:where(.dark, .dark *))`; the panel root gets a `dark` class based on the resolved theme.
 - The panel never modifies the host page's theme or global styles.
 
-If you provide your own `styles`, make sure the Tailwind build scans this package's source (`@source` in Tailwind 4) or use the `auto` entry.
+### Accent colour
+
+Components use the semantic `primary` palette (`bg-primary-600`, `text-primary-700`, …) — never a hue — and `primary.css` defines it twice:
+
+- a static `@theme` fallback (what the palette always was);
+- inside `@supports (color: color-mix(...))`, six `--color-primary-*` values mixed from `--es-primary`, with fixed lightness pins so contrast does not depend on the chosen colour.
+
+So `variables` (above) is all it takes to recolour the panel. Adding a shade means adding it to both blocks.
+
+If you provide your own `styles`, make sure the Tailwind build scans this package's source (`@source` in Tailwind 4) or use the `auto` entry — and include `primary.css`, or the `primary-*` classes will not exist.
 
 ## Development
 

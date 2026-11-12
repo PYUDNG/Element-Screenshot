@@ -1,9 +1,19 @@
 import { DEFAULT_SHORTCUT } from '@element-screenshot/settings'
-import type { SettingsTab } from '@element-screenshot/settings'
+import type { SettingsTab, SettingsValues } from '@element-screenshot/settings'
 import { isValidSiteRule } from '../core/site-policy'
 
 const validateRule = (value: string): string | null =>
   isValidSiteRule(value) ? null : 'app.site.invalidRule'
+
+/**
+ * The “Advanced settings” switch in the General tab.
+ *
+ * Marked fields disappear while it is off. Hiding a field is enough: the panel
+ * drops a group whose fields are all invisible, and a tab whose groups are all
+ * gone, so the switch also decides which accordions exist without any extra code.
+ * Values are kept either way — turning the switch off is not a reset.
+ */
+const isAdvanced = (values: SettingsValues): boolean => values['ui.advanced'] === true
 
 export function createSettingsTabs(): SettingsTab[] {
   return [
@@ -30,6 +40,7 @@ export function createSettingsTabs(): SettingsTab[] {
               label: 'app.field.frameDepth',
               description: 'app.field.frameDepthDesc',
               default: '2',
+              visible: isAdvanced,
               options: [
                 { value: '1', label: 'app.field.frameDepth1' },
                 { value: '2', label: 'app.field.frameDepth2' },
@@ -38,31 +49,6 @@ export function createSettingsTabs(): SettingsTab[] {
                 { value: '5', label: 'app.field.frameDepth5' },
                 { value: '6', label: 'app.field.frameDepth6' }
               ]
-            }
-          ]
-        },
-        {
-          id: 'frame',
-          title: 'app.group.frame',
-          fields: [
-            {
-              type: 'color',
-              key: 'capture.borderColor',
-              label: 'app.field.borderColor',
-              description: 'app.field.borderColorDesc',
-              default: '#2563eb',
-              swatches: ['#2563eb', '#16a34a', '#dc2626', '#f59e0b', '#18181b']
-            },
-            {
-              type: 'range',
-              key: 'capture.borderWidth',
-              label: 'app.field.borderWidth',
-              description: 'app.field.borderWidthDesc',
-              default: 2,
-              min: 1,
-              max: 8,
-              step: 1,
-              unit: 'px'
             }
           ]
         },
@@ -112,7 +98,8 @@ export function createSettingsTabs(): SettingsTab[] {
               key: 'capture.expandNested',
               label: 'app.field.expandNested',
               description: 'app.field.expandNestedDesc',
-              default: false
+              default: false,
+              visible: isAdvanced
             }
           ]
         }
@@ -182,6 +169,70 @@ export function createSettingsTabs(): SettingsTab[] {
               label: 'app.field.fabPosition',
               default: '',
               visible: () => false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'appearance',
+      title: 'app.tab.appearance',
+      icon: 'palette',
+      groups: [
+        {
+          id: 'theme',
+          title: 'app.group.theme',
+          defaultOpen: true,
+          fields: [
+            {
+              /*
+               * Owned here rather than by the library's built-in General tab: the
+               * panel only adds its own `theme` field when the schema has none, so
+               * declaring it moves it out of General without a second switch.
+               */
+              type: 'select',
+              key: 'theme',
+              label: 'settings.builtin.theme',
+              description: 'settings.builtin.themeDescription',
+              default: 'auto',
+              options: [
+                { value: 'auto', label: 'settings.builtin.themeAuto' },
+                { value: 'light', label: 'settings.builtin.themeLight' },
+                { value: 'dark', label: 'settings.builtin.themeDark' }
+              ]
+            },
+            {
+              type: 'color',
+              key: 'ui.primary',
+              label: 'app.field.primaryColor',
+              description: 'app.field.primaryColorDesc',
+              default: '#2563eb',
+              swatches: ['#2563eb', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#18181b']
+            }
+          ]
+        },
+        {
+          id: 'frame',
+          title: 'app.group.frame',
+          fields: [
+            {
+              type: 'color',
+              key: 'capture.borderColor',
+              label: 'app.field.borderColor',
+              description: 'app.field.borderColorDesc',
+              default: '#2563eb',
+              swatches: ['#2563eb', '#16a34a', '#dc2626', '#f59e0b', '#18181b']
+            },
+            {
+              type: 'range',
+              key: 'capture.borderWidth',
+              label: 'app.field.borderWidth',
+              description: 'app.field.borderWidthDesc',
+              default: 2,
+              min: 1,
+              max: 8,
+              step: 1,
+              unit: 'px'
             }
           ]
         }

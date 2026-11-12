@@ -21,6 +21,16 @@ const t = (key: string, params?: Record<string, string | number>): string =>
 
 const isDark = computed(() => props.controller.resolvedTheme.value === 'dark')
 
+/**
+ * Custom properties for the panel root, e.g. the accent colour.
+ *
+ * Read through the controller's reactive `values`, so a change repaints the panel
+ * while it is open instead of waiting for the next open.
+ */
+const rootStyle = computed<Record<string, string>>(
+  () => props.controller.variables?.(props.controller.values) ?? {}
+)
+
 function isFieldVisible(field: SettingsField): boolean {
   return field.visible ? field.visible(props.controller.values) : true
 }
@@ -163,6 +173,7 @@ onMounted(() => {
   <div
     class="es-root font-sans text-zinc-900 dark:text-zinc-100"
     :class="isDark ? 'dark' : ''"
+    :style="rootStyle"
     @keydown="onKeydown"
   >
     <div class="pointer-events-auto fixed inset-0 bg-zinc-950/45" @click="close"></div>
@@ -180,7 +191,7 @@ onMounted(() => {
         class="flex shrink-0 flex-wrap items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800 sm:px-5"
       >
         <div class="flex items-center gap-2 text-base font-semibold">
-          <SettingsIcon :size="18" class="text-blue-600 dark:text-blue-400" />
+          <SettingsIcon :size="18" class="text-primary-600 dark:text-primary-400" />
           <span>{{ t('settings.title') }}</span>
         </div>
 
@@ -194,7 +205,7 @@ onMounted(() => {
               ref="searchRef"
               v-model="query"
               type="search"
-              class="w-full rounded-md border border-zinc-300 bg-white py-1.5 pl-8 pr-2 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              class="w-full rounded-md border border-zinc-300 bg-white py-1.5 pl-8 pr-2 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               :placeholder="t('settings.searchPlaceholder')"
               :aria-label="t('settings.searchPlaceholder')"
             />
@@ -203,7 +214,7 @@ onMounted(() => {
 
         <button
           type="button"
-          class="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          class="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
           :aria-label="t('settings.close')"
           @click="close"
         >
@@ -227,10 +238,10 @@ onMounted(() => {
             :aria-selected="tab.id === activeTabId"
             :aria-controls="`settings-panel-${tab.id}`"
             :tabindex="tab.id === activeTabId ? 0 : -1"
-            class="flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            class="flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40"
             :class="
               tab.id === activeTabId
-                ? 'bg-blue-50 font-medium text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
+                ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-500/10 dark:text-primary-300'
                 : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'
             "
             @click="activeTabId = tab.id"
@@ -264,7 +275,7 @@ onMounted(() => {
             >
               <button
                 type="button"
-                class="flex w-full items-center gap-2 bg-zinc-50 px-3 py-2.5 text-left transition-colors hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40 dark:bg-zinc-800/40 dark:hover:bg-zinc-800/70"
+                class="flex w-full items-center gap-2 bg-zinc-50 px-3 py-2.5 text-left transition-colors hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500/40 dark:bg-zinc-800/40 dark:hover:bg-zinc-800/70"
                 :aria-expanded="isGroupOpen(activeTab.id, group)"
                 :aria-controls="`settings-group-${activeTab.id}-${group.id}`"
                 @click="toggleGroup(activeTab.id, group)"
@@ -316,7 +327,7 @@ onMounted(() => {
             :href="link.href"
             target="_blank"
             rel="noopener noreferrer"
-            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             :title="link.label"
             :aria-label="link.label"
           >

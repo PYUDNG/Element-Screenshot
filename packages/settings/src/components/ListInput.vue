@@ -71,7 +71,7 @@ function errorFor(value: string): string | null {
           type="text"
           spellcheck="false"
           autocomplete="off"
-          class="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 font-mono text-[13px] text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+          class="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 font-mono text-[13px] text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
           :placeholder="placeholder"
           :disabled="disabled"
           @input="updateAt(index, ($event.target as HTMLInputElement).value)"
@@ -94,7 +94,7 @@ function errorFor(value: string): string | null {
 
     <button
       type="button"
-      class="inline-flex items-center gap-1 rounded-md border border-dashed border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-blue-500 dark:hover:text-blue-400"
+      class="inline-flex items-center gap-1 rounded-md border border-dashed border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-primary-400 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-primary-500 dark:hover:text-primary-400"
       :disabled="maxReached || disabled"
       @click="add"
     >

@@ -1,5 +1,6 @@
 @import 'tailwindcss' source(none);
 @import '../../settings/src/tailwind-fallback.css';
+@import '../../settings/src/primary.css';
 @source './';
 @source '../../settings/src';
 

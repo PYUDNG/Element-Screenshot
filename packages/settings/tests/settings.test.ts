@@ -44,6 +44,35 @@ describe('settings controller', () => {
     settings.dispose()
   })
 
+  it('titles the built-in group for what it holds', () => {
+    // By default the group carries the language select and the theme.
+    const plain = createSettings({ tabs })
+    expect(plain.tabs[0]?.groups[0]?.title).toBe('settings.builtin.appearance')
+    plain.dispose()
+
+    // A schema that declares its own `theme` field gets a language-only group.
+    const own: SettingsTab[] = [
+      {
+        id: 'appearance',
+        title: 'Appearance',
+        groups: [
+          {
+            id: 'theme',
+            title: 'Theme',
+            fields: [{ type: 'select', key: 'theme', label: 'Theme', default: 'auto', options: [] }]
+          }
+        ]
+      }
+    ]
+    const moved = createSettings({ tabs: own })
+    expect(moved.tabs.find((tab) => tab.id === 'general')?.groups[0]?.title).toBe(
+      'settings.builtin.languageGroup'
+    )
+    // The library must not add a second theme field next to the app's own.
+    expect(moved.getField('theme')?.type).toBe('select')
+    moved.dispose()
+  })
+
   it('hydrates and persists values', () => {
     const storage = createMemoryStorage({
       'my-values': JSON.stringify({
