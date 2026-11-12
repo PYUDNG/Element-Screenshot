@@ -391,6 +391,52 @@
         ></iframe>
       </section>
 
+      <!-- 帧在可滚动祖先里：验证「祖先被展开后，帧图是否跟着盒子走」。
+           滚动口只有 240px，而帧前面有 ~630px 的占位行，所以帧默认完全在滚动口
+           下方、看不见；打开「展开内部滚动区域」后滚动框被撑高，帧才出现在展开后
+           的位置。若帧图仍按展开前的坐标绘制，它就会落在占位行上或整块消失。 -->
+      <section class="card" id="frame-scroll-demo">
+        <h2>Frame inside a scroll container</h2>
+        <p class="muted">
+          滚动框里先是 14 行占位内容，下面是 <code>/frame.html</code>。选中这张卡片并打开
+          「展开内部滚动区域」时，帧必须出现在撑高后的位置（占位行下方），而不是留在展开前
+          的滚动口里。直接选中滚动框本身也一样。
+        </p>
+        <div
+          id="frame-scroll-box"
+          style="
+            height: 240px;
+            overflow: auto;
+            border: 1px solid #d4d4d8;
+            border-radius: 10px;
+            background: #fff;
+          "
+        >
+          <div id="frame-scroll-rows">
+            <div class="pick-row">Spacer row 01</div>
+            <div class="pick-row">Spacer row 02</div>
+            <div class="pick-row">Spacer row 03</div>
+            <div class="pick-row">Spacer row 04</div>
+            <div class="pick-row">Spacer row 05</div>
+            <div class="pick-row">Spacer row 06</div>
+            <div class="pick-row">Spacer row 07</div>
+            <div class="pick-row">Spacer row 08</div>
+            <div class="pick-row">Spacer row 09</div>
+            <div class="pick-row">Spacer row 10</div>
+            <div class="pick-row">Spacer row 11</div>
+            <div class="pick-row">Spacer row 12</div>
+            <div class="pick-row">Spacer row 13</div>
+            <div class="pick-row">Spacer row 14</div>
+          </div>
+          <iframe
+            src="/frame.html"
+            title="frame inside a scroll container"
+            style="display: block; width: 100%; height: 220px; border: 0; background: #fff"
+          ></iframe>
+          <div style="height: 240px; background: #fafafa"></div>
+        </div>
+      </section>
+
       <!-- 跨域帧：需要第二个 playground 实例（PLAYGROUND_PORT=4177 pnpm playground）。
            它只能靠帧内 helper 出图，没有 helper 时整块保持空白。 -->
       <section class="card" id="cross-frame-demo">

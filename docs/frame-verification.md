@@ -50,3 +50,14 @@
 - 两次截图只有最内层不同，其余（两层外框、圆角、留白）逐像素一致，说明差异确实来自层数而不是布局抖动。
 - **没在浏览器里验的**：这次的帧里没有脚本（没有 helper），走的是父级兜底 `renderFrameViewport()`；helper 路径传 `maxDepth` 只做了单元测试覆盖（`frame-helper.test.ts` 的 render / capture / 中继三处断言），而 helper 渲染调用的就是同一个函数。要看 helper 版的三层，得让 VM 里那份的 `picker.frameDepth` 变成 3，而 VM 存储没有对外的写入接口。
 - 另一个实测坑：`hidden` 标签页里三层渲染等了 90 秒以上没结束，`browser_tabs.select` 让标签页变成 `visible` 后几秒就完成 —— 与上一轮记的定时器节流一致，别把 `hidden` 下的慢当作卡死。
+
+## 2026-11-12（第四轮）：帧在可滚动祖先里，祖先展开后帧位置
+
+以前缺的一条：帧待在滚动容器里，容器被展开撑高后，帧图会不会还画在展开前的位置。补了新夹具，并在真实浏览器里量了像素。
+
+- 夹具：`playground/index.html` 的 `#frame-scroll-demo` → `#frame-scroll-box`（`height:240px; overflow:auto`，`scrollHeight 1043`），里面先是 14 行占位（`#frame-scroll-rows` 高 **581**），然后才是 `/frame.html`（220px），末尾 240px 空白。所以帧默认完全在滚动口下方、屏幕上看不见。
+- 环境：VM 安装（script `355`，`0.9.0`）访问 `http://127.0.0.1:4176/?vm=1`；FAB 开始拾取，悬停滚动口 → 框显示 `div#frame-scroll-box 482 × 240 可滚动 ↓1043px`（栈 5/5）→ `Enter`。
+- 输出 **482 × 1043**：482 = 480 client + 2 border，1043 = 展开后的 `scrollHeight`。
+- 帧表头色 `#eef2ff` 只出现在 **y 582–618**（582 = 1px border + 581 行占位），`y=100/300/560` 都是占位行的白底。帧图确实被画在「展开后」的盒子上，而不是展开前那个 240px 滚动口的坐标（那样它要么落在占位行上、要么整块落在画布外）。
+- 表头是帧自己的 sticky 元素（帧内还带着 `scrollTo(0, 60)`），它出现在 582 而不是消失，说明这条路径上的 `pinFrameSticky()` 也照常生效。
+- 没验的：打开 `capture.expandNested` 时的**嵌套**展开（卡片 → 滚动框 → 帧）。VM 存储没有写入接口；而「不装 VM、用 stub 的 `localStorage` 改设置」这条路本次没走通（页面上同时有页面注入的实例和 VM 的实例，两个都要抢指针事件，`hidden` 标签页还会让 Vue 的浮层停在旧状态）。机制上和已验路径共用同一段：帧图写回副本里那个 iframe 盒子的 `background-image`，盒子在 `expandForCapture()` 之后才被量、被画，位置由布局决定而不是由记录下来的坐标决定；写回本身由 `capture.test.ts` 的 iframe 合成用例覆盖。
