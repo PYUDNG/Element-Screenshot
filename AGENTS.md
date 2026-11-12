@@ -218,6 +218,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 高元素中心点会被 clamp 到视口底部；
 - `document.elementsFromPoint()` 可能不返回 `body`（body 盒高为 0，但背景仍绘制 canvas）；
 - 不要从固定白色开始合成；先把 `html` / `body` 背景作为页面基础底色；
+- **`body` 背景画在 canvas 上**：html 透明时 body 背景传播到画布，克隆出来的 `<html>` 没有画布，html-to-image 就退回白底——整页截图在 body 盒高（通常一个视口）以下全白。`resolveBackdropColor()` 对 `documentElement` / `body` 直接返回 `pageBaseColor()`；
 - 复杂背景会单独渲染隐藏背景层，再与元素截图合成；
 - 目前复杂背景主要覆盖 `html` / `body` 的渐变和背景图，不包括所有 fixed/absolute 图层、伪元素、mask 等。
 
@@ -261,7 +262,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 取消：`native.capture.aborted` 由 `cancelCapture()` 置位，`patchCloneYield` 生成的 helper 在每个 chunk 检查并抛 `Capture cancelled`，异常一路冒到 `captureElement/captureRegion` 的 `finally` 里 `snapshot.dispose()`。所以取消只对「克隆循环进行中」有效，序列化/编码阶段只能丢弃结果（shot-app 用 token 兜底）。
 - UI：渲染期间只渲染 `RenderingChip`（顶部小胶囊 + 取消）；结果由 `ResultViewer`（居中预览 + 底部操作栏）呈现，`PickerOverlay` 只在 `mode === 'picking'` 时渲染。交互守卫推迟到渲染结束（`finishRender()`）才安装，渲染期间只挂一个不吞事件的 Esc 监听。
 - 实测（`playground/region.html`，3 面板 + 嵌套）：区域截图输出与「直接渲染活页面」的 0.5.0 **PNG 字节完全一致**（`sha256 cc3e7324…`，多次复现）；渲染中点击页面按钮新增 3 行，截图里没有这 3 行；渲染中面板的 `style`/`background-image`/子元素 `visibility` 全程未被改动。
-- 代价：快照是整页副本（内存、首次布局约翻倍），大头是那一次性的构建 + 布局（小页面 ~80ms，大页面几百 ms，无法切片）；总耗时比 0.5.0 大约 +10%～70%（波动大，别用单次测量下结论）。
+- 代价：快照是整页副本（内存、首次布局约翻倍），大头是那一次性的构建 + 布局（小页面 ~80ms，大页面几百 ms，无法切片）；总耗时比 0.5.0 大约 +10%～70%。
 
 ### 悬浮按钮（FAB）
 
@@ -460,7 +461,6 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 ### 下一步（按顺序）
 
 1. 发版准备（0.8/0.9）：CHANGELOG、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。
-2. 预览阶段的帧内按键已验证不需要回传：`handleSelect()` 的 `blur()` 把焦点带出帧。
 
 ### 关键约束（别踩）
 

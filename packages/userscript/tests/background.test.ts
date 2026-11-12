@@ -194,4 +194,44 @@ describe('page background resolution', () => {
 
     expect(resolvePageBackground()).toBe('rgb(9, 9, 11)')
   })
+
+  it('uses the canvas color behind the document root', () => {
+    const html = document.documentElement
+    const body = document.body
+
+    mockBackgrounds(
+      new Map([
+        [html, 'rgba(0, 0, 0, 0)'],
+        [body, 'rgb(23, 25, 26)']
+      ])
+    )
+    // Nothing is painted below the root, so there is no layer stack to read;
+    // the body colour is the canvas, and a clone of <html> has no canvas to
+    // propagate it to, which is why html-to-image used to fill white instead.
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([])
+
+    expect(resolveBackdropColor(html)).toBe('rgb(23, 25, 26)')
+    expect(resolveBackdropColor(body)).toBe('rgb(23, 25, 26)')
+  })
+
+  it('still walks ancestors when the paint stack has nothing below an element', () => {
+    const html = document.documentElement
+    const body = document.body
+    const panel = document.createElement('div')
+    const card = document.createElement('div')
+    body.appendChild(panel)
+    panel.appendChild(card)
+
+    mockBackgrounds(
+      new Map([
+        [html, 'rgba(0, 0, 0, 0)'],
+        [body, 'rgb(23, 25, 26)'],
+        [panel, 'rgb(60, 60, 70)'],
+        [card, 'rgba(0, 0, 0, 0)']
+      ])
+    )
+    vi.spyOn(native, 'elementsFromPoint').mockReturnValue([card])
+
+    expect(resolveBackdropColor(card)).toBe('rgb(60, 60, 70)')
+  })
 })

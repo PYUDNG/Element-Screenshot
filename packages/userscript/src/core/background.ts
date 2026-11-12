@@ -129,6 +129,10 @@ function pageBaseColor(doc: Document): Rgba {
   return painted
 }
 
+function cssColor(color: Rgba): string {
+  return `rgb(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)})`
+}
+
 function parentElementOf(element: Element): Element | null {
   if (element.parentElement) return element.parentElement
   const root = element.getRootNode()
@@ -198,8 +202,7 @@ function averageImageColor(image: HTMLImageElement): Rgba | null {
  * colour behind transparent areas.
  */
 export function resolvePageBackground(doc: Document = document): string {
-  const color = pageBaseColor(doc)
-  return `rgb(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)})`
+  return cssColor(pageBaseColor(doc))
 }
 
 /**
@@ -233,7 +236,19 @@ export function resolveBackdropColor(element: Element): string {
       const color = parseCssColor(style.backgroundColor)
       if (color && color.a > 0) painted = composite(color, painted)
     }
-    return `rgb(${Math.round(painted.r)}, ${Math.round(painted.g)}, ${Math.round(painted.b)})`
+    return cssColor(painted)
+  }
+
+  /*
+   * The document root has no ancestors to walk, and a body background is
+   * propagated to the page canvas instead of being painted on the body's box.
+   * A clone of `<html>` has no canvas to propagate to, so that colour is lost
+   * and html-to-image falls back to a white fill — a dark page then comes out
+   * white wherever the body background used to show. The canvas colour is the
+   * answer here, not the parent chain, which is empty.
+   */
+  if (element === doc.documentElement || element === doc.body) {
+    return cssColor(pageBaseColor(doc))
   }
 
   const chain: string[] = []
@@ -265,5 +280,5 @@ export function resolveBackdropColor(element: Element): string {
     if (layer && layer.a > 0) result = composite(layer, result)
   }
 
-  return `rgb(${Math.round(result.r)}, ${Math.round(result.g)}, ${Math.round(result.b)})`
+  return cssColor(result)
 }

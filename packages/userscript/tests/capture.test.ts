@@ -1256,6 +1256,33 @@ describe('iframe compositing', () => {
   })
 })
 
+describe('document root backdrop', () => {
+  it('fills the page canvas behind a cloned <html>', async () => {
+    // A body background is propagated to the page canvas, and a cloned <html>
+    // has no canvas of its own: without the canvas colour the whole page below
+    // the body's own box came out white on a dark site.
+    const htmlStyle = document.documentElement.getAttribute('style')
+    const bodyStyle = document.body.getAttribute('style')
+    document.documentElement.style.backgroundColor = 'transparent'
+    document.body.style.backgroundColor = 'rgb(23, 25, 26)'
+
+    try {
+      await captureElement(document.documentElement, {
+        pixelRatio: 1,
+        background: { mode: 'page' }
+      })
+    } finally {
+      if (htmlStyle === null) document.documentElement.removeAttribute('style')
+      else document.documentElement.setAttribute('style', htmlStyle)
+      if (bodyStyle === null) document.body.removeAttribute('style')
+      else document.body.setAttribute('style', bodyStyle)
+    }
+
+    const options = toBlobMock.mock.calls[0]?.[1]
+    expect(options).toMatchObject({ backgroundColor: 'rgb(23, 25, 26)' })
+  })
+})
+
 describe('capture cancellation', () => {
   it('stops a render that was cancelled while it was starting', async () => {
     const element = document.createElement('div')

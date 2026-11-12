@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Full-page captures (`Ctrl+A`) keep the page background colour. A `body`
+  background is propagated to the browser's canvas instead of being painted on
+  the body's own box, and a cloned `<html>` has no canvas to propagate it to, so
+  a dark page came out white below the body box — usually just past the first
+  viewport, which left white gaps around the content, a white footer with pale
+  text, and white columns under a virtualised timeline. The canvas colour is now
+  resolved from the root and body backgrounds and painted behind the clone.
+
 ### Added
 
 - The “Frame depth” setting now drives rendering as well as picking. One number
