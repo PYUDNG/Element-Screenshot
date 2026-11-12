@@ -403,8 +403,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 展开渲染：`renderFrameViewport(..., expand)` 用父级给的 surface（**父级和 helper 用同一个数字**，不各自重算，避免差几像素），`scroll = {0,0}`、**不** `pinFrameSticky()`（整页展开时 sticky 就该在静态位置）、`expandForCapture(root, surface, false)`。
 - 帧图仍然写回 iframe 盒子的 `background-image`（`100% 100%` / `content-box`），所以边框、圆角、层叠顺序照旧由父级那一次渲染负责。
 - picker：`getTargetBox()` 对 iframe 也算上帧文档的内容尺寸（`frameOuterSize`），虚线框 = 截图尺寸。label 上的 `482 × 220` 是 `getVisibleBox()`（看得见的那一小块），别拿它当截图尺寸。
-- 顺手的坑：iframe 作为克隆根时**不能**套 `display: inline` 的 font-size 补偿（`box.height += fontSize`）——iframe 是替换元素，它本来就按 border box 渲染，补偿会白加 16px 空白。现在 iframe 根直接当 `display: block` 处理。
-- 已知边界：帧内容比其视口**窄**时不会缩窄（`max(视口, 内容)`），横向展开只在帧文档真的有横向溢出时发生；跨域帧的 picker 虚线框拿不到内容尺寸，只有选中后才会撑高。
+- 跨域帧的虚线框（`expandFrameTarget()`）：父级读不到帧文档，所以虚线框只能等 helper 报尺寸。`startPicker()` 先开一次预热（`prefetchFrameSizes()` → 对视口内的跨域帧 `probeFrameHelpers()` + `requestFrameSize()`，缓存在 `ShotApp.frameSizes`，只在一次拾取会话内有效），悬停时 `targetFor()` 直接用缓存把 `box` 撑到 `expandedFrameSize()` + `frameOuterSize()` —— 和 `planFrameExpansion()` / `growFrameCopy()` 同一组数字，所以虚线框就是最终画布。预热没覆盖到的帧（拾取开始后新插入的、或没有 helper）先按可见尺寸画，量到后 `picker.invalidate({ keepIndex: true })` 再解析一次；`keepIndex` 是必需的，否则会把手轮选中的层级重置回最内层。量到「比可见尺寸大」时顺带把 `scrollAxis` 设上，于是 `可滚动 ↓Npx` 徽标和 `Shift+滚轮` 跳到帧都自然生效（`ScrollAxis` 只是 picker 的 UI 字段，截图仍然走元素自己的 `scrollContainerInfo()`）。
+- 已知边界：帧内容比其视口**窄**时不会缩窄（`max(视口, 内容)`），横向展开只在帧文档真的有横向溢出时发生。
 
 ### 帧内快捷键（`core/hotkey-bridge.ts`）
 

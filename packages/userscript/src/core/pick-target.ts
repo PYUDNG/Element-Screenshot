@@ -1,5 +1,6 @@
 import type { FramePickItem } from './frame-bridge'
-import { frameContentBox } from './frame-size'
+import { expandedFrameSize, frameContentBox, frameOuterSize } from './frame-size'
+import type { FrameSize } from './frame-size'
 import type { ScrollAxis } from './scroll-axis'
 import { describeTarget } from './target'
 import type { TargetBox } from './target'
@@ -103,7 +104,14 @@ export function liftFrameItems(
   })
 }
 
-/** A layer in the document the picker runs in. */
+/**
+ * A layer of this document, possibly with the size of the frame it is.
+ *
+ * A same-origin frame is measured while the layer is built (`getTargetBox()` can
+ * read its document), so it needs nothing extra. A cross-origin frame can only
+ * report its size over the bridge, which answers after the box was drawn — the
+ * caller applies it with `expandFrameTarget()` when it arrives.
+ */
 export function elementTarget(element: Element): PickTarget {
   const info = describeTarget(element)
   return {
@@ -117,6 +125,43 @@ export function elementTarget(element: Element): PickTarget {
     box: info.box,
     scrollAxis: info.scrollAxis,
     fullPage: element === element.ownerDocument?.documentElement
+  }
+}
+
+/**
+ * Grow a frame layer's capture box to the size its helper reported.
+ *
+ * Picking a frame means "the whole frame", so the dashed box the picker draws has
+ * to be the canvas the capture will produce. The number comes from the frame's own
+ * document (see `expandedFrameSize`), and the border box is derived with the same
+ * `frameOuterSize()` the capture uses to grow the copied frame — two places, one
+ * formula.
+ *
+ * The button badge follows too: a frame whose document is taller than its viewport
+ * is a scroll container from the user's point of view, so `Shift`+wheel can jump
+ * onto it like onto any other one.
+ */
+export function expandFrameTarget(
+  target: PickTarget,
+  frame: HTMLIFrameElement,
+  measured: FrameSize
+): PickTarget {
+  const content = expandedFrameSize(frame, measured)
+  if (!content) return target
+  const outer = frameOuterSize(frame, content)
+  const width = Math.max(target.box.width, outer.width)
+  const height = Math.max(target.box.height, outer.height)
+  if (width <= target.box.width && height <= target.box.height) return target
+
+  const growsWidth = width > target.rect.width
+  const growsHeight = height > target.rect.height
+  const scrollAxis: ScrollAxis | null =
+    growsWidth && growsHeight ? 'both' : growsHeight ? 'y' : growsWidth ? 'x' : target.scrollAxis
+
+  return {
+    ...target,
+    box: { left: target.box.left, top: target.box.top, width, height },
+    scrollAxis
   }
 }
 

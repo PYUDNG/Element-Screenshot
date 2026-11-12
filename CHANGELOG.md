@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- The picker now previews the capture size of a cross-origin frame. Hovering one
+  used to draw only its visible box, because the parent cannot read that frame's
+  document and was left with the frame element's own `scrollWidth`; the capture
+  then expanded the frame and came out much taller than the box that was picked.
+  Picking now starts a warm-up that asks the frames on screen for their document
+  size over the bridge, and the layer's dashed box (and its `可滚动 ↓Npx` badge)
+  is grown with the same formula the capture grows the copied frame with, so the
+  box and the canvas finally agree. A frame the warm-up missed is measured on
+  first hover and the point is resolved again when the number arrives; the layer
+  the wheel selected is kept. `Shift`+wheel can now jump onto a frame like onto
+  any other scroll container.
+
 ## [0.9.0] - 2026-11-12
 
 ### Added

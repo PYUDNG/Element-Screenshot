@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FramePickItem } from '../src/core/frame-bridge'
 import { native } from '../src/core/native'
-import { elementTarget, frameTargets, liftFrameItems } from '../src/core/pick-target'
+import { elementTarget, expandFrameTarget, frameTargets, liftFrameItems } from '../src/core/pick-target'
 
 function rectOf(left: number, top: number, width: number, height: number): DOMRect {
   return {
@@ -138,5 +138,37 @@ describe('pick targets', () => {
     const items = liftFrameItems({ left: 0, top: 0, width: 600, height: 400 }, [item({ via: [8] })], 3)
 
     expect(items[0]).toMatchObject({ via: [3, 8] })
+  })
+
+  it('grows a cross-origin frame layer to the size its helper reported', () => {
+    const frame = fakeFrame()
+    const target = elementTarget(frame)
+    // Without a readable document the layer starts out as the visible box.
+    expect(target.box).toEqual({ left: 100, top: 50, width: 310, height: 210 })
+
+    const grown = expandFrameTarget(target, frame, { width: 300, height: 1200 })
+
+    // 300 × 1200 content plus the 5px border on each side.
+    expect(grown.box).toEqual({ left: 100, top: 50, width: 310, height: 1210 })
+    expect(grown.rect).toEqual(target.rect)
+    // A frame whose document is taller than its viewport scrolls, so the badge and
+    // Shift+wheel treat it like any other scroll container.
+    expect(grown.scrollAxis).toBe('y')
+  })
+
+  it('reports both axes when the frame content is wider and taller', () => {
+    const frame = fakeFrame()
+    const grown = expandFrameTarget(elementTarget(frame), frame, { width: 600, height: 1200 })
+
+    expect(grown.box).toMatchObject({ width: 610, height: 1210 })
+    expect(grown.scrollAxis).toBe('both')
+  })
+
+  it('leaves a frame that fits in its viewport alone', () => {
+    const frame = fakeFrame()
+    const target = elementTarget(frame)
+
+    // The capture is never smaller than the frame already is.
+    expect(expandFrameTarget(target, frame, { width: 120, height: 90 })).toBe(target)
   })
 })

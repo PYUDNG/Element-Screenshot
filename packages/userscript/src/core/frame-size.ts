@@ -105,6 +105,28 @@ export function frameContentSize(doc: Document | null): FrameSize | null {
   return { width: Math.ceil(width), height: Math.ceil(height) }
 }
 
+/**
+ * The size a frame's capture has to show: its document, but never less than the
+ * frame already shows.
+ *
+ * Picking a frame expands its document, so both the picker's dashed box and the
+ * capture surface have to agree on this number. A same-origin frame is measured
+ * from its own document; a cross-origin one reports its size over the bridge, which
+ * is why the measurement is passed in rather than read here.
+ */
+export function expandedFrameSize(
+  frame: HTMLIFrameElement,
+  measured: FrameSize,
+  doc: Document | null = null
+): FrameSize | null {
+  const viewport = frameViewport(doc) ?? frameElementViewport(frame)
+  if (!viewport) return null
+  return {
+    width: Math.max(viewport.width, measured.width),
+    height: Math.max(viewport.height, measured.height)
+  }
+}
+
 function parsePx(value: string): number {
   const parsed = Number.parseFloat(value)
   return Number.isFinite(parsed) ? parsed : 0

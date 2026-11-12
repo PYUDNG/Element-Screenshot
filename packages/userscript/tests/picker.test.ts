@@ -202,6 +202,41 @@ describe('element picker', () => {
     picker.stop()
   })
 
+  it('re-resolves on demand and keeps the layer the wheel picked', () => {
+    const inner = document.createElement('div')
+    const outer = document.createElement('section')
+    hoisted.stack = [inner, outer]
+    const onHover = vi.fn()
+    const picker = createPicker({ onHover })
+
+    picker.start()
+    expect(lastHover(onHover)).toEqual({ element: inner, index: 1, total: 2 })
+    picker.cycle(-1)
+    expect(lastHover(onHover)).toEqual({ element: outer, index: 0, total: 2 })
+
+    // A frame's size arriving after the box was drawn must not throw the choice away.
+    picker.invalidate({ keepIndex: true })
+    expect(lastHover(onHover)).toEqual({ element: outer, index: 0, total: 2 })
+
+    // A plain refresh keeps the ordinary behaviour: the innermost layer.
+    picker.invalidate()
+    expect(lastHover(onHover)).toEqual({ element: inner, index: 1, total: 2 })
+    picker.stop()
+  })
+
+  it('ignores an invalidation while it is not picking', () => {
+    const inner = document.createElement('div')
+    hoisted.stack = [inner]
+    const onHover = vi.fn()
+    const picker = createPicker({ onHover })
+
+    picker.start()
+    picker.stop()
+    const calls = onHover.mock.calls.length
+    picker.invalidate({ keepIndex: true })
+    expect(onHover.mock.calls.length).toBe(calls)
+  })
+
   it('turns a drag into a capture region instead of a click', () => {
     const inner = document.createElement('div')
     hoisted.stack = [inner]

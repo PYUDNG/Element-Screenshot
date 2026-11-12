@@ -239,11 +239,24 @@ export class ElementPicker {
     }
   }
 
+  /**
+   * Ask the layers under the cursor again, without a pointer move.
+   *
+   * Something other than the pointer can change the answer — a frame's size
+   * arrives over the bridge a moment after the box was drawn. `keepIndex` leaves
+   * the layer the user picked with the wheel selected, so a late answer does not
+   * throw their choice away.
+   */
+  invalidate(options: { keepIndex?: boolean } = {}): void {
+    if (!this.active) return
+    this.refresh(options.keepIndex === true)
+  }
+
   private emitHover(): void {
     this.options.onHover(this.stack[this.index] ?? null, this.index, this.stack.length)
   }
 
-  private refresh(): void {
+  private refresh(keepIndex = false): void {
     const resolution = (this.resolution += 1)
     let layers: PickTarget[] | Promise<PickTarget[]>
     try {
@@ -252,26 +265,27 @@ export class ElementPicker {
       return
     }
     if (Array.isArray(layers)) {
-      this.applyStack(layers)
+      this.applyStack(layers, keepIndex)
       return
     }
     void layers
       .then((stack) => {
         // A newer move (or a selection) has already taken over.
         if (resolution !== this.resolution || !this.active) return
-        this.applyStack(stack)
+        this.applyStack(stack, keepIndex)
       })
       .catch(() => {
         // Keep the previous stack; a frame that cannot answer is not an error.
       })
   }
 
-  private applyStack(stack: PickTarget[]): void {
+  private applyStack(stack: PickTarget[], keepIndex = false): void {
     // `resolve` answers outermost first, so the innermost layer is selected.
     this.stack = stack
     // A running drag owns the box, so keep the layer index stable until it ends.
     if (this.drag) return
-    this.index = Math.max(0, this.stack.length - 1)
+    const innermost = Math.max(0, this.stack.length - 1)
+    this.index = keepIndex ? Math.min(this.index, innermost) : innermost
     this.emitHover()
   }
 

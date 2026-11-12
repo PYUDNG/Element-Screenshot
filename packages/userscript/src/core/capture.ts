@@ -16,6 +16,7 @@ import {
 } from './frame-bridge'
 import { frameLevels } from './frame-levels'
 import {
+  expandedFrameSize,
   frameContentSize,
   frameElementViewport,
   frameOuterSize,
@@ -836,10 +837,8 @@ async function planFrameExpansion(frame: FrameRecord): Promise<FrameExpansion | 
   }
   if (!measured) return null
   // The frame is never captured narrower or shorter than what it shows today.
-  const size = {
-    width: Math.max(viewport.width, measured.width),
-    height: Math.max(viewport.height, measured.height)
-  }
+  const size = expandedFrameSize(frame.live, measured, frame.doc)
+  if (!size) return null
   if (size.width <= viewport.width && size.height <= viewport.height) return null
 
   growFrameCopy(frame.copy, size)

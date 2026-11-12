@@ -12,13 +12,19 @@ import {
 import type { CaptureBackground } from '../core/capture'
 import { resolvePageBackground } from '../core/background'
 import { buildScreenshotName } from '../core/filename'
-import { requestFrameCapture, requestFramePick } from '../core/frame-bridge'
+import {
+  probeFrameHelpers,
+  requestFrameCapture,
+  requestFramePick,
+  requestFrameSize
+} from '../core/frame-bridge'
 import type { FramePickItem } from '../core/frame-bridge'
 import { frameLevels } from '../core/frame-levels'
-import { frameContentBox } from '../core/frame-size'
+import { frameContentBox, frameDocument } from '../core/frame-size'
+import type { FrameSize } from '../core/frame-size'
 import { native } from '../core/native'
 import { ElementPicker } from '../core/picker'
-import { elementTarget, frameTargets } from '../core/pick-target'
+import { elementTarget, expandFrameTarget, frameTargets } from '../core/pick-target'
 import type { PickTarget } from '../core/pick-target'
 import { dispatchCaptureUiKey, isPickerKey } from '../core/relay-key'
 import type { RelayedKey } from '../core/relay-key'
@@ -128,6 +134,21 @@ export class ShotApp implements ShotAppApi {
    * because a helper may still be starting up when the picker opens.
    */
   private readonly framePickRetry = new Map<HTMLIFrameElement, number>()
+  /**
+   * A cross-origin frame's document size, for the current picking session.
+   *
+   * Same-origin frames are measured while their layer is built, so only frames
+   * whose document cannot be read land here. `null` means "asked, nothing
+   * answered": it keeps a frame that will never reply from being asked again on
+   * every mouse move.
+   */
+  private readonly frameSizes = new Map<HTMLIFrameElement, FrameSize | null>()
+  /** Frames being measured right now, so two hovers do not queue the same request. */
+  private readonly frameMeasuring = new Set<HTMLIFrameElement>()
+  /** Set while the session's warm-up runs; hovers wait for its answers. */
+  private framePrefetching = false
+  /** Identifies the picking session, so a late answer cannot fill a newer one. */
+  private frameSession = 0
 
   constructor(
     readonly settings: SettingsController,
@@ -210,7 +231,16 @@ export class ShotApp implements ShotAppApi {
     // A frame that was unresponsive last time gets a fresh chance: its helper may
     // have finished loading since.
     this.framePickRetry.clear()
+    // Frame sizes were measured against the page as it was; a new session asks
+    // again so a frame that grew or navigated in between is not described by the
+    // old number.
+    this.frameSession += 1
+    this.frameSizes.clear()
+    this.frameMeasuring.clear()
     this.state.mode = 'picking'
+    // Start the warm-up before the first resolve, so a pointer that already sits on
+    // a cross-origin frame waits for the one probe instead of firing its own.
+    void this.prefetchFrameSizes()
     this.picker.start()
   }
 
@@ -406,10 +436,90 @@ export class ShotApp implements ShotAppApi {
    */
   private resolveTargets(x: number, y: number): PickTarget[] | Promise<PickTarget[]> {
     // getElementStack returns topmost first; the picker wants outermost first.
-    const layers = getElementStack(x, y).map(elementTarget)
+    const layers = getElementStack(x, y).map((element) => this.targetFor(element))
     const frame = layers[0]?.element
     if (!frame || frame.tagName !== 'IFRAME') return layers.reverse()
     return this.pierceFrame(frame as HTMLIFrameElement, x, y, layers)
+  }
+
+  /**
+   * One layer of this document, with a frame's measured size applied when we have it.
+   *
+   * A cross-origin frame's document cannot be read from here, so its capture box
+   * starts out as its visible box and the helper's answer arrives later. Warming the
+   * sizes up when picking starts (see `prefetchFrameSizes`) keeps that window short;
+   * a frame the warm-up missed is measured on first hover and the picker is asked to
+   * resolve the point again once the number is in.
+   */
+  private targetFor(element: Element): PickTarget {
+    const target = elementTarget(element)
+    if (element.tagName !== 'IFRAME') return target
+    const frame = element as HTMLIFrameElement
+    if (frameDocument(frame) !== null) return target
+
+    const measured = this.frameSizes.get(frame)
+    if (measured === undefined) {
+      this.measureFrame(frame)
+      return target
+    }
+    return measured ? expandFrameTarget(target, frame, measured) : target
+  }
+
+  /**
+   * Ask the frames a hovering pointer could reach how tall their documents are.
+   *
+   * One probe covers every frame, so a page full of frames without a helper costs a
+   * single timeout rather than one each. Only frames on screen are asked: a frame
+   * scrolled out of the viewport cannot be hovered, and its size may change before
+   * it is scrolled back.
+   */
+  private async prefetchFrameSizes(): Promise<void> {
+    const frames = this.crossOriginFramesInView()
+    if (frames.length === 0) return
+
+    const session = this.frameSession
+    this.framePrefetching = true
+    try {
+      const ready = await probeFrameHelpers(frames)
+      await Promise.all(
+        frames.map(async (frame) => {
+          const size = ready.has(frame) ? await requestFrameSize(frame) : null
+          if (this.frameSession !== session) return
+          this.frameSizes.set(frame, size)
+        })
+      )
+    } finally {
+      if (this.frameSession === session) {
+        this.framePrefetching = false
+        this.picker.invalidate({ keepIndex: true })
+      }
+    }
+  }
+
+  private crossOriginFramesInView(): HTMLIFrameElement[] {
+    const frames: HTMLIFrameElement[] = []
+    for (const node of native.document.querySelectorAll<HTMLIFrameElement>('iframe')) {
+      if (frameDocument(node) !== null) continue
+      const rect = native.getBoundingClientRect(node)
+      if (rect.width < 1 || rect.height < 1) continue
+      if (rect.bottom <= 0 || rect.right <= 0) continue
+      if (rect.top >= window.innerHeight || rect.left >= window.innerWidth) continue
+      frames.push(node)
+    }
+    return frames
+  }
+
+  private measureFrame(frame: HTMLIFrameElement): void {
+    if (this.framePrefetching || this.frameMeasuring.has(frame)) return
+    this.frameMeasuring.add(frame)
+    const session = this.frameSession
+    void requestFrameSize(frame)
+      .then((size) => {
+        if (this.frameSession !== session) return
+        this.frameSizes.set(frame, size)
+        if (size) this.picker.invalidate({ keepIndex: true })
+      })
+      .finally(() => this.frameMeasuring.delete(frame))
   }
 
   private async pierceFrame(
