@@ -134,7 +134,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         banner:
-          '/*! Bundled libraries: Vue 3.5.44 (MIT), html-to-image 1.11.13 (MIT), Tailwind CSS 4.3.4 (MIT) */'
+          '/*! Bundled libraries: Vue 3.5.44 (MIT), html-to-image 1.11.13 (MIT), Tailwind CSS 4.3.4 (MIT), @noble/ciphers 2.4.0 (MIT), @noble/hashes 2.4.0 (MIT) */'
       }
     }
   }

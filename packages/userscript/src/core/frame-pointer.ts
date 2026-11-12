@@ -1,7 +1,7 @@
 import { native } from './native'
 import { frameWindow } from './frame-bridge'
 import { frameContentBox } from './frame-size'
-import { getFrameToken, postFramePointer, readFrameMessage } from './frame-bridge'
+import { decodeFrameEvent, postFramePointer } from './frame-bridge'
 
 /**
  * Report the pointer from inside a frame.
@@ -66,15 +66,14 @@ export function installFramePointer(options: FramePointerOptions = {}): () => vo
   }
 
   const handleMessage = (event: Event): void => {
-    const message = readFrameMessage((event as MessageEvent).data)
+    const message = decodeFrameEvent(event as MessageEvent)
     if (!message) return
     const source = (event as MessageEvent).source as Window | null
 
     if (message.type === 'ui') {
-      const token = getFrameToken()
-      if (!token || message.token !== token || source !== win.parent) return
-      active = message.active
-      passthrough = message.passthrough === true
+      if (source !== win.parent) return
+      active = message.data.active === true
+      passthrough = message.data.passthrough === true
       return
     }
 
@@ -84,7 +83,12 @@ export function installFramePointer(options: FramePointerOptions = {}): () => vo
       if (!child) return
       const view = frameContentBox(child)
       if (!view) return
-      postFramePointer(win, message.kind, view.left + message.x, view.top + message.y)
+      const kind = message.data.kind
+      if (kind !== 'move' && kind !== 'click') return
+      const x = Number(message.data.x)
+      const y = Number(message.data.y)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return
+      postFramePointer(win, kind, view.left + x, view.top + y)
     }
   }
 

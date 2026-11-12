@@ -27,3 +27,15 @@
   - 悬停 `#frame-demo` 内部 → picker 得到 `div.row帧内377 × 36`、**9/9**，说明帧上报的坐标被换算、重放后 picker 正常解析；
   - 在帧的文档里派发 click → 帧把事件吞掉（`defaultPrevented: true`）并上报，顶层重放后开始渲染，结果 **754×72**（377×36 @2x）。
 - 备注：`hidden` 标签页里真实的 `click`/`keydown` 到不了页面（合成事件可以），所以上面两处「点击」用的是文档内派发；这不是产品行为，验证可见标签页时应改回真实点击。
+
+## 2026-11-12（第二轮）：帧桥全面密封（协议 `/7`）
+
+环境：VM 里是当天构建（`610.10 kB`），`index.html?vm=1`，Playwright 受控标签页（`visibilityState === 'hidden'`，hover 仍用上一轮的 `mousemove` + `resize` 技巧）。页面里有四个帧实例：`/frame.html`（同源）、`4177/frame.html`（跨域）、`frame-split.html`、以及它内部的 `/frame.html`。
+
+- **信封是页面能看到的全部**：在页面里挂 `message` 监听后完整跑一次拾取 + 整页截图，收到的每条消息都只有 `{protocol, type, box}` 三个键，`protocol` 全是 `element-screenshot:frame/7`；顶层窗口观察到的类型是 `subscribe` / `ready` / `stack` / `result`。没有任何业务字段、没有 token、没有快捷键字符串。
+- **向上握手与应答都密封**：四个实例的 `subscribe` 都解开了（顶层记录下各自的 `sid`），随后同意下发的 `hotkey` / `ui` 被每个实例按 `to` 收下；`ui{active:true}` 在三层帧里都生效（含 `frame-split` 转发给它内部的帧）。
+- **跨域与嵌套渲染**：整页截图时观察到 3 条 `ready`（同源、跨域、`frame-split`）+ 3 条 `render` / `result`；`frame-split` 内部的帧走它自己的父级，日志里表现为 `frame-split` 的 `sid` 发 `hello`、内层帧回 `ready`、再收 `render`——说明逐层中继在密封后仍然成立。
+- **穿透选取**：悬停 `#frame-demo` 内部（`824, 298`），帧返回 `stack`，顶层 `readPickItems` 解析出 **4 层**（`html` / `body` / `#frame-list` / `div.row`），说明 `hover`/`stack` 的密封、`to`/`seq` 校验、坐标换算都正常。
+- **伪造一律沉默**：从页面直接向同源帧发三种东西——`/7` 的 `hello`（随机 `box`）、`/6` 的 `hello`（带一个猜的 token）、`/7` 的 `measure`（随机 `box`）——2 秒内没有任何回复（顶层 `message` 监听与帧内监听都是空的）。
+- **观察到的慢**：`hidden` 标签页里消息任务是排队的，`stack` 应答可能比 `hover` 晚数秒才到（同一次悬停的两条应答在后面的轮询里才出现）；因此**固定等 1–2 秒没看到回复，不能当作失败证据**，要么多等，要么看帧内/顶层的监听累计结果。整页 html-to-image 渲染在 `hidden` 下会被定时器节流拖到分钟级，与本次改动无关。
+- **没在浏览器里验的**：帧内图层的 `capture`/`captured`（需要在帧图层上真实点一下；`hidden` 标签页的点击不可靠）。它和 `render`/`result` 走同一条应答路径（`postFrameReply` + 二进制尾巴），单元测试覆盖了两端。

@@ -47,7 +47,7 @@
 8. 帧的字体与并行渲染：`native.fontSource` / `setFontSource()` 把字体嵌入指向帧自己的文档（`patchFontSourceBase`、`patchFontUsageScan`），`paintFrames()` 并行请求 helper、取消时逐个发 `cancel`。
 9. 选择器监听提前到 `document-start`（`installEarlyPickerListeners()`，13 个事件常驻 + `active` 门控），页面在 window 捕获阶段再也看不到、也拦不住拾取期间的点击；`wheel` 仍在开始拾取时才挂。设置反过来改成「鼠标穿透」（默认关），并改为**版本化信封** `{version, value}` 存在同一条 GM 值里（`createDomain`，世代 1 = 旧键迁移），规则见 `docs/settings-migrations.md`。
 
-10. 帧桥全面密封（进行中）：stage 1 已完成（`core/frame-crypto.ts` + 15 个用例，`da25f64`）；stage 2 = 把 `/6` 的 token 模型换成 `/7` 密封信封，施工图见 `docs/frame-sealing-plan.md`。
+10. 帧桥全面密封（已完成）：协议 `/7`，信封 `{protocol, type, box}`，XChaCha20-Poly1305，密钥只在管理器存储里；`core/frame-crypto.ts` + `core/frame-bridge.ts`，模型与残余风险见 `docs/frame-bridge-security.md`。
 
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
@@ -374,15 +374,15 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 桥协议（`core/frame-bridge.ts` + `core/frame-helper.ts`）
 
-- `FRAME_PROTOCOL = 'element-screenshot:frame/6'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key/hover/stack/capture/captured/pointer/cancel`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传，`/5` 加了穿透选取，`/6` 加了多层 `depth`/`via`、鼠标穿透的 `pointer`，并取消向上消息里的 token。**正在被 `/7` 密封替换**：见 `docs/frame-sealing-plan.md`，不要再往 `/6` 的消息里加字段或 token 检查。）
+- `FRAME_PROTOCOL = 'element-screenshot:frame/7'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key/hover/stack/capture/captured/pointer/cancel`。信封是 `{protocol, type, box}`：`box` = nonce‖密文‖tag，明文 `type` 只用于路由，业务字段全在密文头里，PNG 走二进制尾巴；`AAD = protocol|type|方向`。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传，`/5` 加了穿透选取，`/6` 加了多层 `depth`/`via`、鼠标穿透的 `pointer`，`/7` 换成密封信封并取消 token。不要再往消息里加明文业务字段或 token 检查。）
 - 探测：`probeFrameHelpers(frames)` 一次向所有帧发 `hello`，在**同一个 400ms 窗口**里收 `ready`，所以一页有 N 个没有 helper 的帧也只等一次；返回的集合里没有的帧就走兜底。
 - 测量：`requestFrameSize(frame)` 发 `measure`，等 `size`（默认 3 秒）。helper 回的是「根展开后文档有多大」（`frameContentSize()` 读 `scrollWidth` / `scrollHeight`，只读、不建快照）。0×0 或 `error` 都算失败。
 - 渲染：`requestFrameImage(frame, { ratio, depth, expand? })` 发 `render`，等 `result`（默认 10 秒），期间每 100ms 检查 `native.capture.aborted`，用户取消时立即放弃等待。失败/超时/`busy`/`error` 都返回 `null` → 走兜底（可读时）或空盒。
 - 顺序：`paintFrames()` 先 `probeFrameHelpers`（根帧的探测在 `planFrameExpansion()` 里已经做过，会复用），再逐帧 `requestFrameImage ?? renderFrameViewport(frame.doc, …)`，图写回副本 iframe 的 `background-image`（`origin: content-box`、`size: 100% 100%`），父级只渲染一次页面。
 - 深度：`paintFrames(root, frames, ratio, options, depth)` 里 `depth > MAX_FRAME_DEPTH(2)` 直接返回；helper 收到 `depth` 原样转给 `renderFrameViewport`，所以「帧里的帧」最多两层，再深留空盒。
 - 并发：helper 同时只渲染一个请求，第二个立刻回 `busy`；helper 会等 `DOMContentLoaded`（最多 5 秒）再开始，避免在解析中途拍照。
-- **鉴权（别拆）**：helper 会渲染自己的页面，没有门槛的话任何站点都能嵌一个页面进来、用我们的 helper 截它的图（跨域像素外泄）。现在 `main.ts` 用 `GM_getValue/GM_setValue` 生成并共享一个安装级 token（`element-screenshot:frame-token`），helper 只接受 `event.source === window.parent` 且 token 匹配的请求。页面脚本读不到 userscript 存储，所以拿不到 token——**前提是 token 只向下传**：`subscribe/trigger/key/pointer` 发往父窗口，父窗口的页面能读，所以一个字节都不带。完整的威胁模型、残余风险与验证手法见 `docs/frame-bridge-security.md`（2026-11-12 修掉的正是「`subscribe` 带 token」这个漏洞）。
-- `setFrameToken()` / `getFrameToken()` 是模块级状态：`main.ts` 在两边的 realm 里都要先调用 `setFrameToken(ensureFrameToken())`；token 为空时桥整体沉默（探测返回空集、请求返回 null），安全降级。
+- **密封（别拆）**：helper 会渲染自己的页面，没有门槛的话任何站点都能嵌一个页面进来、用我们的 helper 截它的图（跨域像素外泄）。现在每个 realm 从 `GM_getValue('element-screenshot:frame-key')` 读同一把 32 字节密钥，整条消息用 XChaCha20-Poly1305 密封，密钥**不上线**；helper 只接受 `event.source === window.parent` 且能解开的请求。接收方还校验 `to === 自己的 sid`（握手可空）与 `seq`（`ReplayGuard`，允许乱序），跨帧/同帧重放都被拒；页面只能看到 `{protocol, type, box}`、大小与时序。威胁模型与残余风险见 `docs/frame-bridge-security.md`。
+- `setFrameKey(secret)` 是模块级状态：`main.ts` 在两边的 realm 里都要先调用 `setFrameKey(ensureFrameKey())`；密钥为空时桥整体沉默（探测返回空集、请求返回 null），安全降级。它同时重置本 realm 的 `sid`/`seq`/peer 表/重放守卫（测试靠这个隔离用例）。
 
 ### 已经做完（别再重复实现）
 
@@ -402,7 +402,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 帧渲染的根样式与区域截图一致：`position: relative; inset: auto; top: -scrollY; left: -scrollX; transform: none`（`transform` 会把 `fixed` 后代变成相对克隆根定位）；渲染面 = 帧的 `innerWidth × innerHeight`，`pixelRatio` 取父级 `plan.ratio`。
 - 递归：`paintFrames()` 先给「帧里的帧」出图，深度上限 `MAX_FRAME_DEPTH = 2`，更深的留空盒；单帧失败只 `console.warn`，不影响整次截图；取消会向上抛。
 - 字体：页面渲染共用一份 `sharedFontEmbedCSS()`；帧渲染各自从帧文档解析，不共用父级 CSS（`native.fontSource`）。
-- 测试：`snapshot.test.ts` 覆盖 `doc` 选项与 `FrameRecord`；`capture.test.ts` 的 `iframe compositing` 覆盖帧视口参数、背景层写法、根外帧不探测、跨域空盒、零尺寸、单帧失败、helper 优先 / 沉默回退；`frame-bridge.test.ts` / `frame-helper.test.ts` 覆盖协议、探测、请求、超时、取消、busy、无 token、非父窗口；穿透部分在 `pick-target` / `frame-pick` / `picker`（异步栈）和 `frame-*`（hover / capture）。
+- 测试：`snapshot.test.ts` 覆盖 `doc` 选项与 `FrameRecord`；`capture.test.ts` 的 `iframe compositing` 覆盖帧视口参数、背景层写法、根外帧不探测、跨域空盒、零尺寸、单帧失败、helper 优先 / 沉默回退；`frame-bridge.test.ts` / `frame-helper.test.ts` 覆盖协议、探测、请求、超时、取消、busy、无密钥、非父窗口；穿透部分在 `pick-target` / `frame-pick` / `picker`（异步栈）和 `frame-*`（hover / capture）。
 - playground 夹具：`playground/frame.html`（自带样式、sticky 表头、30 行、初始 `scrollTo(0, 60)`）；`index.html` 的 `#frame-demo`（同源）与 `#cross-frame-demo`（`http://127.0.0.1:4177/frame.html`，跨域，需 `PLAYGROUND_PORT=4177 pnpm playground`）。
 
 ### 选中帧本身 = 展开（`f00cdad`）
@@ -424,10 +424,10 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 ### 帧内快捷键（`core/hotkey-bridge.ts`）
 
 - 问题：焦点在 iframe 里时，keydown 在**帧自己的 document** 里派发，顶层的 `window` 监听永远收不到。同源帧也不能靠「往 `contentDocument` 挂监听」解决——跨域挂不上，而且导航后 window 会换。
-- 链路：帧实例 `installFrameHotkey()` 启动 → `subscribe`（带 token，向 `window.parent` 要快捷键）→ 父级 `installHotkeyBridge()` 回 `hotkey`（当前快捷键字符串）→ 帧在**自己的** `window` 捕获阶段监听 keydown，用 `isTriggerStroke()`（和顶层**同一个**判定函数）匹配 → 发 `trigger{shortcut}` → 顶层用当前设置复核 `shortcut` 后才 `startPicker()`。
+- 链路：帧实例 `installFrameHotkey()` 启动 → `subscribe`（向 `window.parent` 要快捷键）→ 父级 `installHotkeyBridge()` 回 `hotkey`（当前快捷键字符串）→ 帧在**自己的** `window` 捕获阶段监听 keydown，用 `isTriggerStroke()`（和顶层**同一个**判定函数）匹配 → 发 `trigger{shortcut}` → 顶层用当前设置复核 `shortcut` 后才 `startPicker()`。
 - 为什么只回传「哪条快捷键」而不回传按键：`trigger` 落在顶层 realm，页面自己的 `message` 监听能看到它；回传按键内容等于把帧内每次按键暴露给外层页面。帧只报「这条快捷键被按了」，顶层再和自己当前的值比一次（设置刚改过时的竞态靠这次复核丢弃）。
-- 反过来也必须鉴权：`hotkey` 只接受 `event.source === window.parent` **且** token 匹配的消息，否则外层页面可以给帧下发「快捷键 = 某个字母」，再读 `trigger` 记录按键。
-- 订阅时序：帧的 `subscribe` 可能早于顶层 `mountUi()`（帧先加载完）。帧按 `[0, 250, 750, 2000, 5000, 10000]` 退避重试，收到 `hotkey` 就停；顶层在安装时也 `broadcast()` 一次（只发给**订阅过**的 window，不遍历 DOM，避免把 token 发给没有 helper 的帧）。设置变化时 `app.ts` 的 `watch(shortcut, () => bridge.broadcast())` 再推一遍。
+- 反过来也安全：`hotkey` 只有本安装能封出来，且只接受 `event.source === window.parent`，所以外层页面没法给帧指定按键。
+- 订阅时序：帧的 `subscribe` 可能早于顶层 `mountUi()`（帧先加载完）。帧按 `[0, 250, 750, 2000, 5000, 10000]` 退避重试，收到 `hotkey` 就停；顶层在安装时也 `broadcast()` 一次（只发给**订阅过**的 window，不遍历 DOM，避免给没有 helper 的帧发消息）。设置变化时 `app.ts` 的 `watch(shortcut, () => bridge.broadcast())` 再推一遍。
 - 嵌套：帧里的帧向自己的父帧 `subscribe`；父帧把配置再往下推，并把子帧的 `trigger` 原样转给 `window.parent`。只有顶层会 `startPicker()`。
 - 帧内匹配到快捷键时 `preventDefault()` + `stopPropagation()`，和顶层一致；`isTriggerStroke()` 保留「输入框里裸键让给页面」的规则。顶层 `shouldIgnore`（设置面板打开 / 不在 idle）对上报的 press 同样生效——所以选择模式里再按一次快捷键仍然什么都不做。
 - **已知边界**：完全不运行本脚本的帧（`about:blank` / `srcdoc` / `sandbox` 无 `allow-scripts`）收不到任何按键，用户得点悬浮按钮或菜单。
@@ -457,9 +457,8 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 下一步（按顺序）
 
-1. **帧桥 stage 2**：按 `docs/frame-sealing-plan.md` 把 `/6` 换成 `/7` 密封信封（bridge / helper / hotkey / pointer / `main.ts` + 5 个测试文件；旧 `frame-token` 删除；混版本期间旧帧静默）。
-2. **选取深度 ≠ 渲染深度**：`picker.frameDepth` 可以到 6，但 `MAX_FRAME_DEPTH = 2` 管的是渲染——第 3 层帧里的再下一层帧渲染出来仍是空盒。要加深得先算清「每层一次完整渲染」的时间。
-3. 预览阶段的帧内按键：**已验证不需要回传**——`handleSelect()` 的 `blur()` 把焦点带出帧，预览的 `Esc` / `Ctrl+C` 由顶层 window 直接收到（用户手动验证：开关穿透、焦点在不在帧内都正常）。
+1. **选取深度 ≠ 渲染深度**：`picker.frameDepth` 可以到 6，但 `MAX_FRAME_DEPTH = 2` 管的是渲染——第 3 层帧里的再下一层帧渲染出来仍是空盒。要加深得先算清「每层一次完整渲染」的时间。
+2. 预览阶段的帧内按键：**已验证不需要回传**——`handleSelect()` 的 `blur()` 把焦点带出帧，预览的 `Esc` / `Ctrl+C` 由顶层 window 直接收到（用户手动验证：开关穿透、焦点在不在帧内都正常）。
 
 ### 关键约束（别踩）
 
@@ -467,7 +466,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 帧渲染用的是**帧自己的文档**：背景、`color-scheme`、`@font-face` 都跟帧走（兜底路径也靠 `native.fontSource` 切过去，见「帧的字体与并行渲染」）。
 - 展开语义（2026-11-12 用户确认，是设计不是缺口）：只有**被选中的截图根元素**被展开撑高；子元素默认不展开，除非用户打开「递归展开子元素」。iframe 同理——只有 iframe 自己是根时才展开、撑高、整页渲染，否则只画当前可见视口。
 - 每个帧都是一次独立 html-to-image 渲染：整页截图里有 N 个帧就多 N 次渲染（实测小帧 1～1.5 秒/个）；没有 helper 的帧只多等一次 400ms 探测窗口。日志里出现 `[element-screenshot] frame render failed:` / `frame helper failed:` 表示该帧降级成空盒。
-- 去掉了 `@noframes`：脚本会在**每个** iframe 里执行一遍（解析 520KB bundle、读一次 token），但帧实例不挂 UI、不注册菜单、不建设置，开销只在这个量级。不要给它加「顺手」的初始化逻辑。
+- 去掉了 `@noframes`：脚本会在**每个** iframe 里执行一遍（解析 610KB bundle、读一次密钥），但帧实例不挂 UI、不注册菜单、不建设置，开销只在这个量级。不要给它加「顺手」的初始化逻辑。
 - playground 的坑：`/frame.html` 只有在帧里也装了这个脚本时才有 helper。用 **VM 安装**（`?vm=1` 或不带参数都行，VM 会注入每个帧）时跨域那格也能出图；完全不装 VM 时 playground 的 stub 只注入顶层页面，`/frame.html` 没有实例 → 同源帧走兜底、跨域帧只能空白。
 
 ### 验证素材

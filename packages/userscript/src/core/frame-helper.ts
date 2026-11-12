@@ -8,11 +8,9 @@ import type { FramePickCandidate } from './frame-pick'
 import {
   FRAME_PICK_MIN_BUDGET,
   FRAME_PICK_TIMEOUT,
-  FRAME_PROTOCOL,
   MAX_FRAME_PIERCE,
-  getFrameToken,
-  postFrameMessage,
-  readFrameMessage,
+  decodeFrameEvent,
+  postFrameReply,
   readVia,
   requestFrameCapture,
   requestFramePick
@@ -20,13 +18,9 @@ import {
 import type {
   FrameCapturePayload,
   FrameCaptureRequest,
-  FrameCapturedMessage,
-  FrameHelloMessage,
-  FrameHoverMessage,
-  FramePickItem,
-  FrameResultMessage,
-  FrameSizeMessage,
-  FrameStackMessage
+  FrameHoverData,
+  FrameMessageType,
+  FramePickItem
 } from './frame-bridge'
 import { liftFrameItems } from './pick-target'
 import { getTargetBox } from './target'
@@ -127,14 +121,24 @@ function readBackground(value: unknown): CaptureBackground {
   return { mode: 'page' }
 }
 
+/** The surface of an expanded frame, or null when the ask is not usable. */
+function readExpand(value: unknown): FrameSize | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const width = Number(raw.width)
+  const height = Number(raw.height)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) return null
+  return { width, height }
+}
+
 /**
  * Answer capture requests for one frame.
  *
  * The helper renders its own document in its own realm, which is what makes the
  * frame's fonts and pixel ratio come out right, and it is the only way to reach
- * a cross-origin frame. Only the direct parent may ask, and only with this
- * install's token, so an embedding page cannot use the helper to screenshot a
- * frame it cannot read.
+ * a cross-origin frame. Only the direct parent may ask, and every request has to
+ * open with this install's key, so an embedding page can neither forge one nor
+ * use the helper to screenshot a frame it cannot read.
  */
 export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper {
   const win = options.win ?? window
@@ -227,15 +231,25 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
     return id
   }
 
+  /**
+   * Seal one answer and post it back to the parent.
+   *
+   * Replies are asynchronous because a picture has to be read into bytes before
+   * it can be sealed; the failure of that read is reported here instead of
+   * becoming an unhandled rejection on the frame's page.
+   */
   const reply = (
     source: Window | null,
-    message:
-      | Omit<FrameResultMessage, 'protocol'>
-      | Omit<FrameSizeMessage, 'protocol'>
-      | Omit<FrameStackMessage, 'protocol'>
-      | Omit<FrameCapturedMessage, 'protocol'>
-  ): void => {
-    if (source) postFrameMessage(source, { protocol: FRAME_PROTOCOL, ...message })
+    type: FrameMessageType,
+    data: Record<string, unknown>,
+    nonce: string,
+    blob?: Blob | null
+  ): Promise<boolean> => {
+    if (!source) return Promise.resolve(false)
+    return postFrameReply(source, type, data, { nonce, blob }).catch((error: unknown) => {
+      console.warn('[element-screenshot] frame reply failed:', error)
+      return false
+    })
   }
 
   /**
@@ -249,22 +263,26 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
    * with the frame it came through. The list stays topmost first, so the deeper
    * layers go *before* the frame that contains them.
    */
-  const replyStack = async (source: Window, message: FrameHoverMessage): Promise<void> => {
+  const replyStack = async (
+    source: Window,
+    request: FrameHoverData,
+    nonce: string
+  ): Promise<void> => {
     let items: FramePickItem[] = []
     let error: string | undefined
     try {
-      const candidates = pick(doc, message.x, message.y)
+      const candidates = pick(doc, request.x, request.y)
       items = candidates.map((candidate) => ({
         ...candidate.item,
         id: register(candidate.element)
       }))
 
       const depth =
-        Number.isFinite(message.depth) && message.depth > 0
-          ? Math.min(Math.floor(message.depth), MAX_FRAME_PIERCE)
+        Number.isFinite(request.depth) && request.depth > 0
+          ? Math.min(Math.floor(request.depth), MAX_FRAME_PIERCE)
           : 1
-      const deadline = Number.isFinite(message.deadline)
-        ? message.deadline
+      const deadline = Number.isFinite(request.deadline)
+        ? request.deadline
         : Date.now() + FRAME_PICK_TIMEOUT
       const remaining = deadline - Date.now()
       const innermost = candidates[0]?.element
@@ -276,8 +294,8 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
           // The child gets whatever is left of the one budget, not a fresh
           // timeout: a deep chain must not outlast a shallow one.
           const nested = await childPick(frame, {
-            x: message.x - view.left,
-            y: message.y - view.top,
+            x: request.x - view.left,
+            y: request.y - view.top,
             depth: depth - 1,
             deadline
           })
@@ -289,65 +307,43 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
     }
-    reply(source, {
-      type: 'stack',
-      nonce: message.nonce,
-      items,
-      ...(error ? { error } : {})
-    })
+    void reply(source, 'stack', { items, ...(error ? { error } : {}) }, nonce)
   }
 
   const handleMessage = (event: MessageEvent): void => {
-    const message = readFrameMessage(event.data)
+    const message = decodeFrameEvent(event)
     if (!message) return
     // A frame nested two levels deep is asked by its own parent, so the parent
     // check covers the whole chain; `window.top` never talks to us directly.
     if (event.source !== win.parent) return
     const source = event.source as Window | null
-    const token = getFrameToken()
-    if (!source || !token) return
+    if (!source) return
+    const nonce = message.header.nonce
+    const data = message.data
 
     if (message.type === 'hello') {
-      if ((message as FrameHelloMessage).token !== token) return
-      postFrameMessage(source, { protocol: FRAME_PROTOCOL, type: 'ready', nonce: message.nonce })
+      void reply(source, 'ready', {}, nonce)
       return
     }
     if (message.type === 'hover') {
-      if ((message as FrameHoverMessage).token !== token) return
       // Nothing is laid out yet while the document is still parsing.
       if (doc.readyState === 'loading') return
-      void replyStack(source, message as FrameHoverMessage)
+      void replyStack(source, data as unknown as FrameHoverData, nonce)
       return
     }
     if (message.type === 'cancel') {
-      if ((message as { token?: string }).token !== token) return
       native.capture.aborted = true
       return
     }
     if (message.type !== 'render' && message.type !== 'measure' && message.type !== 'capture') return
-    if ((message as { token?: string }).token !== token) return
 
     if (busy) {
       if (message.type === 'render') {
-        reply(source, { type: 'result', nonce: message.nonce, blob: null, error: 'busy' })
+        void reply(source, 'result', { error: 'busy' }, nonce)
       } else if (message.type === 'capture') {
-        reply(source, {
-          type: 'captured',
-          nonce: message.nonce,
-          blob: null,
-          width: 0,
-          height: 0,
-          limited: false,
-          error: 'busy'
-        })
+        void reply(source, 'captured', { width: 0, height: 0, limited: false, error: 'busy' }, nonce)
       } else {
-        reply(source, {
-          type: 'size',
-          nonce: message.nonce,
-          width: 0,
-          height: 0,
-          error: 'busy'
-        })
+        void reply(source, 'size', { width: 0, height: 0, error: 'busy' }, nonce)
       }
       return
     }
@@ -358,93 +354,88 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
         await whenParsed(doc)
         if (message.type === 'measure') {
           const size = measure(doc)
-          reply(source, {
-            type: 'size',
-            nonce: message.nonce,
-            width: size?.width ?? 0,
-            height: size?.height ?? 0
-          })
+          void reply(source, 'size', { width: size?.width ?? 0, height: size?.height ?? 0 }, nonce)
           return
         }
+        const ratio = Number(data.ratio)
         if (message.type === 'capture') {
           // A layer of a frame below this one: walk the same doors the hover
           // answer came through and hand the picture back up the chain.
-          const via = readVia(message.via)
+          const via = readVia(data.via)
           if (via === null) throw new Error('The element path is invalid')
+          const elementId = Number(data.elementId)
+          if (!Number.isInteger(elementId) || elementId < 1) {
+            throw new Error('The element is invalid')
+          }
           if (via.length > 0) {
             const hop = via[0]
             const child = hop === undefined ? undefined : childFrames.get(hop)
             if (!child || !child.isConnected) throw new Error('The frame is gone')
             const nested = await childCapture(child, {
-              elementId: message.elementId,
+              elementId,
               via: via.slice(1),
-              ratio: message.ratio,
-              expandNested: message.expandNested !== false,
-              background: readBackground(message.background)
+              ratio,
+              expandNested: data.expandNested !== false,
+              background: readBackground(data.background)
             })
             if (!nested) throw new Error('The frame produced no picture')
-            reply(source, {
-              type: 'captured',
-              nonce: message.nonce,
-              blob: nested.blob,
-              width: nested.width,
-              height: nested.height,
-              limited: nested.limited
-            })
+            void reply(
+              source,
+              'captured',
+              {
+                width: nested.width,
+                height: nested.height,
+                limited: nested.limited,
+                mime: nested.blob.type || 'image/png'
+              },
+              nonce,
+              nested.blob
+            )
             return
           }
-          const element = elements.get(message.elementId)
+          const element = elements.get(elementId)
           if (!element || !element.isConnected) throw new Error('The picked element is gone')
           const result = await capture({
             element,
-            ratio: message.ratio,
-            expandNested: message.expandNested !== false,
-            background: readBackground(message.background)
+            ratio,
+            expandNested: data.expandNested !== false,
+            background: readBackground(data.background)
           })
           if (!result) throw new Error('The frame produced no picture')
-          reply(source, {
-            type: 'captured',
-            nonce: message.nonce,
-            blob: result.blob,
-            width: result.width,
-            height: result.height,
-            limited: result.limited
-          })
+          void reply(
+            source,
+            'captured',
+            {
+              width: result.width,
+              height: result.height,
+              limited: result.limited,
+              mime: result.blob.type || 'image/png'
+            },
+            nonce,
+            result.blob
+          )
           return
         }
+        const expand = readExpand(data.expand)
         const blob = await render({
-          ratio: message.ratio,
-          depth: message.depth,
-          ...(message.expand ? { expand: message.expand } : {})
+          ratio,
+          depth: Number(data.depth),
+          ...(expand ? { expand } : {})
         })
-        reply(source, { type: 'result', nonce: message.nonce, blob })
+        void reply(source, 'result', blob ? { mime: blob.type || 'image/png' } : {}, nonce, blob)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         if (message.type === 'measure') {
-          reply(source, {
-            type: 'size',
-            nonce: message.nonce,
-            width: 0,
-            height: 0,
-            error: detail
-          })
+          void reply(source, 'size', { width: 0, height: 0, error: detail }, nonce)
         } else if (message.type === 'capture') {
-          reply(source, {
-            type: 'captured',
-            nonce: message.nonce,
-            blob: null,
-            width: 0,
-            height: 0,
-            limited: false,
-            error: detail
-          })
+          void reply(
+            source,
+            'captured',
+            { width: 0, height: 0, limited: false, error: detail },
+            nonce
+          )
         } else {
-          reply(source, {
-            type: 'result',
-            nonce: message.nonce,
-            blob: null,
-            error: detail
-          })
+          void reply(source, 'result', { error: detail }, nonce)
         }
       } finally {
         busy = false
@@ -459,5 +450,7 @@ export function createFrameHelper(options: FrameHelperOptions = {}): FrameHelper
 export function installFrameHelper(): void {
   const helper = createFrameHelper()
   const listener = (event: Event): void => helper.handleMessage(event as MessageEvent)
-  native.addEventListener(window, 'message', listener)
+  // Capture phase, like the rest of the bridge: a page listener that stops
+  // propagation must not be able to hide a request from the helper.
+  native.addEventListener(window, 'message', listener, true)
 }

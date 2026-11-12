@@ -2,9 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { native } from '../src/core/native'
 import { createFrameHelper } from '../src/core/frame-helper'
 import { frameContentBox } from '../src/core/frame-size'
-import { FRAME_PROTOCOL, setFrameToken } from '../src/core/frame-bridge'
+import { getFrameSessionId, openFrameMessage, setFrameKey } from '../src/core/frame-bridge'
+import type { FrameMessageType, OpenedFrameMessage } from '../src/core/frame-bridge'
+import { OTHER_KEY, TEST_KEY, wire, wireWith } from './frame-wire'
 
 const BLOB = new Blob(['png'], { type: 'image/png' })
+/** The id the fake parent introduces itself with. */
+const PARENT = 'parent-test'
 
 function messageEvent(data: unknown, source: unknown = window): MessageEvent {
   return new MessageEvent('message', {
@@ -14,59 +18,83 @@ function messageEvent(data: unknown, source: unknown = window): MessageEvent {
   })
 }
 
-function hello(token = 'test-token', nonce = 'n1'): MessageEvent {
-  return messageEvent({ protocol: FRAME_PROTOCOL, type: 'hello', token, nonce })
+/** A request the way a parent of this install would seal it. */
+function request(
+  type: FrameMessageType,
+  data: Record<string, unknown> = {},
+  nonce = 'n1'
+): MessageEvent {
+  return messageEvent(wire(type, data, { sid: PARENT, to: getFrameSessionId(), nonce }))
 }
 
-function renderRequest(token = 'test-token', nonce = 'n2', ratio = 2, depth = 1): MessageEvent {
-  return messageEvent({ protocol: FRAME_PROTOCOL, type: 'render', token, nonce, ratio, depth })
+/** What the helper posted, opened so a test can read it. */
+function replies(post: { mock: { calls: unknown[][] } }): OpenedFrameMessage[] {
+  return post.mock.calls
+    .map((call) => openFrameMessage(call[0]))
+    .filter((message): message is OpenedFrameMessage => message !== null)
 }
 
-function measureRequest(token = 'test-token', nonce = 'n3'): MessageEvent {
-  return messageEvent({ protocol: FRAME_PROTOCOL, type: 'measure', token, nonce })
+function binaryText(message: OpenedFrameMessage | undefined): string {
+  return message?.binary ? new TextDecoder().decode(message.binary) : ''
 }
 
 /** Wait for the helper's async reply to be posted. */
 async function settle(): Promise<void> {
-  for (let tick = 0; tick < 20; tick += 1) {
-    await Promise.resolve()
+  for (let round = 0; round < 3; round += 1) {
+    for (let tick = 0; tick < 20; tick += 1) {
+      await Promise.resolve()
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0))
   }
-  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 beforeEach(() => {
-  setFrameToken('test-token')
+  setFrameKey(TEST_KEY)
 })
 
 afterEach(() => {
-  setFrameToken('')
+  setFrameKey('')
   native.capture.aborted = false
   document.body.innerHTML = ''
   vi.restoreAllMocks()
 })
 
 describe('frame helper', () => {
-  it('answers the hello probe with the same nonce', () => {
+  it('answers the hello probe with the same nonce', async () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     const helper = createFrameHelper({ render: async () => BLOB })
 
-    helper.handleMessage(hello('test-token', 'probe-1'))
+    helper.handleMessage(request('hello', {}, 'probe-1'))
+    await settle()
 
-    expect(post).toHaveBeenCalledWith(
-      { protocol: FRAME_PROTOCOL, type: 'ready', nonce: 'probe-1' },
-      '*'
-    )
+    const [ready] = replies(post)
+    expect(ready?.type).toBe('ready')
+    expect(ready?.header).toMatchObject({ nonce: 'probe-1', to: PARENT })
+    expect(ready?.header.sid).toBe(getFrameSessionId())
   })
 
-  it('stays quiet for a wrong token, a wrong protocol or another sender', () => {
+  it('stays quiet for a wrong key, a wrong protocol or another sender', async () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     const render = vi.fn(async () => BLOB)
     const helper = createFrameHelper({ render })
 
-    helper.handleMessage(hello('wrong-token'))
-    helper.handleMessage(messageEvent({ protocol: 'other', type: 'hello', token: 'test-token', nonce: 'n3' }))
-    helper.handleMessage(messageEvent({ protocol: FRAME_PROTOCOL, type: 'hello', token: 'test-token', nonce: 'n4' }, { other: 'window' }))
-    helper.handleMessage(renderRequest('wrong-token'))
+    helper.handleMessage(
+      messageEvent(wireWith(OTHER_KEY, 'hello', {}, { sid: PARENT, to: getFrameSessionId() }))
+    )
+    helper.handleMessage(
+      messageEvent({ protocol: 'other', type: 'hello', token: 'test-token', nonce: 'n3' })
+    )
+    helper.handleMessage(
+      messageEvent(
+        wire('hello', {}, { sid: PARENT, to: getFrameSessionId(), nonce: 'n4' }),
+        { other: 'window' }
+      )
+    )
+    helper.handleMessage(
+      messageEvent(wireWith(OTHER_KEY, 'render', { ratio: 1, depth: 1 }, { sid: PARENT, to: getFrameSessionId() }))
+    )
+    await settle()
+
     expect(post).not.toHaveBeenCalled()
     expect(render).not.toHaveBeenCalled()
   })
@@ -76,14 +104,16 @@ describe('frame helper', () => {
     const render = vi.fn(async () => BLOB)
     const helper = createFrameHelper({ render })
 
-    helper.handleMessage(renderRequest('test-token', 'r1', 3, 1))
+    helper.handleMessage(request('render', { ratio: 3, depth: 1 }, 'r1'))
     await settle()
 
     expect(render).toHaveBeenCalledWith({ ratio: 3, depth: 1 })
-    expect(post).toHaveBeenCalledWith(
-      { protocol: FRAME_PROTOCOL, type: 'result', nonce: 'r1', blob: BLOB },
-      '*'
-    )
+    const [result] = replies(post)
+    expect(result?.type).toBe('result')
+    expect(result?.header.nonce).toBe('r1')
+    expect(result?.header.to).toBe(PARENT)
+    expect(binaryText(result)).toBe('png')
+    expect(result?.data).toEqual({ mime: 'image/png' })
   })
 
   it('reports a renderer failure instead of going silent', async () => {
@@ -94,13 +124,14 @@ describe('frame helper', () => {
       }
     })
 
-    helper.handleMessage(renderRequest('test-token', 'r2'))
+    helper.handleMessage(request('render', {}, 'r2'))
     await settle()
 
-    expect(post).toHaveBeenCalledWith(
-      { protocol: FRAME_PROTOCOL, type: 'result', nonce: 'r2', blob: null, error: 'boom' },
-      '*'
-    )
+    const [result] = replies(post)
+    expect(result?.type).toBe('result')
+    expect(result?.header.nonce).toBe('r2')
+    expect(result?.data).toEqual({ error: 'boom' })
+    expect(result?.binary).toBeNull()
   })
 
   it('refuses a second render while the first one runs', async () => {
@@ -113,14 +144,18 @@ describe('frame helper', () => {
         })
     })
 
-    helper.handleMessage(renderRequest('test-token', 'first'))
-    helper.handleMessage(renderRequest('test-token', 'second'))
+    helper.handleMessage(request('render', {}, 'first'))
+    helper.handleMessage(request('render', {}, 'second'))
     await settle()
 
-    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'result', nonce: 'second', error: 'busy' }), '*')
+    expect(replies(post)).toContainEqual(
+      expect.objectContaining({ type: 'result', header: expect.objectContaining({ nonce: 'second' }), data: { error: 'busy' } })
+    )
     pending.release?.()
     await settle()
-    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'result', nonce: 'first', blob: BLOB }), '*')
+    expect(replies(post)).toContainEqual(
+      expect.objectContaining({ type: 'result', header: expect.objectContaining({ nonce: 'first' }) })
+    )
   })
 
   it('waits for the document to be parsed before rendering', async () => {
@@ -135,25 +170,27 @@ describe('frame helper', () => {
     const render = vi.fn(async () => BLOB)
     const helper = createFrameHelper({ doc, render })
 
-    helper.handleMessage(renderRequest('test-token', 'late'))
+    helper.handleMessage(request('render', {}, 'late'))
     await settle()
     expect(render).not.toHaveBeenCalled()
 
     listeners.get('DOMContentLoaded')?.()
     await settle()
     expect(render).toHaveBeenCalled()
-    expect(post).toHaveBeenCalledWith(expect.objectContaining({ nonce: 'late', blob: BLOB }), '*')
+    expect(replies(post)).toContainEqual(
+      expect.objectContaining({ type: 'result', header: expect.objectContaining({ nonce: 'late' }) })
+    )
   })
 
-  it('serves nothing when no token is available', async () => {
-    setFrameToken('')
+  it('serves nothing when no key is available', async () => {
+    setFrameKey('')
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     const render = vi.fn(async () => BLOB)
     const helper = createFrameHelper({ render })
 
-    helper.handleMessage(hello())
-    helper.handleMessage(renderRequest())
-    helper.handleMessage(measureRequest())
+    helper.handleMessage(request('hello'))
+    helper.handleMessage(request('render'))
+    helper.handleMessage(request('measure'))
     await settle()
 
     expect(post).not.toHaveBeenCalled()
@@ -165,27 +202,24 @@ describe('frame helper', () => {
     const measure = vi.fn(() => ({ width: 640, height: 900 }))
     const helper = createFrameHelper({ measure })
 
-    helper.handleMessage(measureRequest('test-token', 'm1'))
+    helper.handleMessage(request('measure', {}, 'm1'))
     await settle()
 
     expect(measure).toHaveBeenCalled()
-    expect(post).toHaveBeenCalledWith(
-      { protocol: FRAME_PROTOCOL, type: 'size', nonce: 'm1', width: 640, height: 900 },
-      '*'
-    )
+    const [size] = replies(post)
+    expect(size?.type).toBe('size')
+    expect(size?.header).toMatchObject({ nonce: 'm1', to: PARENT })
+    expect(size?.data).toMatchObject({ width: 640, height: 900 })
   })
 
   it('answers a failed measurement with a zero size', async () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     const helper = createFrameHelper({ measure: () => null })
 
-    helper.handleMessage(measureRequest('test-token', 'm2'))
+    helper.handleMessage(request('measure', {}, 'm2'))
     await settle()
 
-    expect(post).toHaveBeenCalledWith(
-      { protocol: FRAME_PROTOCOL, type: 'size', nonce: 'm2', width: 0, height: 0 },
-      '*'
-    )
+    expect(replies(post)[0]?.data).toMatchObject({ width: 0, height: 0 })
   })
 
   it('renders the expanded surface the parent asks for', async () => {
@@ -194,42 +228,14 @@ describe('frame helper', () => {
     const helper = createFrameHelper({ render })
 
     helper.handleMessage(
-      messageEvent({
-        protocol: FRAME_PROTOCOL,
-        type: 'render',
-        token: 'test-token',
-        nonce: 'x1',
-        ratio: 2,
-        depth: 1,
-        expand: { width: 300, height: 900 }
-      })
+      request('render', { ratio: 2, depth: 1, expand: { width: 300, height: 900 } }, 'x1')
     )
     await settle()
 
     expect(render).toHaveBeenCalledWith({ ratio: 2, depth: 1, expand: { width: 300, height: 900 } })
-    expect(post).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'result', nonce: 'x1', blob: BLOB }),
-      '*'
-    )
+    expect(replies(post)[0]?.type).toBe('result')
   })
 })
-
-function hoverRequest(token = 'test-token', nonce = 'h1', x = 10, y = 20): MessageEvent {
-  return messageEvent({ protocol: FRAME_PROTOCOL, type: 'hover', token, nonce, x, y })
-}
-
-function captureRequest(elementId = 1, nonce = 'c1'): MessageEvent {
-  return messageEvent({
-    protocol: FRAME_PROTOCOL,
-    type: 'capture',
-    token: 'test-token',
-    nonce,
-    elementId,
-    ratio: 2,
-    expandNested: true,
-    background: { mode: 'color', color: '#fafafa' }
-  })
-}
 
 function pickItem(label = 'div.card') {
   return {
@@ -253,19 +259,14 @@ describe('frame pick answers', () => {
     const pick = vi.fn(() => [{ element, item: pickItem() }])
     const helper = createFrameHelper({ pick })
 
-    helper.handleMessage(hoverRequest('test-token', 'h1', 12, 34))
+    helper.handleMessage(request('hover', { x: 12, y: 34 }, 'h1'))
     await settle()
 
     expect(pick).toHaveBeenCalledWith(document, 12, 34)
-    expect(post).toHaveBeenCalledWith(
-      {
-        protocol: FRAME_PROTOCOL,
-        type: 'stack',
-        nonce: 'h1',
-        items: [{ ...pickItem(), id: 1 }]
-      },
-      '*'
-    )
+    const [stack] = replies(post)
+    expect(stack?.type).toBe('stack')
+    expect(stack?.header).toMatchObject({ nonce: 'h1', to: PARENT })
+    expect(stack?.data).toEqual({ items: [{ ...pickItem(), id: 1 }] })
 
     // The same node keeps its id, a new one gets the next number.
     const other = document.createElement('div')
@@ -273,18 +274,13 @@ describe('frame pick answers', () => {
       { element, item: pickItem() },
       { element: other, item: pickItem('span.tick') }
     ])
-    helper.handleMessage(hoverRequest('test-token', 'h3'))
+    helper.handleMessage(request('hover', {}, 'h3'))
     await settle()
 
-    expect(post).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        items: [
-          expect.objectContaining({ id: 1 }),
-          expect.objectContaining({ id: 2, label: 'span.tick' })
-        ]
-      }),
-      '*'
-    )
+    const items = replies(post)[1]?.data.items as Array<Record<string, unknown>>
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ id: 1 })
+    expect(items[1]).toMatchObject({ id: 2, label: 'span.tick' })
   })
 
   it('answers a hover while a render is running', async () => {
@@ -298,13 +294,12 @@ describe('frame pick answers', () => {
       pick: () => [{ element: document.body, item: pickItem('body') }]
     })
 
-    helper.handleMessage(renderRequest('test-token', 'busy-render'))
-    helper.handleMessage(hoverRequest('test-token', 'busy-hover'))
+    helper.handleMessage(request('render', {}, 'busy-render'))
+    helper.handleMessage(request('hover', { x: 1, y: 1 }, 'busy-hover'))
     await settle()
 
-    expect(post).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'stack', nonce: 'busy-hover' }),
-      '*'
+    expect(replies(post)).toContainEqual(
+      expect.objectContaining({ type: 'stack', header: expect.objectContaining({ nonce: 'busy-hover' }) })
     )
     pending.release?.(null)
     await settle()
@@ -315,7 +310,7 @@ describe('frame pick answers', () => {
     const doc = { readyState: 'loading', addEventListener: vi.fn() } as unknown as Document
     const helper = createFrameHelper({ doc, pick: () => [] })
 
-    helper.handleMessage(hoverRequest())
+    helper.handleMessage(request('hover'))
     await settle()
 
     expect(post).not.toHaveBeenCalled()
@@ -329,20 +324,24 @@ describe('frame pick answers', () => {
       }
     })
 
-    helper.handleMessage(hoverRequest('test-token', 'h4'))
+    helper.handleMessage(request('hover', { x: 1, y: 1 }, 'h4'))
     await settle()
 
-    expect(post).toHaveBeenCalledWith(
-      { protocol: FRAME_PROTOCOL, type: 'stack', nonce: 'h4', items: [], error: 'hit test broke' },
-      '*'
-    )
+    const [stack] = replies(post)
+    expect(stack?.type).toBe('stack')
+    expect(stack?.header.nonce).toBe('h4')
+    expect(stack?.data).toEqual({ items: [], error: 'hit test broke' })
   })
 
-  it('ignores a hover with a wrong token', async () => {
+  it('ignores a hover sealed with another key', async () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     const helper = createFrameHelper({ pick: () => [] })
 
-    helper.handleMessage(hoverRequest('wrong-token'))
+    helper.handleMessage(
+      messageEvent(
+        wireWith(OTHER_KEY, 'hover', { x: 1, y: 1 }, { sid: PARENT, to: getFrameSessionId() })
+      )
+    )
     await settle()
 
     expect(post).not.toHaveBeenCalled()
@@ -361,9 +360,20 @@ describe('frame element capture', () => {
       capture
     })
 
-    helper.handleMessage(hoverRequest('test-token', 'pick-1'))
+    helper.handleMessage(request('hover', { x: 1, y: 1 }, 'pick-1'))
     await settle()
-    helper.handleMessage(captureRequest(1, 'c1'))
+    helper.handleMessage(
+      request(
+        'capture',
+        {
+          elementId: 1,
+          ratio: 2,
+          expandNested: true,
+          background: { mode: 'color', color: '#fafafa' }
+        },
+        'c1'
+      )
+    )
     await settle()
 
     expect(capture).toHaveBeenCalledWith({
@@ -372,36 +382,27 @@ describe('frame element capture', () => {
       expandNested: true,
       background: { mode: 'color', color: '#fafafa' }
     })
-    expect(post).toHaveBeenCalledWith(
-      {
-        protocol: FRAME_PROTOCOL,
-        type: 'captured',
-        nonce: 'c1',
-        blob,
-        width: 60,
-        height: 80,
-        limited: true
-      },
-      '*'
-    )
+    const captured = replies(post).find((message) => message.type === 'captured')
+    expect(captured?.header).toMatchObject({ nonce: 'c1', to: PARENT })
+    expect(captured?.data).toMatchObject({ width: 60, height: 80, limited: true })
+    expect(binaryText(captured)).toBe('png')
   })
 
   it('refuses an id it never reported', async () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     const helper = createFrameHelper({ capture: vi.fn() })
 
-    helper.handleMessage(captureRequest(99, 'c2'))
+    helper.handleMessage(request('capture', { elementId: 99, ratio: 1, background: { mode: 'page' } }, 'c2'))
     await settle()
 
-    expect(post).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'captured',
-        nonce: 'c2',
-        blob: null,
-        error: 'The picked element is gone'
-      }),
-      '*'
-    )
+    const [captured] = replies(post)
+    expect(captured?.type).toBe('captured')
+    expect(captured?.data).toMatchObject({
+      width: 0,
+      height: 0,
+      error: 'The picked element is gone'
+    })
+    expect(captured?.binary).toBeNull()
   })
 
   it('reports a capture failure', async () => {
@@ -415,34 +416,31 @@ describe('frame element capture', () => {
       }
     })
 
-    helper.handleMessage(hoverRequest('test-token', 'pick-2'))
+    helper.handleMessage(request('hover', { x: 1, y: 1 }, 'pick-2'))
     await settle()
-    helper.handleMessage(captureRequest(1, 'c3'))
+    helper.handleMessage(request('capture', { elementId: 1, ratio: 1 }, 'c3'))
     await settle()
 
-    expect(post).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'captured', nonce: 'c3', blob: null, error: 'render broke' }),
-      '*'
-    )
+    expect(replies(post).find((message) => message.type === 'captured')?.data).toMatchObject({
+      error: 'render broke'
+    })
   })
 
-  it('stops rendering when the parent cancels', async () => {
+  it('stops rendering when the parent cancels', () => {
     vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     const helper = createFrameHelper({ render: async () => new Blob(['png']) })
 
-    helper.handleMessage(
-      messageEvent({ protocol: FRAME_PROTOCOL, type: 'cancel', token: 'test-token', nonce: 'x' })
-    )
+    helper.handleMessage(request('cancel', {}, 'x'))
 
     expect(native.capture.aborted).toBe(true)
   })
 
-  it('refuses a capture without a usable token', async () => {
-    setFrameToken('')
+  it('refuses a capture without a usable key', async () => {
+    setFrameKey('')
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     const helper = createFrameHelper({ capture: vi.fn() })
 
-    helper.handleMessage(captureRequest())
+    helper.handleMessage(request('capture'))
     await settle()
 
     expect(post).not.toHaveBeenCalled()
@@ -469,25 +467,14 @@ describe('piercing a nested frame', () => {
     return frame
   }
 
-  function postedStack(post: { mock: { calls: unknown[][] } }): { items: unknown[] } {
-    const found = post.mock.calls
-      .map((call) => call[0] as { type?: string })
-      .find((entry) => entry && entry.type === 'stack')
-    return found as unknown as { items: unknown[] }
+  function postedStack(post: { mock: { calls: unknown[][] } }): { items: unknown[] } | undefined {
+    return replies(post).find((message) => message.type === 'stack')?.data as
+      | { items: unknown[] }
+      | undefined
   }
 
-  function hoverInto(helper: ReturnType<typeof createFrameHelper>): void {
-    helper.handleMessage(
-      messageEvent({
-        protocol: FRAME_PROTOCOL,
-        type: 'hover',
-        token: 'test-token',
-        nonce: 'h9',
-        x: 120,
-        y: 70,
-        depth: 2
-      })
-    )
+  function hoverInto(helper: ReturnType<typeof createFrameHelper>, nonce = 'h9', depth = 2): void {
+    helper.handleMessage(request('hover', { x: 120, y: 70, depth }, nonce))
   }
 
   it('asks the frame under the pointer and names the door it used', async () => {
@@ -516,17 +503,17 @@ describe('piercing a nested frame', () => {
       deadline: expect.any(Number)
     })
     const stack = postedStack(post)
-    expect(stack.items).toHaveLength(3)
+    expect(stack?.items).toHaveLength(3)
     // Deeper layers are on top, so they come first; the hop is recorded so a
     // capture can walk the same path.
-    expect(stack.items[0]).toMatchObject({
+    expect(stack?.items[0]).toMatchObject({
       label: 'div.inner',
       left: (view?.left ?? 0) + 10,
       top: (view?.top ?? 0) + 20,
       via: [1]
     })
-    expect(stack.items[1]).toMatchObject({ label: 'iframe' })
-    expect(stack.items[2]).toMatchObject({ label: 'body' })
+    expect(stack?.items[1]).toMatchObject({ label: 'iframe' })
+    expect(stack?.items[2]).toMatchObject({ label: 'body' })
   })
 
   it('keeps the frame depth from the request', async () => {
@@ -537,17 +524,7 @@ describe('piercing a nested frame', () => {
       childPick
     })
 
-    helper.handleMessage(
-      messageEvent({
-        protocol: FRAME_PROTOCOL,
-        type: 'hover',
-        token: 'test-token',
-        nonce: 'h1',
-        x: 120,
-        y: 70,
-        depth: 1
-      })
-    )
+    hoverInto(helper, 'h1', 1)
     await settle()
 
     expect(childPick).not.toHaveBeenCalled()
@@ -572,17 +549,17 @@ describe('piercing a nested frame', () => {
     await settle()
 
     helper.handleMessage(
-      messageEvent({
-        protocol: FRAME_PROTOCOL,
-        type: 'capture',
-        token: 'test-token',
-        nonce: 'c9',
-        elementId: 7,
-        via: [1],
-        ratio: 2,
-        expandNested: true,
-        background: { mode: 'page' }
-      })
+      request(
+        'capture',
+        {
+          elementId: 7,
+          via: [1],
+          ratio: 2,
+          expandNested: true,
+          background: { mode: 'page' }
+        },
+        'c9'
+      )
     )
     await settle()
 
@@ -593,18 +570,10 @@ describe('piercing a nested frame', () => {
       expandNested: true,
       background: { mode: 'page' }
     })
-    expect(post).toHaveBeenCalledWith(
-      {
-        protocol: FRAME_PROTOCOL,
-        type: 'captured',
-        nonce: 'c9',
-        blob: BLOB,
-        width: 12,
-        height: 34,
-        limited: false
-      },
-      '*'
-    )
+    const captured = replies(post).find((message) => message.type === 'captured')
+    expect(captured?.header).toMatchObject({ nonce: 'c9', to: PARENT })
+    expect(captured?.data).toMatchObject({ width: 12, height: 34, limited: false })
+    expect(binaryText(captured)).toBe('png')
   })
 
   it('refuses a capture with a malformed hop path', async () => {
@@ -613,25 +582,24 @@ describe('piercing a nested frame', () => {
     const helper = createFrameHelper({ capture })
 
     helper.handleMessage(
-      messageEvent({
-        protocol: FRAME_PROTOCOL,
-        type: 'capture',
-        token: 'test-token',
-        nonce: 'c7',
-        elementId: 7,
-        via: [0],
-        ratio: 1,
-        expandNested: false,
-        background: { mode: 'page' }
-      })
+      request(
+        'capture',
+        {
+          elementId: 7,
+          via: [0],
+          ratio: 1,
+          expandNested: false,
+          background: { mode: 'page' }
+        },
+        'c7'
+      )
     )
     await settle()
 
     expect(capture).not.toHaveBeenCalled()
-    expect(post).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'captured', nonce: 'c7', error: 'The element path is invalid' }),
-      '*'
-    )
+    expect(replies(post).find((message) => message.type === 'captured')?.data).toMatchObject({
+      error: 'The element path is invalid'
+    })
   })
 
   it('forwards the deadline it was given and skips a child when it has expired', async () => {
@@ -643,34 +611,14 @@ describe('piercing a nested frame', () => {
     })
     const deadline = Date.now() + 5000
 
-    helper.handleMessage(
-      messageEvent({
-        protocol: FRAME_PROTOCOL,
-        type: 'hover',
-        token: 'test-token',
-        nonce: 'h20',
-        x: 120,
-        y: 70,
-        depth: 3,
-        deadline
-      })
-    )
+    helper.handleMessage(request('hover', { x: 120, y: 70, depth: 3, deadline }, 'h20'))
     await settle()
 
     expect(childPick).toHaveBeenCalledWith(frame, expect.objectContaining({ depth: 2, deadline }))
 
     childPick.mockClear()
     helper.handleMessage(
-      messageEvent({
-        protocol: FRAME_PROTOCOL,
-        type: 'hover',
-        token: 'test-token',
-        nonce: 'h21',
-        x: 120,
-        y: 70,
-        depth: 3,
-        deadline: Date.now() - 1
-      })
+      request('hover', { x: 120, y: 70, depth: 3, deadline: Date.now() - 1 }, 'h21')
     )
     await settle()
 

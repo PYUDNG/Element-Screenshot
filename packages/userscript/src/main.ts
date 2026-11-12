@@ -4,52 +4,57 @@
  * - Vue 3.5.44 (MIT) — https://github.com/vuejs/core
  * - html-to-image 1.11.13 (MIT) — https://github.com/bubkoo/html-to-image
  * - Tailwind CSS 4.3.4 (MIT) — https://github.com/tailwindlabs/tailwindcss
+ * - @noble/ciphers 2.4.0 (MIT) — https://github.com/paulmillr/noble-ciphers
+ * - @noble/hashes 2.4.0 (MIT) — https://github.com/paulmillr/noble-hashes
  */
-import { GM_getValue, GM_setValue } from '$'
+import { GM_deleteValue, GM_getValue, GM_setValue } from '$'
 import { native } from './core/native'
-import { setFrameToken } from './core/frame-bridge'
+import { setFrameKey } from './core/frame-bridge'
+import { createFrameKey, isFrameKey } from './core/frame-crypto'
 import { installFrameHelper } from './core/frame-helper'
 import { installFramePointer } from './core/frame-pointer'
 import { installFrameHotkey } from './core/hotkey-bridge'
 import { installEarlyPickerListeners } from './core/picker'
 import { startApp } from './app'
 
-/** Storage key of the per-install secret that gates the frame helper. */
-const FRAME_TOKEN_KEY = 'element-screenshot:frame-token'
-/** Fallback when the manager does not answer a storage read with a string. */
-const TOKEN_PATTERN = /^[A-Za-z0-9-]{8,80}$/
-
-function createToken(): string {
-  const random =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-  return random
-}
+/** Storage key of the per-install secret every frame of this script seals with. */
+const FRAME_KEY_KEY = 'element-screenshot:frame-key'
+/** The pre-sealing builds shared a token; nothing reads it anymore. */
+const LEGACY_TOKEN_KEY = 'element-screenshot:frame-token'
 
 /**
- * Every frame of this script has to prove that it is talking to the same install,
- * so a page cannot use the helper to screenshot a frame it embeds. The page
- * cannot read userscript storage, which makes a stored token a usable secret.
+ * Every frame of this script has to share one secret with the parent, or the
+ * bridge could be driven by any page that embeds a frame. The page cannot read
+ * userscript storage, so a key stored there is a secret it never sees — and
+ * because messages are sealed rather than signed, the key itself never travels.
  *
  * Two frames can generate one at the same moment; both read the value back after
  * writing, so they converge on whichever write landed last.
  */
-function ensureFrameToken(): string {
+function ensureFrameKey(): string {
   try {
-    const stored = GM_getValue<unknown>(FRAME_TOKEN_KEY, null)
-    if (typeof stored === 'string' && TOKEN_PATTERN.test(stored)) return stored
-    GM_setValue(FRAME_TOKEN_KEY, createToken())
-    const written = GM_getValue<unknown>(FRAME_TOKEN_KEY, null)
-    return typeof written === 'string' ? written : ''
+    const stored = GM_getValue<unknown>(FRAME_KEY_KEY, null)
+    if (isFrameKey(stored)) return stored
+    GM_setValue(FRAME_KEY_KEY, createFrameKey())
+    const written = GM_getValue<unknown>(FRAME_KEY_KEY, null)
+    return isFrameKey(written) ? written : ''
   } catch (error) {
-    console.warn('[element-screenshot] frame token unavailable', error)
+    console.warn('[element-screenshot] frame key unavailable', error)
     return ''
   }
 }
 
-const token = ensureFrameToken()
-setFrameToken(token)
+function dropLegacyToken(): void {
+  try {
+    GM_deleteValue(LEGACY_TOKEN_KEY)
+  } catch {
+    // A manager without the API keeps a stale value that nothing reads.
+  }
+}
+
+const frameKey = ensureFrameKey()
+setFrameKey(frameKey)
+dropLegacyToken()
 
 if (window === window.top) {
   // Before DOMContentLoaded, i.e. before any page script can register its own
@@ -68,7 +73,7 @@ if (window === window.top) {
   } else {
     begin()
   }
-} else if (token) {
+} else if (frameKey) {
   // A frame serves the parent only: no UI, no menu commands, no settings panel.
   installFrameHelper()
   // Keys pressed inside a frame never reach the top document, so the frame

@@ -68,9 +68,10 @@ All notable changes to this project are documented here. The format follows
   size the capture will have.
 - Cross-origin iframes are captured too. Every frame now runs a small copy of the
   script that renders its own document when the top page asks over
-  `postMessage` (protocol version, per-request nonce, and a per-install token
-  that the page itself cannot read, so an embedding site cannot use the helper to
-  screenshot a frame it is not allowed to read). Same-origin frames use the same
+  `postMessage` (protocol version, per-request nonce, and every message sealed with
+  a per-install key the page itself cannot read, so an embedding site can neither
+  read the traffic nor use the helper to screenshot a frame it is not allowed to
+  read). Same-origin frames use the same
   helper path, so a frame's own fonts and pixel ratio always apply; the parent
   still renders a frame locally when no helper answers (`about:blank`, `srcdoc`,
   sandboxed frames without scripts, or a frame that is still starting). `@noframes`
@@ -121,6 +122,23 @@ All notable changes to this project are documented here. The format follows
   a descendant can no longer crop the extra content away.
 - `createSnapshot()` accepts a `doc` option and copies that document instead of
   the top page, which is what lets a frame be rendered on its own.
+
+### Security
+
+- Everything the frame bridge sends is sealed instead of carrying a shared install
+  token. Each realm keeps one 32-byte key in the userscript storage and seals the
+  whole body with XChaCha20-Poly1305 (`core/frame-crypto.ts`), so the wire only
+  ever carries `{protocol, type, box}` — a message type, a nonce, ciphertext and a
+  tag. A page can see that frames talk and how much they send, but not a
+  coordinate, an element id, a DOM layer, a shortcut or a PNG, and it cannot forge
+  a request without the key, which never leaves storage. The token model is gone:
+  a frame's own page used to be able to read the token out of any downward message
+  and reuse it later against a frame it embedded, which was a real chain. Sealing
+  closes the upward direction too — presses and pointer reports travel encrypted —
+  and a replayed message is now dropped by its sequence number instead of merely
+  being useless. The protocol is `/7`; `/6` builds do not interoperate, so refresh
+  every tab after upgrading (an old frame simply reads as “no helper”, which falls
+  back safely).
 
 ### Fixed
 

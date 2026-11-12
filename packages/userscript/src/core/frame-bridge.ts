@@ -1,9 +1,18 @@
 import { native } from './native'
 import { frameContentBox } from './frame-size'
 import type { FrameSize } from './frame-size'
+import {
+  ReplayGuard,
+  decodePayload,
+  deriveFrameKey,
+  encodePayload,
+  open,
+  randomId,
+  seal
+} from './frame-crypto'
 
 /**
- * Bridge to the copy of this script that runs inside an iframe.
+ * Sealed bridge to the copy of this script that runs inside an iframe.
  *
  * html-to-image resolves the computed style of the document it renders, and the
  * webfont embedder reads that document's stylesheets. Rendering a frame inside
@@ -15,6 +24,13 @@ import type { FrameSize } from './frame-size'
  * (`about:blank`, `srcdoc`, a sandbox without `allow-scripts`) or one that is
  * still starting up never answers, and a same-origin frame is then rendered by
  * the parent the way it was before this bridge existed.
+ *
+ * Everything on the wire is sealed (see `core/frame-crypto.ts`): the key comes
+ * from the userscript storage, which no page can read, and never travels. A
+ * message that opens therefore proves it came from this install, and a page can
+ * neither read one nor forge one. The envelope only says *which kind* of message
+ * it is, so it can be routed; the body — coordinates, element ids, DOM layers,
+ * PNG bytes — is inside the box.
  *
  * Two requests travel over the bridge: `measure` (how tall the document is once
  * its root is expanded, used to size the frame's box) and `render` (the picture).
@@ -32,7 +48,7 @@ import type { FrameSize } from './frame-size'
  */
 
 /** Bump when the message shape or the frame renderer changes. */
-export const FRAME_PROTOCOL = 'element-screenshot:frame/6'
+export const FRAME_PROTOCOL = 'element-screenshot:frame/7'
 /** How long a frame gets to answer the hello probe. */
 export const FRAME_READY_TIMEOUT = 400
 /** A hover answer is one hit test; a slow frame must not stall the crosshair. */
@@ -52,44 +68,100 @@ export const MAX_PICK_ITEMS = 64
 /** How often a pending request checks whether the capture was cancelled. */
 const CANCEL_POLL_INTERVAL = 100
 
-export interface FrameHelloMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'hello'
-  token: string
+/** Every message the bridge knows, in the order they were added. */
+const MESSAGE_TYPES = [
+  'hello',
+  'ready',
+  'measure',
+  'size',
+  'render',
+  'result',
+  'subscribe',
+  'hotkey',
+  'trigger',
+  'ui',
+  'key',
+  'hover',
+  'stack',
+  'capture',
+  'captured',
+  'pointer',
+  'cancel'
+] as const
+
+export type FrameMessageType = (typeof MESSAGE_TYPES)[number]
+
+const MESSAGE_TYPE_SET = new Set<string>(MESSAGE_TYPES)
+
+/**
+ * Which way each message travels.
+ *
+ * A message only ever has one direction, and the direction is part of the
+ * associated data, so a box sealed for one type cannot be re-labelled as another
+ * and replayed at a different stage of the conversation.
+ */
+const DIRECTIONS: Record<FrameMessageType, 'down' | 'up'> = {
+  hello: 'down',
+  ready: 'up',
+  measure: 'down',
+  size: 'up',
+  render: 'down',
+  result: 'up',
+  subscribe: 'up',
+  hotkey: 'down',
+  trigger: 'up',
+  ui: 'down',
+  key: 'up',
+  hover: 'down',
+  stack: 'up',
+  capture: 'down',
+  captured: 'up',
+  pointer: 'up',
+  cancel: 'down'
+}
+
+/**
+ * The only messages that may arrive before the receiver's session id is known.
+ *
+ * `hello` is the parent's first contact with a frame, `subscribe` is a frame's
+ * first contact with its parent. Everything else has to name the receiver, which
+ * is what keeps one frame's ciphertext from being replayed into another.
+ */
+const HANDSHAKES = new Set<FrameMessageType>(['hello', 'subscribe'])
+
+/** What every sealed message carries besides its business fields. */
+export interface FrameHeader {
+  /** The sender's session id. */
+  sid: string
+  /** The receiver's session id; empty only in a handshake. */
+  to: string
+  /** The sender's own counter, monotonic for the life of its session. */
+  seq: number
+  /** Echoed by a reply so the request it answers can be matched. */
   nonce: string
 }
 
-export interface FrameReadyMessage {
+/** The routing layer: everything a page can see. */
+export interface FrameEnvelope {
   protocol: typeof FRAME_PROTOCOL
-  type: 'ready'
-  nonce: string
+  type: FrameMessageType
+  /** `nonce ‖ ciphertext ‖ tag`, as produced by `seal()`. */
+  box: Uint8Array
 }
 
-export interface FrameMeasureMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'measure'
-  token: string
-  nonce: string
+/** One message, opened and authenticated. */
+export interface OpenedFrameMessage {
+  type: FrameMessageType
+  header: FrameHeader
+  /** Business fields, without the header. */
+  data: Record<string, unknown>
+  /** Picture bytes that travelled with the message, if any. */
+  binary: Uint8Array | null
 }
 
-export interface FrameSizeMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'size'
-  nonce: string
-  /** Zero when the helper could not measure its document. */
-  width: number
-  height: number
-  error?: string
-}
-
-export interface FrameRenderMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'render'
-  token: string
-  nonce: string
-  /** Capture ratio of the parent, so the frame picture matches its pixels. */
+/** Capture ratio and nesting depth the parent asks a frame to render with. */
+export interface FrameRenderData {
   ratio: number
-  /** Nesting depth of the frame being rendered. */
   depth: number
   /**
    * Render the whole document on this surface instead of the current viewport.
@@ -98,37 +170,22 @@ export interface FrameRenderMessage {
   expand?: FrameSize
 }
 
-export interface FrameResultMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'result'
-  nonce: string
-  blob: Blob | null
+/** The frame's answer to `measure`; zero when it could not measure. */
+export interface FrameSizeData {
+  width: number
+  height: number
   error?: string
 }
 
-/**
- * Frame asks its parent which shortcut to watch for.
- *
- * Nothing that travels *up* carries the token. A message a frame sends up is
- * delivered into the parent window, and the parent's own page scripts can read
- * it — which is exactly the window the token has to stay hidden from. The
- * presses this channel carries cannot be authenticated for the same reason: the
- * frame's page shares a window with the frame's copy of the script, so anything
- * that copy could prove, the page can replay. Dropping the secret at least keeps
- * the token out of the hands of an embedding page.
- */
-export interface FrameSubscribeMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'subscribe'
-  nonce: string
+/** The frame's answer to `render`; the picture bytes are the binary tail. */
+export interface FrameResultData {
+  /** MIME type of the binary tail; PNG unless a frame says otherwise. */
+  mime?: string
+  error?: string
 }
 
-/** Parent hands its current shortcut to a frame. */
-export interface FrameHotkeyMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'hotkey'
-  token: string
-  nonce: string
+/** The parent's current shortcut. */
+export interface FrameHotkeyData {
   shortcut: string
 }
 
@@ -136,19 +193,12 @@ export interface FrameHotkeyMessage {
  * A frame saw its shortcut pressed. The shortcut string is repeated so the
  * parent can drop a press that was matched against an outdated configuration.
  */
-export interface FrameTriggerMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'trigger'
-  nonce: string
+export interface FrameTriggerData {
   shortcut: string
 }
 
 /** Whether the capture UI is open in the top document. */
-export interface FrameUiMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'ui'
-  token: string
-  nonce: string
+export interface FrameUiData {
   active: boolean
   /**
    * True while the picker has no transparent layer of its own: the pointer lands
@@ -158,10 +208,7 @@ export interface FrameUiMessage {
 }
 
 /** A key the capture UI consumes, reported while it is open. */
-export interface FrameKeyMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'key'
-  nonce: string
+export interface FrameKeyData {
   key: string
   ctrlKey: boolean
   altKey: boolean
@@ -197,11 +244,7 @@ export interface FramePickItem {
 }
 
 /** Parent asks which layers of the frame sit under one point. */
-export interface FrameHoverMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'hover'
-  token: string
-  nonce: string
+export interface FrameHoverData {
   x: number
   y: number
   /** How many frames below this one may still be pierced. */
@@ -217,11 +260,8 @@ export interface FrameHoverMessage {
 }
 
 /** The frame's answer: topmost layer first, like `getElementStack`. */
-export interface FrameStackMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'stack'
-  nonce: string
-  items: FramePickItem[]
+export interface FrameStackData {
+  items: unknown
   error?: string
 }
 
@@ -232,11 +272,7 @@ export interface FrameCaptureBackground {
 }
 
 /** Parent asks the frame to render one layer it reported earlier. */
-export interface FrameCaptureMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'capture'
-  token: string
-  nonce: string
+export interface FrameCaptureData {
   /** `FramePickItem.id` from a previous `stack` answer. */
   elementId: number
   /** Frames to walk through first; empty means the element lives here. */
@@ -247,23 +283,13 @@ export interface FrameCaptureMessage {
 }
 
 /** The frame's picture of that element, at the parent's ratio. */
-export interface FrameCapturedMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'captured'
-  nonce: string
-  blob: Blob | null
+export interface FrameCapturedData {
   width: number
   height: number
   limited: boolean
+  /** MIME type of the binary tail; PNG unless a frame says otherwise. */
+  mime?: string
   error?: string
-}
-
-/** Stop a render the parent no longer waits for. */
-export interface FrameCancelMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'cancel'
-  token: string
-  nonce: string
 }
 
 /**
@@ -274,70 +300,61 @@ export interface FrameCancelMessage {
  * stops seeing it. A click is the capture gesture, so the frame swallows it and
  * reports it instead of letting the page navigate.
  */
-export interface FramePointerMessage {
-  protocol: typeof FRAME_PROTOCOL
-  type: 'pointer'
-  nonce: string
+export interface FramePointerData {
   kind: 'move' | 'click'
   x: number
   y: number
 }
 
-export type FrameMessage =
-  | FrameHelloMessage
-  | FrameReadyMessage
-  | FrameMeasureMessage
-  | FrameSizeMessage
-  | FrameRenderMessage
-  | FrameResultMessage
-  | FrameSubscribeMessage
-  | FrameHotkeyMessage
-  | FrameTriggerMessage
-  | FrameUiMessage
-  | FrameKeyMessage
-  | FrameHoverMessage
-  | FrameStackMessage
-  | FrameCaptureMessage
-  | FrameCapturedMessage
-  | FramePointerMessage
-  | FrameCancelMessage
-
-const MESSAGE_TYPES = new Set([
-  'hello',
-  'ready',
-  'measure',
-  'size',
-  'render',
-  'result',
-  'subscribe',
-  'hotkey',
-  'trigger',
-  'ui',
-  'key',
-  'hover',
-  'stack',
-  'capture',
-  'captured',
-  'pointer',
-  'cancel'
-])
-
 /**
- * Per-install secret shared by every frame of this script.
+ * The associated data one sealed message is bound to.
  *
- * The helper renders its own page, so without a gate any site could embed a page
- * in an iframe and ask our helper for a picture of it — a same-origin bypass for
- * whatever the frame shows. The page itself cannot read the userscript storage,
- * so a token from there proves that the request comes from this script.
+ * The protocol and the type keep a box from being replayed at another stage, and
+ * the direction keeps a message from being turned around: a `hover` box can never
+ * open as a `stack` reply.
  */
-let frameToken = ''
-
-export function setFrameToken(token: string): void {
-  frameToken = token
+export function frameAad(type: FrameMessageType): string {
+  return `${FRAME_PROTOCOL}|${type}|${DIRECTIONS[type]}`
 }
 
-export function getFrameToken(): string {
-  return frameToken
+/**
+ * This realm's half of the bridge.
+ *
+ * The top document and every frame each run their own copy of this module, so
+ * one module-level session is exactly one endpoint: its own id, its own sequence
+ * numbers and its own view of who it is talking to.
+ */
+let frameKey: Uint8Array | null = null
+let sessionId = ''
+let sequence = 0
+let peers = new WeakMap<Window, string>()
+let replay = new ReplayGuard()
+
+/**
+ * Install the sealed bridge for this realm.
+ *
+ * The stored secret is 32 random bytes in hex. It is turned into an AEAD key
+ * here, and only the derived key is kept in memory; the stored value is never
+ * sent anywhere. An empty or malformed secret leaves the bridge silent, which is
+ * the safe direction to fail in.
+ */
+export function setFrameKey(secret: string): boolean {
+  frameKey = secret ? deriveFrameKey(secret) : null
+  sessionId = frameKey ? randomId(8) : ''
+  sequence = 0
+  peers = new WeakMap()
+  replay = new ReplayGuard()
+  return frameKey !== null
+}
+
+/** Whether this realm can talk over the bridge at all. */
+export function hasFrameKey(): boolean {
+  return frameKey !== null
+}
+
+/** This realm's session id; tests address messages with it. */
+export function getFrameSessionId(): string {
+  return sessionId
 }
 
 let nonceCounter = 0
@@ -360,30 +377,223 @@ export function frameWindow(frame: HTMLIFrameElement): Window | null {
   }
 }
 
-/** Reject anything that is not a current protocol message. */
-export function readFrameMessage(value: unknown): FrameMessage | null {
+/**
+ * Read the routing layer only.
+ *
+ * Deliberately no decryption here: this runs for every message a page could send,
+ * and it must stay a cheap shape check. Callers that care about the content go
+ * through `openFrameMessage` / `decodeFrameEvent`.
+ */
+export function readFrameEnvelope(value: unknown): FrameEnvelope | null {
   if (!value || typeof value !== 'object') return null
   const data = value as Record<string, unknown>
   if (data.protocol !== FRAME_PROTOCOL) return null
-  if (typeof data.type !== 'string' || !MESSAGE_TYPES.has(data.type)) return null
-  if (typeof data.nonce !== 'string' || data.nonce.length === 0) return null
-  return value as FrameMessage
+  if (typeof data.type !== 'string' || !MESSAGE_TYPE_SET.has(data.type)) return null
+  const box = data.box
+  if (!(box instanceof Uint8Array)) return null
+  // A nonce and a tag are 40 bytes; anything shorter cannot even be an empty box.
+  if (box.length <= 40) return null
+  return value as FrameEnvelope
 }
 
-export function postFrameMessage(target: Window | null, message: FrameMessage): boolean {
+function readId(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null
+}
+
+/** Reject a header that could not have been written by this module. */
+function readHeader(value: unknown): FrameHeader | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const sid = readId(raw.sid)
+  const to = typeof raw.to === 'string' && raw.to.length <= 64 ? raw.to : null
+  const nonce = typeof raw.nonce === 'string' && raw.nonce.length <= 128 ? raw.nonce : null
+  const seq = raw.seq
+  if (sid === null || to === null || nonce === null) return null
+  if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 1) return null
+  return { sid, to, seq, nonce }
+}
+
+/**
+ * Seal one message for this endpoint.
+ *
+ * The sequence number is minted here, which is why every sender has to go through
+ * this function (or through `postFrameTo`): a message without a fresh number
+ * would be dropped as a replay.
+ */
+export function sealFrameMessage(
+  type: FrameMessageType,
+  data: Record<string, unknown> = {},
+  options: { to?: string; nonce?: string; binary?: Uint8Array | null } = {}
+): FrameEnvelope | null {
+  if (!frameKey || !sessionId) return null
+  sequence += 1
+  const header: FrameHeader = {
+    sid: sessionId,
+    to: options.to ?? '',
+    seq: sequence,
+    nonce: options.nonce ?? createNonce()
+  }
+  // The header goes last so a business field can never overwrite it.
+  const plain = encodePayload({ ...data, ...header }, options.binary ?? null)
+  return { protocol: FRAME_PROTOCOL, type, box: seal(frameKey, frameAad(type), plain) }
+}
+
+/**
+ * Open and authenticate one message, or return null.
+ *
+ * Every failure — a page's forgery, another install's key, a box that was
+ * tampered with or re-labelled — is the same null, so probing teaches nothing.
+ * This does not check whether the message belongs to this session; that is
+ * `decodeFrameEvent`'s job, and keeping them apart lets a test read the wire
+ * without consuming a sequence number.
+ */
+export function openFrameMessage(value: unknown): OpenedFrameMessage | null {
+  const envelope = readFrameEnvelope(value)
+  if (!envelope || !frameKey) return null
+  const plain = open(frameKey, frameAad(envelope.type), envelope.box)
+  if (!plain) return null
+  const decoded = decodePayload(plain)
+  if (!decoded) return null
+  const header = readHeader(decoded.meta)
+  if (!header) return null
+  const data = { ...(decoded.meta as Record<string, unknown>) }
+  delete data.sid
+  delete data.to
+  delete data.seq
+  delete data.nonce
+  return { type: envelope.type, header, data, binary: decoded.binary }
+}
+
+/**
+ * Decoded messages of the events already seen, so the several listeners that
+ * share one window do not each decrypt and replay-check the same delivery.
+ *
+ * The first listener to see an event decides whether the message is accepted (and
+ * consumes its sequence number); the rest read the same answer. Without this a
+ * frame's `ui` would be consumed by the keyboard bridge before the pointer bridge
+ * ever saw it.
+ */
+const openedEvents = new WeakMap<Event, OpenedFrameMessage | null>()
+
+/**
+ * Authenticate one `message` event and claim it for this endpoint.
+ *
+ * A message is ours when it names this session, or when it is a handshake from a
+ * peer that does not know our id yet. The sender's id and sequence number are
+ * then checked against the replay guard, and the sender is remembered so replies
+ * can be addressed to it.
+ */
+export function decodeFrameEvent(event: MessageEvent): OpenedFrameMessage | null {
+  const cached = openedEvents.get(event)
+  if (cached !== undefined) return cached
+
+  const opened = openFrameMessage(event.data)
+  const source = event.source as Window | null
+  let accepted: OpenedFrameMessage | null = null
+  if (opened && source) {
+    const addressed =
+      opened.header.to === sessionId ||
+      (opened.header.to === '' && HANDSHAKES.has(opened.type))
+    if (addressed && replay.accept(opened.header.sid, opened.type, opened.header.seq)) {
+      peers.set(source, opened.header.sid)
+      accepted = opened
+    }
+  }
+  openedEvents.set(event, accepted)
+  return accepted
+}
+
+/** Post an already sealed envelope. */
+export function postFrameMessage(target: Window | null, envelope: FrameEnvelope): boolean {
   if (!target) return false
   try {
-    target.postMessage(message, '*')
+    target.postMessage(envelope, '*')
     return true
   } catch (_error) {
     return false
   }
 }
 
+export interface FrameSendOptions {
+  /** Request nonce to echo; a fresh one is minted otherwise. */
+  nonce?: string
+  /** Bytes that travel next to the JSON header. */
+  binary?: Uint8Array | null
+  /** A peer that does not know our id yet: `hello` and `subscribe` only. */
+  handshake?: boolean
+}
+
+/**
+ * Seal one message and post it to a peer.
+ *
+ * Refuses when the peer's session id is unknown: a sealed message has to name its
+ * receiver, otherwise one frame's ciphertext could be replayed into another. The
+ * exceptions are the two handshakes, which are how the ids are learned.
+ */
+export function postFrameTo(
+  target: Window | null,
+  type: FrameMessageType,
+  data: Record<string, unknown> = {},
+  options: FrameSendOptions = {}
+): boolean {
+  if (!target || !frameKey) return false
+  const known = peers.get(target)
+  if (known === undefined && !options.handshake) return false
+  const envelope = sealFrameMessage(type, data, {
+    to: known ?? '',
+    ...(options.nonce === undefined ? {} : { nonce: options.nonce }),
+    ...(options.binary === undefined ? {} : { binary: options.binary })
+  })
+  if (!envelope) return false
+  return postFrameMessage(target, envelope)
+}
+
+/** Read a blob's bytes without assuming either API exists in this realm. */
+function blobBytes(blob: Blob): Promise<Uint8Array> {
+  if (typeof blob.arrayBuffer === 'function') {
+    return blob.arrayBuffer().then((buffer) => new Uint8Array(buffer))
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer))
+    reader.onerror = () => reject(reader.error ?? new Error('The picture could not be read'))
+    reader.readAsArrayBuffer(blob)
+  })
+}
+
+/**
+ * Seal a reply, carrying a picture in the binary tail.
+ *
+ * Frame pictures go over as raw bytes: base64 would add a third to a multi-
+ * megabyte PNG and copy it again, and the box takes bytes just as well.
+ */
+export async function postFrameReply(
+  target: Window | null,
+  type: FrameMessageType,
+  data: Record<string, unknown>,
+  options: { nonce: string; blob?: Blob | null }
+): Promise<boolean> {
+  const binary = options.blob ? await blobBytes(options.blob) : null
+  return postFrameTo(target, type, data, { nonce: options.nonce, binary })
+}
+
+/** Rebuild a picture from the binary tail of a reply. */
+function pictureFrom(message: OpenedFrameMessage): Blob | null {
+  if (!message.binary) return null
+  const mime = message.data.mime
+  // Copy into a fresh buffer: the tail is a view into the decrypted payload, and
+  // a Blob part has to own a plain ArrayBuffer.
+  const bytes = new Uint8Array(message.binary.length)
+  bytes.set(message.binary)
+  return new Blob([bytes], {
+    type: typeof mime === 'string' && mime.length > 0 ? mime : 'image/png'
+  })
+}
+
 interface FrameWaitOptions {
   timeout: number
-  /** Handle one validated message; return true when the wait is over. */
-  onMessage: (message: FrameMessage, event: MessageEvent) => boolean
+  /** Handle one authenticated message; return true when the wait is over. */
+  onMessage: (message: OpenedFrameMessage, event: MessageEvent) => boolean
   /** Called once when a cancelled capture ends the wait early. */
   onCancel?: () => void
 }
@@ -406,7 +616,7 @@ function waitForMessages(options: FrameWaitOptions): Promise<void> {
       resolve()
     }
     const listener = (event: Event): void => {
-      const message = readFrameMessage((event as MessageEvent).data)
+      const message = decodeFrameEvent(event as MessageEvent)
       if (!message) return
       if (options.onMessage(message, event as MessageEvent)) finish()
     }
@@ -428,6 +638,36 @@ function waitForMessages(options: FrameWaitOptions): Promise<void> {
   })
 }
 
+/** Stop addressing a window: a navigation makes its old session id useless. */
+function forgetPeer(win: Window): void {
+  peers.delete(win)
+}
+
+/**
+ * Make sure a peer's session id is known, asking with `hello` if it is not.
+ *
+ * The handshake is one round trip inside the same browser process, so it is
+ * cheap for a frame that runs the helper. A frame without one stays silent and
+ * costs the (short) timeout once, after which the caller stops asking for a
+ * while.
+ */
+async function ensurePeer(win: Window, timeout: number): Promise<boolean> {
+  if (peers.has(win)) return true
+  const nonce = createNonce()
+  if (!postFrameTo(win, 'hello', {}, { nonce, handshake: true })) return false
+  let found = false
+  await waitForMessages({
+    timeout,
+    onMessage: (message, event) => {
+      if (event.source !== win || message.type !== 'ready') return false
+      if (message.header.nonce !== nonce) return false
+      found = true
+      return true
+    }
+  })
+  return found
+}
+
 export interface FrameProbeOptions {
   timeout?: number
 }
@@ -437,22 +677,23 @@ export interface FrameProbeOptions {
  *
  * Every frame is asked at once and the answers are collected in one window, so a
  * page full of frames without a helper costs one timeout instead of one each.
+ * A `ready` also teaches the parent that frame's session id, which is what every
+ * later request to it is addressed with.
  */
 export async function probeFrameHelpers(
   frames: readonly HTMLIFrameElement[],
   options: FrameProbeOptions = {}
 ): Promise<Set<HTMLIFrameElement>> {
   const ready = new Set<HTMLIFrameElement>()
-  const token = frameToken
-  if (!token) return ready
+  if (!frameKey) return ready
 
   const pending = new Map<string, { frame: HTMLIFrameElement; win: Window }>()
   for (const frame of frames) {
     const win = frameWindow(frame)
     if (!win) continue
     const nonce = createNonce()
+    if (!postFrameTo(win, 'hello', {}, { nonce, handshake: true })) continue
     pending.set(nonce, { frame, win })
-    postFrameMessage(win, { protocol: FRAME_PROTOCOL, type: 'hello', token, nonce })
   }
   if (pending.size === 0) return ready
 
@@ -460,9 +701,9 @@ export async function probeFrameHelpers(
     timeout: options.timeout ?? FRAME_READY_TIMEOUT,
     onMessage: (message, event) => {
       if (message.type !== 'ready') return false
-      const entry = pending.get(message.nonce)
+      const entry = pending.get(message.header.nonce)
       if (!entry || event.source !== entry.win) return false
-      pending.delete(message.nonce)
+      pending.delete(message.header.nonce)
       ready.add(entry.frame)
       return pending.size === 0
     }
@@ -484,26 +725,30 @@ export async function requestFrameImage(
   frame: HTMLIFrameElement,
   request: FrameRenderRequest
 ): Promise<Blob | null> {
-  const token = frameToken
   const win = frameWindow(frame)
-  if (!token || !win) return null
+  if (!frameKey || !win) return null
+
+  const timeout = request.timeout ?? FRAME_RESULT_TIMEOUT
+  if (!(await ensurePeer(win, Math.min(FRAME_READY_TIMEOUT, timeout)))) return null
 
   const nonce = createNonce()
   let image: Blob | null = null
   let failure = ''
-  const sent = postFrameMessage(win, {
-    protocol: FRAME_PROTOCOL,
-    type: 'render',
-    token,
-    nonce,
-    ratio: request.ratio,
-    depth: request.depth,
-    ...(request.expand ? { expand: request.expand } : {})
-  })
+  let answered = false
+  const sent = postFrameTo(
+    win,
+    'render',
+    {
+      ratio: request.ratio,
+      depth: request.depth,
+      ...(request.expand ? { expand: request.expand } : {})
+    },
+    { nonce }
+  )
   if (!sent) return null
 
   await waitForMessages({
-    timeout: request.timeout ?? FRAME_RESULT_TIMEOUT,
+    timeout,
     // Frames render in parallel, so a cancelled capture has to stop them all
     // instead of leaving them working on pictures nobody will look at.
     onCancel: () => {
@@ -511,13 +756,17 @@ export async function requestFrameImage(
     },
     onMessage: (message, event) => {
       if (message.type !== 'result') return false
-      if (message.nonce !== nonce || event.source !== win) return false
-      image = message.blob ?? null
-      failure = message.error ?? ''
+      if (message.header.nonce !== nonce || event.source !== win) return false
+      answered = true
+      failure = typeof message.data.error === 'string' ? message.data.error : ''
+      image = pictureFrom(message)
       return true
     }
   })
 
+  // A frame that went silent has probably navigated; the next request will ask
+  // for its new session id instead of talking to the old one.
+  if (!answered) forgetPeer(win)
   if (failure) console.warn('[element-screenshot] frame helper failed:', failure)
   return image
 }
@@ -537,24 +786,27 @@ export async function requestFrameSize(
   frame: HTMLIFrameElement,
   request: FrameSizeRequest = {}
 ): Promise<FrameSize | null> {
-  const token = frameToken
   const win = frameWindow(frame)
-  if (!token || !win) return null
+  if (!frameKey || !win) return null
+
+  const timeout = request.timeout ?? FRAME_SIZE_TIMEOUT
+  if (!(await ensurePeer(win, Math.min(FRAME_READY_TIMEOUT, timeout)))) return null
 
   const nonce = createNonce()
   let size: FrameSize | null = null
   let failure = ''
-  const sent = postFrameMessage(win, { protocol: FRAME_PROTOCOL, type: 'measure', token, nonce })
-  if (!sent) return null
+  let answered = false
+  if (!postFrameTo(win, 'measure', {}, { nonce })) return null
 
   await waitForMessages({
-    timeout: request.timeout ?? FRAME_SIZE_TIMEOUT,
+    timeout,
     onMessage: (message, event) => {
       if (message.type !== 'size') return false
-      if (message.nonce !== nonce || event.source !== win) return false
-      failure = message.error ?? ''
-      const width = Number(message.width)
-      const height = Number(message.height)
+      if (message.header.nonce !== nonce || event.source !== win) return false
+      answered = true
+      failure = typeof message.data.error === 'string' ? message.data.error : ''
+      const width = Number(message.data.width)
+      const height = Number(message.data.height)
       if (Number.isFinite(width) && Number.isFinite(height) && width >= 1 && height >= 1) {
         size = { width, height }
       }
@@ -562,6 +814,7 @@ export async function requestFrameSize(
     }
   })
 
+  if (!answered) forgetPeer(win)
   if (failure) console.warn('[element-screenshot] frame helper failed:', failure)
   return size
 }
@@ -575,60 +828,27 @@ export async function requestFrameSize(
  * caller retries a few times.
  */
 export function subscribeToHotkey(win: Window = window): boolean {
-  return postFrameMessage(win.parent, {
-    protocol: FRAME_PROTOCOL,
-    type: 'subscribe',
-    nonce: createNonce()
-  })
+  return postFrameTo(win.parent, 'subscribe', {}, { handshake: true })
 }
 
 /** Hand the current shortcut to one frame. */
 export function postHotkeyConfig(win: Window | null, shortcut: string): boolean {
-  const token = frameToken
-  if (!token || !win) return false
-  return postFrameMessage(win, {
-    protocol: FRAME_PROTOCOL,
-    type: 'hotkey',
-    token,
-    nonce: createNonce(),
-    shortcut
-  })
+  return postFrameTo(win, 'hotkey', { shortcut })
 }
 
 /** Tell the parent that the shortcut was pressed inside this frame. */
 export function postHotkeyTrigger(win: Window, shortcut: string): boolean {
-  return postFrameMessage(win.parent, {
-    protocol: FRAME_PROTOCOL,
-    type: 'trigger',
-    nonce: createNonce(),
-    shortcut
-  })
+  return postFrameTo(win.parent, 'trigger', { shortcut })
 }
 
 /** Tell one frame whether the capture UI is open in the top document. */
 export function postUiState(win: Window | null, active: boolean, passthrough = false): boolean {
-  const token = frameToken
-  if (!token || !win) return false
-  return postFrameMessage(win, {
-    protocol: FRAME_PROTOCOL,
-    type: 'ui',
-    token,
-    nonce: createNonce(),
-    active,
-    passthrough
-  })
+  return postFrameTo(win, 'ui', { active, passthrough })
 }
 
 /** Report a pointer position inside this frame to its parent. */
 export function postFramePointer(win: Window, kind: 'move' | 'click', x: number, y: number): boolean {
-  return postFrameMessage(win.parent, {
-    protocol: FRAME_PROTOCOL,
-    type: 'pointer',
-    nonce: createNonce(),
-    kind,
-    x,
-    y
-  })
+  return postFrameTo(win.parent, 'pointer', { kind, x, y })
 }
 
 export interface FramePointerBridgeOptions {
@@ -661,7 +881,7 @@ export function installFramePointerBridge(options: FramePointerBridgeOptions): (
   }
 
   const handler = (event: Event): void => {
-    const message = readFrameMessage((event as MessageEvent).data)
+    const message = decodeFrameEvent(event as MessageEvent)
     if (!message || message.type !== 'pointer') return
     const source = (event as MessageEvent).source as Window | null
     if (!source) return
@@ -669,8 +889,9 @@ export function installFramePointerBridge(options: FramePointerBridgeOptions): (
     if (!frame) return
     const view = frameContentBox(frame)
     if (!view) return
-    const x = view.left + message.x
-    const y = view.top + message.y
+    const x = view.left + Number(message.data.x)
+    const y = view.top + Number(message.data.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
     if (
       x < view.left ||
       x > view.left + view.width ||
@@ -679,7 +900,7 @@ export function installFramePointerBridge(options: FramePointerBridgeOptions): (
     ) {
       return
     }
-    if (message.kind === 'click') options.onClick({ x, y }, frame)
+    if (message.data.kind === 'click') options.onClick({ x, y }, frame)
     else options.onMove({ x, y }, frame)
   }
 
@@ -692,10 +913,7 @@ export function postRelayedKey(
   win: Window,
   key: { key: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }
 ): boolean {
-  return postFrameMessage(win.parent, {
-    protocol: FRAME_PROTOCOL,
-    type: 'key',
-    nonce: createNonce(),
+  return postFrameTo(win.parent, 'key', {
     key: key.key,
     ctrlKey: key.ctrlKey,
     altKey: key.altKey,
@@ -793,25 +1011,21 @@ export async function requestFramePick(
   frame: HTMLIFrameElement,
   request: FramePickRequest
 ): Promise<FramePickItem[] | null> {
-  const token = frameToken
   const win = frameWindow(frame)
-  if (!token || !win) return null
+  if (!frameKey || !win) return null
 
   const depth = Math.min(Math.max(Math.floor(request.depth ?? 1), 1), MAX_FRAME_PIERCE)
   const deadline = request.deadline ?? Date.now() + FRAME_PICK_TIMEOUT
+  // A frame the picker has never talked to (the first hover) has to introduce
+  // itself first; after that the id is cached until a navigation invalidates it.
+  const budget = Math.max(FRAME_PICK_MIN_BUDGET, deadline - Date.now())
+  if (!(await ensurePeer(win, Math.min(FRAME_READY_TIMEOUT, budget)))) return null
+
   const nonce = createNonce()
   let items: FramePickItem[] | null = null
   let failure = ''
-  const sent = postFrameMessage(win, {
-    protocol: FRAME_PROTOCOL,
-    type: 'hover',
-    token,
-    nonce,
-    x: request.x,
-    y: request.y,
-    depth,
-    deadline
-  })
+  let answered = false
+  const sent = postFrameTo(win, 'hover', { x: request.x, y: request.y, depth, deadline }, { nonce })
   if (!sent) return null
 
   await waitForMessages({
@@ -820,13 +1034,15 @@ export async function requestFramePick(
     timeout: request.timeout ?? Math.max(0, deadline - Date.now()),
     onMessage: (message, event) => {
       if (message.type !== 'stack') return false
-      if (message.nonce !== nonce || event.source !== win) return false
-      failure = message.error ?? ''
-      items = readPickItems(message.items)
+      if (message.header.nonce !== nonce || event.source !== win) return false
+      answered = true
+      failure = typeof message.data.error === 'string' ? message.data.error : ''
+      items = readPickItems(message.data.items)
       return true
     }
   })
 
+  if (!answered) forgetPeer(win)
   if (failure) console.warn('[element-screenshot] frame helper failed:', failure)
   return items
 }
@@ -860,61 +1076,61 @@ export async function requestFrameCapture(
   frame: HTMLIFrameElement,
   request: FrameCaptureRequest
 ): Promise<FrameCapturePayload | null> {
-  const token = frameToken
   const win = frameWindow(frame)
-  if (!token || !win) return null
+  if (!frameKey || !win) return null
+
+  const timeout = request.timeout ?? FRAME_CAPTURE_TIMEOUT
+  if (!(await ensurePeer(win, Math.min(FRAME_READY_TIMEOUT, timeout)))) return null
 
   const nonce = createNonce()
   let payload: FrameCapturePayload | null = null
   let failure = ''
-  const sent = postFrameMessage(win, {
-    protocol: FRAME_PROTOCOL,
-    type: 'capture',
-    token,
-    nonce,
-    elementId: request.elementId,
-    ...(request.via && request.via.length ? { via: request.via.slice(0, MAX_VIA) } : {}),
-    ratio: request.ratio,
-    expandNested: request.expandNested,
-    background: request.background
-  })
+  let answered = false
+  const sent = postFrameTo(
+    win,
+    'capture',
+    {
+      elementId: request.elementId,
+      ...(request.via && request.via.length ? { via: request.via.slice(0, MAX_VIA) } : {}),
+      ratio: request.ratio,
+      expandNested: request.expandNested,
+      background: request.background
+    },
+    { nonce }
+  )
   if (!sent) return null
 
   await waitForMessages({
-    timeout: request.timeout ?? FRAME_CAPTURE_TIMEOUT,
+    timeout,
     onCancel: () => {
       postFrameCancel(win)
     },
     onMessage: (message, event) => {
       if (message.type !== 'captured') return false
-      if (message.nonce !== nonce || event.source !== win) return false
-      failure = message.error ?? ''
-      const width = Number(message.width)
-      const height = Number(message.height)
-      if (message.blob && Number.isFinite(width) && Number.isFinite(height) && width >= 1 && height >= 1) {
+      if (message.header.nonce !== nonce || event.source !== win) return false
+      answered = true
+      failure = typeof message.data.error === 'string' ? message.data.error : ''
+      const width = Number(message.data.width)
+      const height = Number(message.data.height)
+      const blob = pictureFrom(message)
+      if (blob && Number.isFinite(width) && Number.isFinite(height) && width >= 1 && height >= 1) {
         payload = {
-          blob: message.blob,
+          blob,
           width,
           height,
-          limited: message.limited === true
+          limited: message.data.limited === true
         }
       }
       return true
     }
   })
 
+  if (!answered) forgetPeer(win)
   if (failure) console.warn('[element-screenshot] frame helper failed:', failure)
   return payload
 }
 
 /** Tell one frame to stop rendering what it was asked for. */
 export function postFrameCancel(win: Window | null): boolean {
-  const token = frameToken
-  if (!token || !win) return false
-  return postFrameMessage(win, {
-    protocol: FRAME_PROTOCOL,
-    type: 'cancel',
-    token,
-    nonce: createNonce()
-  })
+  return postFrameTo(win, 'cancel', {})
 }

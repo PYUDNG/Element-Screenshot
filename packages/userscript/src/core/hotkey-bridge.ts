@@ -3,12 +3,11 @@ import { describeKeyStroke, isTriggerStroke } from './hotkey'
 import { isRelayedKey } from './relay-key'
 import type { RelayedKey } from './relay-key'
 import {
-  getFrameToken,
+  decodeFrameEvent,
   postHotkeyConfig,
   postHotkeyTrigger,
   postRelayedKey,
   postUiState,
-  readFrameMessage,
   subscribeToHotkey
 } from './frame-bridge'
 
@@ -29,16 +28,17 @@ import {
  *
  * Who learns what:
  * - the frame is told the shortcut and whether the UI is open, nothing else, over
- *   the authenticated bridge, so a page cannot point the frame at a key of its
- *   choosing and use the reports as a keylogger;
+ *   the sealed bridge, so a page cannot point the frame at a key of its choosing
+ *   and use the reports as a keylogger;
  * - the parent is told *that* the shortcut was pressed plus the shortcut string it
  *   already knows, and the presses of keys our own UI consumes.
  *
- * Nothing travelling *up* carries the token: a message a frame sends to its parent
- * is delivered into the parent window, where the parent's page scripts can read
- * it — the very window the token has to stay out of. Upward presses are therefore
- * unauthenticated by design; a frame can at worst open the picker or press a key
- * the picker already handles.
+ * Every message on this channel is sealed, in both directions: a page can see that
+ * a press was reported, never which key it was. The one thing sealing cannot give
+ * the upward half is a *sender* it can trust — the frame's page shares a window
+ * with the frame's copy of the script, so anything that copy could produce, the
+ * page can produce. A frame can therefore at worst trigger the shortcut or press
+ * a key the picker already handles; it cannot read what the parent sends back.
  */
 
 /** How often a frame asks for the shortcut before it stops trying. */
@@ -98,34 +98,36 @@ export function installHotkeyBridge(options: HotkeyBridgeOptions): HotkeyBridge 
   }
 
   const handler = (event: Event): void => {
-    const message = readFrameMessage((event as MessageEvent).data)
+    const message = decodeFrameEvent(event as MessageEvent)
     if (!message) return
+    const source = (event as MessageEvent).source as Window | null
 
     if (message.type === 'subscribe') {
-      const source = (event as MessageEvent).source
       if (!source) return
-      subscribers.add(source as Window)
-      postHotkeyConfig(source as Window, options.getShortcut())
-      if (active) postUiState(source as Window, true, passthrough)
+      subscribers.add(source)
+      postHotkeyConfig(source, options.getShortcut())
+      if (active) postUiState(source, true, passthrough)
       return
     }
 
     if (message.type === 'trigger') {
       // The frame matched its own copy of the shortcut; drop the press if the
       // setting changed after that copy was handed out.
-      if (message.shortcut !== options.getShortcut()) return
+      if (message.data.shortcut !== options.getShortcut()) return
       if (options.shouldIgnore?.()) return
       options.onTrigger()
       return
     }
 
     if (message.type === 'key') {
+      const key = message.data.key
+      if (typeof key !== 'string') return
       options.onKey?.({
-        key: message.key,
-        ctrlKey: message.ctrlKey,
-        altKey: message.altKey,
-        shiftKey: message.shiftKey,
-        metaKey: message.metaKey
+        key,
+        ctrlKey: message.data.ctrlKey === true,
+        altKey: message.data.altKey === true,
+        shiftKey: message.data.shiftKey === true,
+        metaKey: message.data.metaKey === true
       })
     }
   }
@@ -192,25 +194,26 @@ export function installFrameHotkey(options: FrameHotkeyOptions = {}): () => void
   }
 
   const handleMessage = (event: Event): void => {
-    const message = readFrameMessage((event as MessageEvent).data)
+    const message = decodeFrameEvent(event as MessageEvent)
     if (!message) return
-    const token = getFrameToken()
-    if (!token) return
     const source = (event as MessageEvent).source as Window | null
 
     if (message.type === 'hotkey') {
-      // Only the parent configures us, and only this install may do it.
-      if (message.token !== token || (event as MessageEvent).source !== win.parent) return
-      shortcut = message.shortcut
+      // Only the parent configures us. The message already proved it came from
+      // this install, which is what keeps another page from choosing our keys.
+      if (source !== win.parent) return
+      const next = message.data.shortcut
+      if (typeof next !== 'string') return
+      shortcut = next
       if (shortcut) stopAsking()
       pushConfig()
       return
     }
 
     if (message.type === 'ui') {
-      if (message.token !== token || (event as MessageEvent).source !== win.parent) return
-      uiActive = message.active
-      uiPassthrough = message.passthrough === true
+      if (source !== win.parent) return
+      uiActive = message.data.active === true
+      uiPassthrough = message.data.passthrough === true
       pushUi()
       return
     }
@@ -219,7 +222,7 @@ export function installFrameHotkey(options: FrameHotkeyOptions = {}): () => void
       if (!source) return
       subscribers.add(source)
       if (shortcut) postHotkeyConfig(source, shortcut)
-      if (uiActive) postUiState(source, true)
+      if (uiActive) postUiState(source, true, uiPassthrough)
       return
     }
 
@@ -227,14 +230,23 @@ export function installFrameHotkey(options: FrameHotkeyOptions = {}): () => void
       // A press inside a nested frame stops here only long enough to pass it on.
       // `source === win` would be our own post coming back (only possible if this
       // relay were installed in the top document) — never relay that.
-      if (!source || source === win) return
-      postHotkeyTrigger(win, message.shortcut)
+      const pressed = message.data.shortcut
+      if (!source || source === win || typeof pressed !== 'string') return
+      postHotkeyTrigger(win, pressed)
       return
     }
 
     if (message.type === 'key') {
       if (!source || source === win) return
-      postRelayedKey(win, message)
+      const key = message.data.key
+      if (typeof key !== 'string') return
+      postRelayedKey(win, {
+        key,
+        ctrlKey: message.data.ctrlKey === true,
+        altKey: message.data.altKey === true,
+        shiftKey: message.data.shiftKey === true,
+        metaKey: message.data.metaKey === true
+      })
     }
   }
 

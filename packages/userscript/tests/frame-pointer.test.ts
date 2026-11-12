@@ -1,26 +1,29 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { native } from '../src/core/native'
 import { installFramePointer } from '../src/core/frame-pointer'
 import { frameContentBox } from '../src/core/frame-size'
-import { FRAME_PROTOCOL, setFrameToken } from '../src/core/frame-bridge'
-import type { FrameMessage } from '../src/core/frame-bridge'
+import { getFrameSessionId, openFrameMessage, setFrameKey } from '../src/core/frame-bridge'
+import type { FrameMessageType, OpenedFrameMessage } from '../src/core/frame-bridge'
+import { TEST_KEY, wire } from './frame-wire'
 
-function uiMessage(
-  active: boolean,
-  passthrough: boolean,
-  token = 'test-token',
-  source: unknown = window
-): MessageEvent {
-  return new MessageEvent('message', {
-    data: { protocol: FRAME_PROTOCOL, type: 'ui', token, nonce: 'u1', active, passthrough },
-    source: source as never
-  })
+/** The session id the fake parent introduces itself with. */
+const PARENT = 'parent-test'
+
+/** An envelope the parent of this frame would send. */
+function uiMessage(active: boolean, passthrough: boolean): MessageEvent {
+  const envelope = wire(
+    'ui',
+    { active, passthrough },
+    { sid: PARENT, to: getFrameSessionId() }
+  )
+  return new MessageEvent('message', { data: envelope, source: window as never })
 }
 
-function posted(post: { mock: { calls: unknown[][] } }, type: string): FrameMessage[] {
+function posted(post: { mock: { calls: unknown[][] } }, type: FrameMessageType): OpenedFrameMessage[] {
   return post.mock.calls
-    .map((call) => call[0] as FrameMessage)
-    .filter((entry) => entry && entry.type === type)
+    .map((call) => openFrameMessage(call[0]))
+    .filter((message): message is OpenedFrameMessage => message !== null)
+    .filter((message) => message.type === type)
 }
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
@@ -39,17 +42,20 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
 
 let off: (() => void) | null = null
 
+beforeEach(() => {
+  setFrameKey(TEST_KEY)
+})
+
 afterEach(() => {
   off?.()
   off = null
-  setFrameToken('')
+  setFrameKey('')
   document.body.innerHTML = ''
   vi.restoreAllMocks()
 })
 
 describe('pointer reporting inside a frame', () => {
   it('stays quiet until the parent asks for it', () => {
-    setFrameToken('test-token')
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFramePointer()
 
@@ -64,25 +70,23 @@ describe('pointer reporting inside a frame', () => {
   })
 
   it('reports the pointer and swallows the click while picking', () => {
-    setFrameToken('test-token')
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFramePointer()
     window.dispatchEvent(uiMessage(true, true))
 
     window.dispatchEvent(new MouseEvent('mousemove', { clientX: 12, clientY: 34 }))
-    expect(posted(post, 'pointer')).toEqual([
-      expect.objectContaining({ kind: 'move', x: 12, y: 34 })
-    ])
+    const [move] = posted(post, 'pointer')
+    expect(move?.data).toEqual({ kind: 'move', x: 12, y: 34 })
+    expect(move?.header.to).toBe(PARENT)
 
     const click = new MouseEvent('click', { clientX: 12, clientY: 34, bubbles: true, cancelable: true })
     window.dispatchEvent(click)
 
     expect(click.defaultPrevented).toBe(true)
-    expect(posted(post, 'pointer')[1]).toMatchObject({ kind: 'click', x: 12, y: 34 })
+    expect(posted(post, 'pointer')[1]?.data).toEqual({ kind: 'click', x: 12, y: 34 })
   })
 
   it('lets the page have its pointer back when picking ends', () => {
-    setFrameToken('test-token')
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFramePointer()
     window.dispatchEvent(uiMessage(true, true))
@@ -95,20 +99,33 @@ describe('pointer reporting inside a frame', () => {
     expect(post).not.toHaveBeenCalled()
   })
 
-  it('ignores a state that did not come from this parent', () => {
-    setFrameToken('test-token')
+  it('ignores a state that did not come from this install or this parent', () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFramePointer()
 
-    window.dispatchEvent(uiMessage(true, true, 'other-install'))
-    window.dispatchEvent(uiMessage(true, true, 'test-token', { other: 'window' }))
+    // A page can forge neither of these: the first has no key, the second is
+    // sealed by another install.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { protocol: 'element-screenshot:frame/7', type: 'ui', box: new Uint8Array(80) },
+        source: window as never
+      })
+    )
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: wire('ui', { active: true, passthrough: true }, {
+          sid: PARENT,
+          to: getFrameSessionId()
+        }),
+        source: { other: 'window' } as never
+      })
+    )
     window.dispatchEvent(new MouseEvent('mousemove', { clientX: 1, clientY: 2 }))
 
     expect(post).not.toHaveBeenCalled()
   })
 
   it('passes a nested frame report on in its own coordinates', () => {
-    setFrameToken('test-token')
     const frame = document.createElement('iframe')
     Object.defineProperty(frame, 'clientWidth', { value: 200 })
     Object.defineProperty(frame, 'clientHeight', { value: 100 })
@@ -121,17 +138,21 @@ describe('pointer reporting inside a frame', () => {
 
     window.dispatchEvent(
       new MessageEvent('message', {
-        data: { protocol: FRAME_PROTOCOL, type: 'pointer', nonce: 'p1', kind: 'move', x: 5, y: 7 },
+        data: wire('pointer', { kind: 'move', x: 5, y: 7 }, {
+          sid: 'child-frame',
+          to: getFrameSessionId()
+        }),
         source: frame.contentWindow as never
       })
     )
 
     const view = frameContentBox(frame)
     const [relayed] = posted(post, 'pointer')
-    expect(relayed).toMatchObject({
+    expect(relayed?.data).toEqual({
       kind: 'move',
       x: (view?.left ?? 0) + 5,
       y: (view?.top ?? 0) + 7
     })
+    expect(relayed?.header.to).toBe(PARENT)
   })
 })

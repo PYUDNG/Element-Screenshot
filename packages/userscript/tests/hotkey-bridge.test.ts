@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installFrameHotkey, installHotkeyBridge } from '../src/core/hotkey-bridge'
 import type { HotkeyBridge } from '../src/core/hotkey-bridge'
-import { FRAME_PROTOCOL, setFrameToken } from '../src/core/frame-bridge'
-import type { FrameMessage } from '../src/core/frame-bridge'
+import { getFrameSessionId, openFrameMessage, setFrameKey } from '../src/core/frame-bridge'
+import type { FrameMessageType, OpenedFrameMessage } from '../src/core/frame-bridge'
+import { OTHER_KEY, TEST_KEY, wire, wireWith } from './frame-wire'
 
-const TOKEN = 'test-token-1234'
+/** The session id every fake parent introduces itself with. */
+const PARENT = 'parent-test'
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -27,30 +29,70 @@ function fakeWindow(): FakeWindow {
   return { postMessage: vi.fn() }
 }
 
-function message(data: unknown, source: unknown): MessageEvent {
-  return new MessageEvent('message', {
-    data: { protocol: FRAME_PROTOCOL, ...(data as object) },
-    source: source as never,
-    origin: 'http://localhost:4176'
-  })
+/** Dispatch one sealed message into this window. */
+function dispatch(envelope: unknown, source: unknown): void {
+  window.dispatchEvent(
+    new MessageEvent('message', {
+      data: envelope,
+      source: source as never,
+      origin: 'http://localhost:4176'
+    })
+  )
 }
 
-function dispatch(data: unknown, source: unknown): void {
-  window.dispatchEvent(message(data, source))
+/** A message a frame of this install sends to this window. */
+function fromFrame(
+  type: FrameMessageType,
+  data: Record<string, unknown>,
+  source: unknown,
+  options: { sid?: string; to?: string; seq?: number } = {}
+): void {
+  dispatch(
+    wire(type, data, {
+      sid: options.sid ?? 'frame-a',
+      // `subscribe` is a handshake, so it goes out without an addressee.
+      to: options.to ?? getFrameSessionId(),
+      ...(options.seq === undefined ? {} : { seq: options.seq })
+    }),
+    source
+  )
 }
 
-/** Messages the frame posted to its parent, by type. */
-function posted(post: { mock: { calls: unknown[][] } }, type: string): FrameMessage[] {
-  return post.mock.calls
-    .map((call) => call[0] as FrameMessage)
-    .filter((entry) => entry && entry.type === type)
+/** A message the parent of a frame sends: what a frame listens for. */
+function toFrame(type: FrameMessageType, data: Record<string, unknown>): void {
+  dispatch(
+    wire(type, data, { sid: PARENT, to: getFrameSessionId() }),
+    window
+  )
+}
+
+/** Either a fake window or a spy on `postMessage`. */
+type PostRecorder = FakeWindow | { mock: { calls: unknown[][] } }
+
+function callsOf(recorder: PostRecorder): unknown[][] {
+  if ('postMessage' in recorder) return recorder.postMessage.mock.calls
+  return recorder.mock.calls
+}
+
+/** Envelopes a fake window received, opened and filtered by type. */
+function posted(recorder: PostRecorder, type: FrameMessageType): OpenedFrameMessage[] {
+  return callsOf(recorder)
+    .map((call) => openFrameMessage(call[0]))
+    .filter((message): message is OpenedFrameMessage => message !== null)
+    .filter((message) => message.type === type)
+}
+
+function raw(recorder: PostRecorder, type: FrameMessageType): Record<string, unknown> | undefined {
+  return callsOf(recorder)
+    .map((call) => call[0] as Record<string, unknown>)
+    .find((entry) => entry && entry.type === type)
 }
 
 let off: (() => void) | null = null
 let bridge: HotkeyBridge | null = null
 
 beforeEach(() => {
-  setFrameToken(TOKEN)
+  setFrameKey(TEST_KEY)
 })
 
 afterEach(() => {
@@ -58,7 +100,7 @@ afterEach(() => {
   off = null
   bridge?.dispose()
   bridge = null
-  setFrameToken('')
+  setFrameKey('')
   vi.restoreAllMocks()
   document.body.innerHTML = ''
 })
@@ -71,38 +113,28 @@ describe('hotkey bridge in the top document', () => {
       onTrigger: () => undefined
     })
 
-    dispatch({ type: 'subscribe', token: TOKEN, nonce: 's1' }, frameWin)
+    fromFrame('subscribe', {}, frameWin, { to: '' })
 
-    expect(frameWin.postMessage).toHaveBeenCalledWith(
-      {
-        protocol: FRAME_PROTOCOL,
-        type: 'hotkey',
-        token: TOKEN,
-        nonce: expect.any(String),
-        shortcut: 'Alt+Shift+S'
-      },
-      '*'
-    )
+    const [hotkey] = posted(frameWin, 'hotkey')
+    expect(hotkey?.header.to).toBe('frame-a')
+    expect(hotkey?.data).toEqual({ shortcut: 'Alt+Shift+S' })
   })
 
-  it('answers any frame that subscribes, without asking for a secret', () => {
-    // Upward messages travel into the parent window, where the parent's own page
-    // can read them; a token in one would be handed to the page this all exists
-    // to keep it away from. The frame never sends one, so the parent cannot
-    // verify it either — a frame can at worst open the picker.
+  it('keeps the shortcut off the wire', () => {
+    // The parent's page can read everything posted into its window. Sealing is
+    // what keeps the shortcut (and, more importantly, the replies) unreadable.
     const frameWin = fakeWindow()
     bridge = installHotkeyBridge({
       getShortcut: () => 'Alt+Shift+S',
       onTrigger: () => undefined
     })
 
-    dispatch({ type: 'subscribe', nonce: 's2' }, frameWin)
+    fromFrame('subscribe', {}, frameWin, { to: '' })
 
-    expect(frameWin.postMessage).toHaveBeenCalledTimes(1)
-    expect(frameWin.postMessage.mock.calls[0]?.[0]).toMatchObject({
-      type: 'hotkey',
-      token: TOKEN
-    })
+    const envelope = raw(frameWin, 'hotkey')
+    expect(envelope && Object.keys(envelope)).toEqual(['protocol', 'type', 'box'])
+    expect(JSON.stringify(envelope)).not.toContain('Alt+Shift+S')
+    expect(posted(frameWin, 'hotkey')[0]?.data.shortcut).toBe('Alt+Shift+S')
   })
 
   it('pushes a changed shortcut to the frames that subscribed', () => {
@@ -110,21 +142,21 @@ describe('hotkey bridge in the top document', () => {
     const frameWin = fakeWindow()
     bridge = installHotkeyBridge({ getShortcut: () => shortcut, onTrigger: () => undefined })
 
-    dispatch({ type: 'subscribe', token: TOKEN, nonce: 's3' }, frameWin)
+    fromFrame('subscribe', {}, frameWin, { to: '' })
     frameWin.postMessage.mockClear()
 
     shortcut = 'Ctrl+Shift+K'
     bridge.broadcast()
 
-    expect(frameWin.postMessage).toHaveBeenCalledTimes(1)
-    expect(frameWin.postMessage.mock.calls[0]?.[0]).toMatchObject({ shortcut: 'Ctrl+Shift+K' })
+    expect(posted(frameWin, 'hotkey')).toHaveLength(1)
+    expect(posted(frameWin, 'hotkey')[0]?.data).toEqual({ shortcut: 'Ctrl+Shift+K' })
   })
 
   it('starts a capture on a verified press', () => {
     const onTrigger = vi.fn()
     bridge = installHotkeyBridge({ getShortcut: () => 'Alt+Shift+S', onTrigger })
 
-    dispatch({ type: 'trigger', token: TOKEN, nonce: 't1', shortcut: 'Alt+Shift+S' }, fakeWindow())
+    fromFrame('trigger', { shortcut: 'Alt+Shift+S' }, fakeWindow())
 
     expect(onTrigger).toHaveBeenCalledTimes(1)
   })
@@ -135,10 +167,10 @@ describe('hotkey bridge in the top document', () => {
     bridge = installHotkeyBridge({ getShortcut: () => shortcut, onTrigger })
 
     shortcut = 'Ctrl+Shift+K'
-    dispatch({ type: 'trigger', token: TOKEN, nonce: 't2', shortcut: 'Alt+Shift+S' }, fakeWindow())
+    fromFrame('trigger', { shortcut: 'Alt+Shift+S' }, fakeWindow())
     expect(onTrigger).not.toHaveBeenCalled()
 
-    dispatch({ type: 'trigger', token: TOKEN, nonce: 't3', shortcut: 'Ctrl+Shift+K' }, fakeWindow())
+    fromFrame('trigger', { shortcut: 'Ctrl+Shift+K' }, fakeWindow())
     expect(onTrigger).toHaveBeenCalledTimes(1)
   })
 
@@ -150,7 +182,7 @@ describe('hotkey bridge in the top document', () => {
       shouldIgnore: () => true
     })
 
-    dispatch({ type: 'trigger', nonce: 't5', shortcut: 'Alt+Shift+S' }, fakeWindow())
+    fromFrame('trigger', { shortcut: 'Alt+Shift+S' }, fakeWindow())
 
     expect(onTrigger).not.toHaveBeenCalled()
   })
@@ -160,7 +192,7 @@ describe('hotkey bridge in the top document', () => {
     const installed = installHotkeyBridge({ getShortcut: () => 'Alt+Shift+S', onTrigger })
     installed.dispose()
 
-    dispatch({ type: 'trigger', token: TOKEN, nonce: 't6', shortcut: 'Alt+Shift+S' }, fakeWindow())
+    fromFrame('trigger', { shortcut: 'Alt+Shift+S' }, fakeWindow())
 
     expect(onTrigger).not.toHaveBeenCalled()
   })
@@ -169,8 +201,8 @@ describe('hotkey bridge in the top document', () => {
     const onKey = vi.fn()
     bridge = installHotkeyBridge({ getShortcut: () => 'Alt+Shift+S', onTrigger: () => undefined, onKey })
 
-    dispatch({ type: 'key', nonce: 'k1', key: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }, fakeWindow())
-    dispatch({ type: 'key', nonce: 'k2', key: 'ArrowDown', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }, fakeWindow())
+    fromFrame('key', { key: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }, fakeWindow())
+    fromFrame('key', { key: 'ArrowDown', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }, fakeWindow())
 
     expect(onKey).toHaveBeenCalledTimes(2)
     expect(onKey).toHaveBeenCalledWith({
@@ -185,19 +217,19 @@ describe('hotkey bridge in the top document', () => {
   it('announces the open capture UI to the frames that subscribed', () => {
     const frameWin = fakeWindow()
     bridge = installHotkeyBridge({ getShortcut: () => 'Alt+Shift+S', onTrigger: () => undefined })
-    dispatch({ type: 'subscribe', token: TOKEN, nonce: 's4' }, frameWin)
+    fromFrame('subscribe', {}, frameWin, { to: '' })
     frameWin.postMessage.mockClear()
 
     bridge.setActive(true)
-    expect(frameWin.postMessage).toHaveBeenCalledTimes(1)
-    expect(frameWin.postMessage.mock.calls[0]?.[0]).toMatchObject({ type: 'ui', active: true })
+    expect(posted(frameWin, 'ui')).toHaveLength(1)
+    expect(posted(frameWin, 'ui')[0]?.data).toMatchObject({ active: true })
 
     // Repeating the same state does not spam the frame.
     bridge.setActive(true)
-    expect(frameWin.postMessage).toHaveBeenCalledTimes(1)
+    expect(posted(frameWin, 'ui')).toHaveLength(1)
 
     bridge.setActive(false)
-    expect(frameWin.postMessage.mock.calls[1]?.[0]).toMatchObject({ type: 'ui', active: false })
+    expect(posted(frameWin, 'ui')[1]?.data).toMatchObject({ active: false })
   })
 
   it('tells a late subscriber that the UI is already open', () => {
@@ -205,18 +237,15 @@ describe('hotkey bridge in the top document', () => {
     bridge = installHotkeyBridge({ getShortcut: () => 'Alt+Shift+S', onTrigger: () => undefined })
     bridge.setActive(true)
 
-    dispatch({ type: 'subscribe', token: TOKEN, nonce: 's5' }, frameWin)
+    fromFrame('subscribe', {}, frameWin, { to: '' })
 
-    expect(frameWin.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'ui', active: true }),
-      '*'
-    )
+    expect(posted(frameWin, 'ui')[0]?.data).toMatchObject({ active: true })
   })
 })
 
 describe('hotkey relay in a frame', () => {
   function configure(shortcut: string): void {
-    dispatch({ type: 'hotkey', token: TOKEN, nonce: 'c1', shortcut }, window)
+    toFrame('hotkey', { shortcut })
   }
 
   it('asks for the shortcut once and stops when the answer arrives', async () => {
@@ -226,9 +255,8 @@ describe('hotkey relay in a frame', () => {
     await until(() => posted(post, 'subscribe').length >= 1)
     const asked = posted(post, 'subscribe')
     expect(asked).toHaveLength(1)
-    // The parent's page can read anything sent to the parent window, so the ask
-    // must not carry the install token.
-    expect(asked[0]).not.toHaveProperty('token')
+    // The parent does not know our session id yet, so the ask goes out bare.
+    expect(asked[0]?.header.to).toBe('')
 
     configure('Alt+Shift+S')
     await wait(300)
@@ -245,8 +273,8 @@ describe('hotkey relay in a frame', () => {
     expect(posted(post, 'subscribe').length).toBeGreaterThan(1)
   })
 
-  it('does nothing without a token', () => {
-    setFrameToken('')
+  it('does nothing without a key', () => {
+    setFrameKey('')
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFrameHotkey({ attempts: [0] })
 
@@ -265,10 +293,9 @@ describe('hotkey relay in a frame', () => {
       new KeyboardEvent('keydown', { key: 's', altKey: true, shiftKey: true, bubbles: true })
     )
 
-    expect(posted(post, 'trigger')).toEqual([
-      expect.objectContaining({ shortcut: 'Alt+Shift+S' })
-    ])
-    expect(posted(post, 'trigger')[0]).not.toHaveProperty('token')
+    const [trigger] = posted(post, 'trigger')
+    expect(trigger?.data).toEqual({ shortcut: 'Alt+Shift+S' })
+    expect(trigger?.header.to).toBe(PARENT)
   })
 
   it('ignores other keys and keys typed into a text field', () => {
@@ -293,8 +320,14 @@ describe('hotkey relay in a frame', () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFrameHotkey({ attempts: [0] })
 
-    dispatch({ type: 'hotkey', token: 'other-install', nonce: 'c2', shortcut: 'Alt+Shift+S' }, window)
-    dispatch({ type: 'hotkey', token: TOKEN, nonce: 'c3', shortcut: 'Alt+Shift+S' }, {})
+    dispatch(
+      wireWith(OTHER_KEY, 'hotkey', { shortcut: 'Alt+Shift+S' }, { sid: PARENT, to: getFrameSessionId() }),
+      window
+    )
+    dispatch(
+      wire('hotkey', { shortcut: 'Alt+Shift+S' }, { sid: PARENT, to: getFrameSessionId() }),
+      {}
+    )
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', altKey: true, shiftKey: true }))
 
     expect(posted(post, 'trigger')).toHaveLength(0)
@@ -305,12 +338,11 @@ describe('hotkey relay in a frame', () => {
     configure('Alt+Shift+S')
 
     const child = fakeWindow()
-    dispatch({ type: 'subscribe', token: TOKEN, nonce: 'n1' }, child)
+    fromFrame('subscribe', {}, child, { to: '' })
 
-    expect(child.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'hotkey', shortcut: 'Alt+Shift+S' }),
-      '*'
-    )
+    const [hotkey] = posted(child, 'hotkey')
+    expect(hotkey?.data).toEqual({ shortcut: 'Alt+Shift+S' })
+    expect(hotkey?.header.to).toBe('frame-a')
   })
 
   it('passes a nested frame press up to its own parent', () => {
@@ -319,33 +351,33 @@ describe('hotkey relay in a frame', () => {
     configure('Alt+Shift+S')
     post.mockClear()
 
-    dispatch({ type: 'trigger', token: TOKEN, nonce: 'n2', shortcut: 'Alt+Shift+S' }, fakeWindow())
+    fromFrame('trigger', { shortcut: 'Alt+Shift+S' }, fakeWindow())
 
-    expect(posted(post, 'trigger')).toEqual([
-      expect.objectContaining({ shortcut: 'Alt+Shift+S' })
-    ])
+    const [trigger] = posted(post, 'trigger')
+    expect(trigger?.data).toEqual({ shortcut: 'Alt+Shift+S' })
+    expect(trigger?.header.to).toBe(PARENT)
   })
 
-  it('reports the picker keys while the capture UI is open and swallows them', () => {
+  it('reports the picker keys while the capture UI is open and swallows them', async () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFrameHotkey({ attempts: [0] })
     configure('Alt+Shift+S')
     post.mockClear()
 
-    dispatch({ type: 'ui', token: TOKEN, nonce: 'u1', active: true }, window)
+    toFrame('ui', { active: true, passthrough: false })
+    await wait(0)
     const escape = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true })
     window.dispatchEvent(escape)
 
-    expect(posted(post, 'key')).toEqual([
-      expect.objectContaining({
-        key: 'Escape',
-        ctrlKey: false,
-        altKey: false,
-        shiftKey: false,
-        metaKey: false
-      })
-    ])
-    expect(posted(post, 'key')[0]).not.toHaveProperty('token')
+    const keys = posted(post, 'key')
+    expect(keys).toHaveLength(1)
+    expect(keys[0]?.data).toEqual({
+      key: 'Escape',
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false
+    })
     expect(escape.defaultPrevented).toBe(true)
 
     const command = new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, cancelable: true })
@@ -358,7 +390,7 @@ describe('hotkey relay in a frame', () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFrameHotkey({ attempts: [0] })
     configure('Alt+Shift+S')
-    dispatch({ type: 'ui', token: TOKEN, nonce: 'u2', active: true }, window)
+    toFrame('ui', { active: true, passthrough: false })
     post.mockClear()
 
     const letter = new KeyboardEvent('keydown', { key: 'a', cancelable: true })
@@ -379,8 +411,8 @@ describe('hotkey relay in a frame', () => {
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
     off = installFrameHotkey({ attempts: [0] })
     configure('Alt+Shift+S')
-    dispatch({ type: 'ui', token: TOKEN, nonce: 'u3', active: true }, window)
-    dispatch({ type: 'ui', token: TOKEN, nonce: 'u4', active: false }, window)
+    toFrame('ui', { active: true, passthrough: false })
+    toFrame('ui', { active: false, passthrough: false })
     post.mockClear()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
@@ -393,8 +425,11 @@ describe('hotkey relay in a frame', () => {
     off = installFrameHotkey({ attempts: [0] })
     configure('Alt+Shift+S')
 
-    dispatch({ type: 'ui', token: 'other-install', nonce: 'u5', active: true }, window)
-    dispatch({ type: 'ui', token: TOKEN, nonce: 'u6', active: true }, {})
+    dispatch(
+      wireWith(OTHER_KEY, 'ui', { active: true, passthrough: false }, { sid: PARENT, to: getFrameSessionId() }),
+      window
+    )
+    dispatch(wire('ui', { active: true, passthrough: false }, { sid: PARENT, to: getFrameSessionId() }), {})
     post.mockClear()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
 
@@ -407,25 +442,25 @@ describe('hotkey relay in a frame', () => {
     configure('Alt+Shift+S')
     post.mockClear()
 
-    dispatch(
-      { type: 'key', token: TOKEN, nonce: 'n3', key: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+    fromFrame(
+      'key',
+      { key: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
       fakeWindow()
     )
 
-    expect(posted(post, 'key')).toEqual([expect.objectContaining({ key: 'Escape' })])
+    const [key] = posted(post, 'key')
+    expect(key?.data).toMatchObject({ key: 'Escape' })
+    expect(key?.header.to).toBe(PARENT)
   })
 
   it('tells a nested frame that the UI is already open', () => {
     off = installFrameHotkey({ attempts: [0] })
     configure('Alt+Shift+S')
-    dispatch({ type: 'ui', token: TOKEN, nonce: 'u7', active: true }, window)
+    toFrame('ui', { active: true, passthrough: false })
 
     const child = fakeWindow()
-    dispatch({ type: 'subscribe', token: TOKEN, nonce: 'n4' }, child)
+    fromFrame('subscribe', {}, child, { to: '' })
 
-    expect(child.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'ui', active: true }),
-      '*'
-    )
+    expect(posted(child, 'ui')[0]?.data).toMatchObject({ active: true })
   })
 })

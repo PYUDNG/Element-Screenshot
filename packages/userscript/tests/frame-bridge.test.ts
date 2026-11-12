@@ -2,40 +2,96 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { native } from '../src/core/native'
 import {
   FRAME_PROTOCOL,
+  decodeFrameEvent,
   frameWindow,
-  getFrameToken,
+  getFrameSessionId,
   installFramePointerBridge,
+  openFrameMessage,
   postFrameCancel,
   postFrameMessage,
   probeFrameHelpers,
-  readFrameMessage,
+  readFrameEnvelope,
   readPickItems,
   readVia,
   requestFrameCapture,
   requestFrameImage,
   requestFramePick,
   requestFrameSize,
-  setFrameToken
+  sealFrameMessage,
+  setFrameKey
 } from '../src/core/frame-bridge'
+import type { FrameMessageType, OpenedFrameMessage } from '../src/core/frame-bridge'
 import { frameContentBox } from '../src/core/frame-size'
-import type { FrameMessage } from '../src/core/frame-bridge'
+import { OTHER_KEY, TEST_KEY, blobText, deliver, pngBytes, wire, wireWith } from './frame-wire'
 
 interface FakeFrame {
   element: HTMLIFrameElement
   window: Window
-  posts: FrameMessage[]
+  posts: unknown[]
+  /** Session id this frame answers with. */
+  sid: string
+}
+
+let frameCounter = 0
+
+/** The answer each request type expects. */
+const REPLIES: Partial<Record<FrameMessageType, FrameMessageType>> = {
+  hello: 'ready',
+  measure: 'size',
+  render: 'result',
+  hover: 'stack',
+  capture: 'captured'
+}
+
+/** Read the envelopes a fake frame received, opened and authenticated. */
+function received(frame: FakeFrame, type?: FrameMessageType): OpenedFrameMessage[] {
+  return frame.posts
+    .map((post) => openFrameMessage(post))
+    .filter((message): message is OpenedFrameMessage => message !== null)
+    .filter((message) => type === undefined || message.type === type)
+}
+
+/** Post one reply, sealed to whoever asked and echoing the request nonce. */
+function answer(
+  frame: FakeFrame,
+  request: OpenedFrameMessage,
+  data: Record<string, unknown> = {},
+  binary?: Uint8Array
+): void {
+  const type = REPLIES[request.type]
+  if (!type) return
+  deliver(
+    wire(type, data, {
+      sid: frame.sid,
+      to: request.header.sid,
+      // The parent's own sequence numbers are unique per request, so reusing one
+      // keeps this fake peer's replies unique without extra bookkeeping.
+      seq: request.header.seq,
+      nonce: request.header.nonce,
+      ...(binary ? { binary } : {})
+    }),
+    frame.window
+  )
 }
 
 /** A frame whose content window answers `postMessage` through `reply`. */
-function fakeFrame(reply?: (message: FrameMessage, frame: FakeFrame) => void): FakeFrame {
+function fakeFrame(reply?: (message: OpenedFrameMessage, frame: FakeFrame) => void): FakeFrame {
+  frameCounter += 1
   const element = document.createElement('iframe')
-  const frame: FakeFrame = { element, window: null as unknown as Window, posts: [] }
+  const frame: FakeFrame = {
+    element,
+    window: null as unknown as Window,
+    posts: [],
+    sid: `frame-${frameCounter}`
+  }
   const win = {
-    postMessage: (message: FrameMessage): void => {
+    postMessage: (message: unknown): void => {
       frame.posts.push(message)
       if (!reply) return
+      const request = openFrameMessage(message)
+      if (!request) return
       // Real postMessage delivery is a task, never a synchronous callback.
-      native.setTimeout(() => reply(message, frame), 0)
+      native.setTimeout(() => reply(request, frame), 0)
     }
   } as unknown as Window
   frame.window = win
@@ -44,71 +100,123 @@ function fakeFrame(reply?: (message: FrameMessage, frame: FakeFrame) => void): F
   return frame
 }
 
-function answer(message: FrameMessage, source: unknown, data: unknown): void {
-  window.dispatchEvent(
-    new MessageEvent('message', {
-      data: { protocol: FRAME_PROTOCOL, nonce: message.nonce, ...(data as object) },
-      source: source as never,
-      origin: 'http://localhost:4176'
-    })
-  )
+/** A frame that answers the handshake and hands everything else to `reply`. */
+function frameThat(reply: (request: OpenedFrameMessage, frame: FakeFrame) => void): FakeFrame {
+  return fakeFrame((request, frame) => {
+    if (request.type === 'hello') {
+      answer(frame, request)
+      return
+    }
+    reply(request, frame)
+  })
 }
 
 beforeEach(() => {
-  setFrameToken('test-token-1234')
+  setFrameKey(TEST_KEY)
 })
 
 afterEach(() => {
-  setFrameToken('')
+  setFrameKey('')
   native.capture.aborted = false
   document.body.innerHTML = ''
   vi.restoreAllMocks()
 })
 
+describe('sealed envelopes', () => {
+  it('is the only thing a page can see', () => {
+    const envelope = sealFrameMessage('hover', { x: 12, y: 34, depth: 2, deadline: 99 })
+    expect(envelope).not.toBeNull()
+    expect(Object.keys(envelope ?? {})).toEqual(['protocol', 'type', 'box'])
+    expect(envelope?.protocol).toBe(FRAME_PROTOCOL)
+    expect(envelope?.type).toBe('hover')
+    expect(envelope?.box).toBeInstanceOf(Uint8Array)
+    // The coordinates only exist inside the box.
+    expect(openFrameMessage(envelope)?.data).toEqual({ x: 12, y: 34, depth: 2, deadline: 99 })
+  })
+
+  it('keeps the header out of the business fields', () => {
+    const opened = openFrameMessage(
+      sealFrameMessage('render', { ratio: 2, depth: 1 }, { to: 'peer', nonce: 'n1' })
+    )
+    expect(opened?.header).toMatchObject({ to: 'peer', nonce: 'n1', seq: expect.any(Number) })
+    expect(opened?.header.sid).toBe(getFrameSessionId())
+    expect(opened?.data).toEqual({ ratio: 2, depth: 1 })
+  })
+
+  it('carries a picture as bytes', () => {
+    const opened = openFrameMessage(sealFrameMessage('result', { mime: 'image/png' }, { binary: pngBytes('frame') }))
+    expect(opened?.binary && new TextDecoder().decode(opened.binary)).toBe('frame')
+  })
+
+  it('refuses anything outside the protocol', () => {
+    expect(readFrameEnvelope(null)).toBeNull()
+    expect(readFrameEnvelope('hello')).toBeNull()
+    expect(readFrameEnvelope({ type: 'hello', box: new Uint8Array(64) })).toBeNull()
+    expect(readFrameEnvelope({ protocol: 'element-screenshot:frame/6', type: 'hello', box: new Uint8Array(64) })).toBeNull()
+    expect(readFrameEnvelope({ protocol: FRAME_PROTOCOL, type: 'nope', box: new Uint8Array(64) })).toBeNull()
+    expect(readFrameEnvelope({ protocol: FRAME_PROTOCOL, type: 'hello' })).toBeNull()
+    expect(readFrameEnvelope({ protocol: FRAME_PROTOCOL, type: 'hello', box: [1, 2, 3] })).toBeNull()
+    expect(readFrameEnvelope({ protocol: FRAME_PROTOCOL, type: 'hello', box: new Uint8Array(20) })).toBeNull()
+    expect(readFrameEnvelope(sealFrameMessage('hello'))).not.toBeNull()
+  })
+
+  it('refuses a box sealed for another type', () => {
+    const hover = sealFrameMessage('hover', { x: 1, y: 2, depth: 1, deadline: 9 })
+    expect(hover).not.toBeNull()
+    // Re-labelling is the cheapest forgery a page can attempt: the plaintext type
+    // is the only part it can change.
+    expect(openFrameMessage({ ...hover, type: 'capture' })).toBeNull()
+    expect(openFrameMessage({ ...hover, type: 'stack' })).toBeNull()
+  })
+
+  it('refuses a box from another install', () => {
+    const foreign = wireWith(OTHER_KEY, 'ready', {}, { sid: 'frame-x', to: getFrameSessionId() })
+    expect(openFrameMessage(foreign)).toBeNull()
+  })
+
+  it('refuses a tampered box', () => {
+    const envelope = sealFrameMessage('ready', {})
+    expect(envelope).not.toBeNull()
+    if (!envelope) return
+    const tampered = { ...envelope, box: new Uint8Array(envelope.box) }
+    const last = tampered.box.length - 1
+    tampered.box[last] = (tampered.box[last] ?? 0) ^ 0xff
+    expect(openFrameMessage(tampered)).toBeNull()
+    expect(openFrameMessage({ ...envelope, box: new Uint8Array(60) })).toBeNull()
+  })
+
+  it('refuses a message addressed to another session', () => {
+    const event = deliver(
+      wire('ready', {}, { sid: 'frame-a', to: 'someone-else', nonce: 'n1' })
+    )
+    expect(decodeFrameEvent(event)).toBeNull()
+  })
+
+  it('accepts a handshake without an addressee and refuses its replay', () => {
+    const envelope = wire('hello', {}, { sid: 'frame-a', to: '', seq: 1 })
+    expect(decodeFrameEvent(deliver(envelope))?.type).toBe('hello')
+    // A page can copy the bytes; it cannot move the sequence number forward.
+    expect(decodeFrameEvent(deliver(envelope))).toBeNull()
+  })
+
+  it('refuses a replayed message for this session', () => {
+    const envelope = wire('ready', {}, { sid: 'frame-a', to: getFrameSessionId(), seq: 7 })
+    expect(decodeFrameEvent(deliver(envelope))?.type).toBe('ready')
+    expect(decodeFrameEvent(deliver(envelope))).toBeNull()
+    // The next number from the same sender is fine.
+    expect(
+      decodeFrameEvent(deliver(wire('ready', {}, { sid: 'frame-a', to: getFrameSessionId(), seq: 8 })))
+    ).not.toBeNull()
+  })
+
+  it('refuses a page that guesses at a box', () => {
+    // A page has no key, so anything it posts is noise, however well shaped.
+    expect(openFrameMessage({ protocol: FRAME_PROTOCOL, type: 'render', box: new Uint8Array(80) })).toBeNull()
+    expect(openFrameMessage({ protocol: FRAME_PROTOCOL, type: 'render', box: new Uint8Array(80).fill(7) })).toBeNull()
+  })
+})
+
 describe('frame messages', () => {
-  it('rejects anything outside the protocol', () => {
-    expect(readFrameMessage(null)).toBeNull()
-    expect(readFrameMessage('hello')).toBeNull()
-    expect(readFrameMessage({ type: 'hello', nonce: 'a' })).toBeNull()
-    expect(readFrameMessage({ protocol: 'other', type: 'hello', nonce: 'a' })).toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'nope', nonce: 'a' })).toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'hello' })).toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'hello', nonce: '' })).toBeNull()
-  })
-
-  it('accepts a current protocol message', () => {
-    const message = { protocol: FRAME_PROTOCOL, type: 'hello', token: 't', nonce: 'n' }
-    expect(readFrameMessage(message)).toBe(message)
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'size', nonce: 'n', width: 1, height: 2 })).not.toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'measure', nonce: 'n', token: 't' })).not.toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'subscribe', nonce: 'n', token: 't' })).not.toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'hover', nonce: 'n', token: 't', x: 1, y: 2 })).not.toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'stack', nonce: 'n', items: [] })).not.toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'capture', nonce: 'n', token: 't', elementId: 1 })).not.toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'captured', nonce: 'n', blob: null, width: 0, height: 0 })).not.toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'cancel', nonce: 'n', token: 't' })).not.toBeNull()
-    expect(
-      readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'hotkey', nonce: 'n', token: 't', shortcut: 'Alt+S' })
-    ).not.toBeNull()
-    expect(
-      readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'trigger', nonce: 'n', token: 't', shortcut: 'Alt+S' })
-    ).not.toBeNull()
-    expect(readFrameMessage({ protocol: FRAME_PROTOCOL, type: 'ui', nonce: 'n', token: 't', active: true })).not.toBeNull()
-    expect(
-      readFrameMessage({
-        protocol: FRAME_PROTOCOL,
-        type: 'key',
-        nonce: 'n',
-        token: 't',
-        key: 'Escape',
-        ctrlKey: false,
-        altKey: false,
-        shiftKey: false,
-        metaKey: false
-      })
-    ).not.toBeNull()
-  })
-
   it('reads a hop path strictly', () => {
     expect(readVia(undefined)).toEqual([])
     expect(readVia([])).toEqual([])
@@ -163,33 +271,22 @@ describe('frame messages', () => {
       onMove: (point) => moves.push(point),
       onClick: () => undefined
     })
+    const point = (type: 'move' | 'click', x: number, y: number, seq: number): unknown =>
+      wire('pointer', { kind: type, x, y }, { sid: 'frame-p', to: getFrameSessionId(), seq })
 
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: { protocol: FRAME_PROTOCOL, type: 'pointer', nonce: 'p1', kind: 'move', x: 10, y: 20 },
-        source: frame.contentWindow as never
-      })
-    )
+    deliver(point('move', 10, 20, 1), frame.contentWindow)
+    expect(moves).toEqual([{ x: (view?.left ?? 0) + 10, y: (view?.top ?? 0) + 20 }])
 
-    expect(moves).toEqual([
-      { x: (view?.left ?? 0) + 10, y: (view?.top ?? 0) + 20 }
-    ])
     // A point outside the frame's own viewport is not a place in the page.
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: { protocol: FRAME_PROTOCOL, type: 'pointer', nonce: 'p2', kind: 'move', x: 9999, y: 20 },
-        source: frame.contentWindow as never
-      })
-    )
+    deliver(point('move', 9999, 20, 2), frame.contentWindow)
     expect(moves).toHaveLength(1)
 
-    // An unrelated window cannot drive the picker.
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: { protocol: FRAME_PROTOCOL, type: 'pointer', nonce: 'p3', kind: 'move', x: 10, y: 20 },
-        source: { other: 'window' } as never
-      })
-    )
+    // An unrelated window cannot drive the picker, even with a valid box.
+    deliver(point('move', 10, 20, 3), { other: 'window' })
+    expect(moves).toHaveLength(1)
+
+    // A page can post a well-shaped envelope at any time; it never opens.
+    deliver({ protocol: FRAME_PROTOCOL, type: 'pointer', box: new Uint8Array(80).fill(3) }, frame.contentWindow)
     expect(moves).toHaveLength(1)
     off()
   })
@@ -208,57 +305,48 @@ describe('frame messages', () => {
         throw new Error('nope')
       }
     } as unknown as Window
-    expect(postFrameMessage(broken, { protocol: FRAME_PROTOCOL, type: 'ready', nonce: 'n' })).toBe(
-      false
-    )
-    expect(postFrameMessage(null, { protocol: FRAME_PROTOCOL, type: 'ready', nonce: 'n' })).toBe(
-      false
-    )
+    const envelope = { protocol: FRAME_PROTOCOL, type: 'ready', box: new Uint8Array(64) } as const
+    expect(postFrameMessage(broken, envelope)).toBe(false)
+    expect(postFrameMessage(null, envelope)).toBe(false)
   })
 })
 
 describe('helper probe', () => {
-  it('does nothing without a token', async () => {
-    setFrameToken('')
+  it('does nothing without a key', async () => {
+    setFrameKey('')
     const frame = fakeFrame()
     expect(await probeFrameHelpers([frame.element])).toEqual(new Set())
     expect(frame.posts).toHaveLength(0)
   })
 
   it('collects the frames that answer the hello', async () => {
-    const answering = fakeFrame((message, frame) => {
-      answer(message, frame.window, { type: 'ready' })
-    })
+    const asking = frameThat((request, frame) => answer(frame, request))
     const silent = fakeFrame()
 
-    const ready = await probeFrameHelpers([answering.element, silent.element], { timeout: 60 })
+    const ready = await probeFrameHelpers([asking.element, silent.element], { timeout: 60 })
 
-    expect(ready.has(answering.element)).toBe(true)
+    expect(ready.has(asking.element)).toBe(true)
     expect(ready.has(silent.element)).toBe(false)
-    expect(answering.posts[0]).toMatchObject({
-      protocol: FRAME_PROTOCOL,
-      type: 'hello',
-      token: 'test-token-1234'
-    })
-    // A silent frame is probed, it just never answers.
+    const hello = received(asking, 'hello')[0]
+    expect(hello?.header.to).toBe('')
     expect(silent.posts).toHaveLength(1)
   })
 
   it('ignores an answer that does not come from the probed window', async () => {
-    const frame = fakeFrame((message) => {
-      answer(message, { other: 'window' }, { type: 'ready' })
+    const frame = fakeFrame((request) => {
+      deliver(
+        wire('ready', {}, { sid: 'frame-a', to: request.header.sid, nonce: request.header.nonce }),
+        { other: 'window' }
+      )
     })
     expect(await probeFrameHelpers([frame.element], { timeout: 60 })).toEqual(new Set())
   })
 
   it('ignores a ready for another nonce', async () => {
-    const frame = fakeFrame((_message, frame) => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: { protocol: FRAME_PROTOCOL, type: 'ready', nonce: 'stale' },
-          source: frame.window as never,
-          origin: 'http://localhost:4176'
-        })
+    const frame = fakeFrame((request) => {
+      deliver(
+        wire('ready', {}, { sid: 'frame-a', to: request.header.sid, nonce: 'stale' }),
+        frame.window
       )
     })
     expect(await probeFrameHelpers([frame.element], { timeout: 60 })).toEqual(new Set())
@@ -273,27 +361,26 @@ describe('helper probe', () => {
 
 describe('frame render request', () => {
   it('returns the picture the helper sends back', async () => {
-    const blob = new Blob(['png'], { type: 'image/png' })
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, { type: 'result', blob })
-    })
+    const frame = frameThat((request, frame) =>
+      answer(frame, request, { mime: 'image/png' }, pngBytes('picture'))
+    )
 
     const image = await requestFrameImage(frame.element, { ratio: 2, depth: 1, timeout: 500 })
 
-    expect(image).toBe(blob)
-    expect(frame.posts[0]).toMatchObject({
-      type: 'render',
-      token: 'test-token-1234',
-      ratio: 2,
-      depth: 1
-    })
+    expect(image).not.toBeNull()
+    expect(await blobText(image as Blob)).toBe('picture')
+    expect(image?.type).toBe('image/png')
+    const render = received(frame, 'render')[0]
+    expect(render?.data).toMatchObject({ ratio: 2, depth: 1 })
+    // The frame was addressed by the session id it introduced itself with.
+    expect(render?.header.to).toBe(frame.sid)
   })
 
   it('reports a helper side failure and returns no picture', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, { type: 'result', blob: null, error: 'the frame broke' })
-    })
+    const frame = frameThat((request, frame) =>
+      answer(frame, request, { error: 'the frame broke' })
+    )
 
     expect(await requestFrameImage(frame.element, { ratio: 1, depth: 1, timeout: 500 })).toBeNull()
     expect(warn).toHaveBeenCalledWith(
@@ -303,34 +390,32 @@ describe('frame render request', () => {
   })
 
   it('gives up when the helper never answers', async () => {
-    const frame = fakeFrame()
+    const frame = frameThat(() => undefined)
     expect(await requestFrameImage(frame.element, { ratio: 1, depth: 1, timeout: 60 })).toBeNull()
+    expect(received(frame, 'render')).toHaveLength(1)
   })
 
   it('gives up when the capture is cancelled', async () => {
-    const frame = fakeFrame()
+    const frame = frameThat(() => undefined)
     const started = Date.now()
     const pending = requestFrameImage(frame.element, { ratio: 1, depth: 1, timeout: 5_000 })
     native.capture.aborted = true
     expect(await pending).toBeNull()
     expect(Date.now() - started).toBeLessThan(1_000)
     // Frames render in parallel now, so every one of them has to be told to stop.
-    expect(frame.posts.map((post) => post.type)).toEqual(['render', 'cancel'])
+    expect(received(frame, 'render')).toHaveLength(1)
+    expect(received(frame, 'cancel')[0]?.header.to).toBe(frame.sid)
   })
 
-  it('refuses to talk without a token', async () => {
-    setFrameToken('')
+  it('refuses to talk without a key', async () => {
+    setFrameKey('')
     const frame = fakeFrame()
     expect(await requestFrameImage(frame.element, { ratio: 1, depth: 1 })).toBeNull()
     expect(frame.posts).toHaveLength(0)
-    expect(getFrameToken()).toBe('')
   })
 
   it('carries the surface of an expanded frame', async () => {
-    const blob = new Blob(['png'], { type: 'image/png' })
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, { type: 'result', blob })
-    })
+    const frame = frameThat((request, frame) => answer(frame, request, {}, pngBytes()))
 
     await requestFrameImage(frame.element, {
       ratio: 1,
@@ -339,40 +424,42 @@ describe('frame render request', () => {
       timeout: 500
     })
 
-    expect(frame.posts[0]).toMatchObject({ type: 'render', expand: { width: 300, height: 900 } })
+    expect(received(frame, 'render')[0]?.data).toMatchObject({
+      expand: { width: 300, height: 900 }
+    })
   })
 })
 
 describe('frame measurement request', () => {
   it('returns the size the helper reports', async () => {
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, { type: 'size', width: 640, height: 900 })
-    })
+    const frame = frameThat((request, frame) => answer(frame, request, { width: 640, height: 900 }))
 
     expect(await requestFrameSize(frame.element, { timeout: 500 })).toEqual({
       width: 640,
       height: 900
     })
-    expect(frame.posts[0]).toMatchObject({ type: 'measure', token: 'test-token-1234' })
+    expect(received(frame, 'measure')[0]?.header.to).toBe(frame.sid)
   })
 
   it('ignores an answer that does not come from the asked frame', async () => {
-    const frame = fakeFrame((message) => {
-      answer(message, { other: 'window' }, { type: 'size', width: 10, height: 10 })
+    const frame = frameThat((request, answering) => {
+      deliver(
+        wire(
+          'size',
+          { width: 10, height: 10 },
+          { sid: answering.sid, to: request.header.sid, nonce: request.header.nonce }
+        ),
+        { other: 'window' }
+      )
     })
     expect(await requestFrameSize(frame.element, { timeout: 60 })).toBeNull()
   })
 
   it('rejects a size it cannot use and says why', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, {
-        type: 'size',
-        width: 0,
-        height: 0,
-        error: 'nothing to measure'
-      })
-    })
+    const frame = frameThat((request, frame) =>
+      answer(frame, request, { width: 0, height: 0, error: 'nothing to measure' })
+    )
 
     expect(await requestFrameSize(frame.element, { timeout: 500 })).toBeNull()
     expect(warn).toHaveBeenCalledWith(
@@ -382,12 +469,12 @@ describe('frame measurement request', () => {
   })
 
   it('gives up when the helper never answers', async () => {
-    const frame = fakeFrame()
+    const frame = frameThat(() => undefined)
     expect(await requestFrameSize(frame.element, { timeout: 60 })).toBeNull()
   })
 
-  it('refuses to measure without a token', async () => {
-    setFrameToken('')
+  it('refuses to measure without a key', async () => {
+    setFrameKey('')
     const frame = fakeFrame()
     expect(await requestFrameSize(frame.element)).toBeNull()
     expect(frame.posts).toHaveLength(0)
@@ -409,50 +496,54 @@ describe('frame layer probing', () => {
   }
 
   it('asks for the layers under a point and returns them', async () => {
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, { type: 'stack', items: [layer] })
-    })
+    const frame = frameThat((request, frame) => answer(frame, request, { items: [layer] }))
 
     const items = await requestFramePick(frame.element, { x: 12, y: 34, timeout: 500 })
 
-    expect(frame.posts[0]).toMatchObject({ type: 'hover', token: 'test-token-1234', x: 12, y: 34 })
+    const hover = received(frame, 'hover')[0]
+    expect(hover?.data).toMatchObject({ x: 12, y: 34 })
+    expect(hover?.header.to).toBe(frame.sid)
     expect(items).toEqual([layer])
   })
 
   it('answers an empty list when a frame reports no layer', async () => {
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, { type: 'stack', items: [] })
-    })
+    const frame = frameThat((request, frame) => answer(frame, request, { items: [] }))
 
     expect(await requestFramePick(frame.element, { x: 1, y: 1, timeout: 500 })).toEqual([])
   })
 
   it('drops malformed layers', async () => {
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, {
-        type: 'stack',
+    const frame = frameThat((request, frame) =>
+      answer(frame, request, {
         items: [layer, { id: 0, label: 'no id' }, null, { ...layer, id: 4, width: 'wide' }]
       })
-    })
+    )
 
     const items = await requestFramePick(frame.element, { x: 1, y: 1, timeout: 500 })
     expect(items).toEqual([layer])
   })
 
   it('returns null when the frame does not answer', async () => {
-    const frame = fakeFrame()
+    const frame = frameThat(() => undefined)
     expect(await requestFramePick(frame.element, { x: 1, y: 1, timeout: 60 })).toBeNull()
   })
 
   it('ignores an answer from another window', async () => {
-    const frame = fakeFrame((message) => {
-      answer(message, { other: 'window' }, { type: 'stack', items: [layer] })
+    const frame = frameThat((request, answering) => {
+      deliver(
+        wire(
+          'stack',
+          { items: [layer] },
+          { sid: answering.sid, to: request.header.sid, nonce: request.header.nonce }
+        ),
+        { other: 'window' }
+      )
     })
     expect(await requestFramePick(frame.element, { x: 1, y: 1, timeout: 60 })).toBeNull()
   })
 
-  it('refuses to ask without a token', async () => {
-    setFrameToken('')
+  it('refuses to ask without a key', async () => {
+    setFrameKey('')
     const frame = fakeFrame()
     expect(await requestFramePick(frame.element, { x: 1, y: 1 })).toBeNull()
     expect(frame.posts).toHaveLength(0)
@@ -466,18 +557,15 @@ describe('frame layer probing', () => {
 })
 
 describe('frame element capture', () => {
-  const blob = new Blob(['png'], { type: 'image/png' })
-
   it('names the element and returns the picture', async () => {
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, {
-        type: 'captured',
-        blob,
-        width: 320,
-        height: 480,
-        limited: false
-      })
-    })
+    const frame = frameThat((request, frame) =>
+      answer(
+        frame,
+        request,
+        { width: 320, height: 480, limited: false, mime: 'image/png' },
+        pngBytes('element')
+      )
+    )
 
     const result = await requestFrameCapture(frame.element, {
       elementId: 7,
@@ -487,22 +575,23 @@ describe('frame element capture', () => {
       timeout: 500
     })
 
-    expect(frame.posts[0]).toMatchObject({
-      type: 'capture',
-      token: 'test-token-1234',
+    expect(received(frame, 'capture')[0]?.data).toMatchObject({
       elementId: 7,
       ratio: 2,
       expandNested: true,
       background: { mode: 'page' }
     })
-    expect(result).toEqual({ blob, width: 320, height: 480, limited: false })
+    expect(result?.width).toBe(320)
+    expect(result?.height).toBe(480)
+    expect(result?.limited).toBe(false)
+    expect(await blobText(result?.blob as Blob)).toBe('element')
   })
 
   it('reports a helper failure and returns nothing', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const frame = fakeFrame((message, frame) => {
-      answer(message, frame.window, { type: 'captured', blob: null, width: 0, height: 0, limited: false, error: 'gone' })
-    })
+    const frame = frameThat((request, frame) =>
+      answer(frame, request, { width: 0, height: 0, limited: false, error: 'gone' })
+    )
 
     expect(
       await requestFrameCapture(frame.element, {
@@ -517,7 +606,7 @@ describe('frame element capture', () => {
   })
 
   it('tells the frame to stop when the capture is cancelled', async () => {
-    const frame = fakeFrame()
+    const frame = frameThat(() => undefined)
     const pending = requestFrameCapture(frame.element, {
       elementId: 1,
       ratio: 1,
@@ -528,11 +617,12 @@ describe('frame element capture', () => {
     native.capture.aborted = true
 
     expect(await pending).toBeNull()
-    expect(frame.posts.map((post) => post.type)).toEqual(['capture', 'cancel'])
+    expect(received(frame, 'capture')).toHaveLength(1)
+    expect(received(frame, 'cancel')).toHaveLength(1)
   })
 
-  it('refuses to ask without a token', async () => {
-    setFrameToken('')
+  it('refuses to ask without a key', async () => {
+    setFrameKey('')
     const frame = fakeFrame()
     expect(
       await requestFrameCapture(frame.element, {
@@ -545,8 +635,8 @@ describe('frame element capture', () => {
     expect(frame.posts).toHaveLength(0)
   })
 
-  it('never cancels without a token', () => {
-    setFrameToken('')
+  it('never cancels without a key', () => {
+    setFrameKey('')
     expect(postFrameCancel({ postMessage: vi.fn() } as unknown as Window)).toBe(false)
   })
 })
