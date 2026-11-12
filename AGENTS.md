@@ -47,6 +47,8 @@
 8. 帧的字体与并行渲染：`native.fontSource` / `setFontSource()` 把字体嵌入指向帧自己的文档（`patchFontSourceBase`、`patchFontUsageScan`），`paintFrames()` 并行请求 helper、取消时逐个发 `cancel`。
 9. 选择器监听提前到 `document-start`（`installEarlyPickerListeners()`，13 个事件常驻 + `active` 门控），页面在 window 捕获阶段再也看不到、也拦不住拾取期间的点击；`wheel` 仍在开始拾取时才挂。设置反过来改成「鼠标穿透」（默认关），并改为**版本化信封** `{version, value}` 存在同一条 GM 值里（`createDomain`，世代 1 = 旧键迁移），规则见 `docs/settings-migrations.md`。
 
+10. 帧桥全面密封（进行中）：stage 1 已完成（`core/frame-crypto.ts` + 15 个用例，`da25f64`）；stage 2 = 把 `/6` 的 token 模型换成 `/7` 密封信封，施工图见 `docs/frame-sealing-plan.md`。
+
 发版前需要：补 CHANGELOG（已开 `[Unreleased]` 段落）、README 的 iframe 说明、三个 `package.json` 版本号、真实页面回归。`FrameRecord` 的几何字段（`rect` / `radius`）已在 `38b1696` 里删掉，改成渲染时从 `copy` 量。
 
 ## 文档同步规则
@@ -372,7 +374,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 桥协议（`core/frame-bridge.ts` + `core/frame-helper.ts`）
 
-- `FRAME_PROTOCOL = 'element-screenshot:frame/6'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key/hover/stack/capture/captured/pointer/cancel`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传，`/5` 加了穿透选取，`/6` 加了多层 `depth`/`via`、鼠标穿透的 `pointer`，并取消向上消息里的 token。）
+- `FRAME_PROTOCOL = 'element-screenshot:frame/6'`，消息 `hello/ready/measure/size/render/result/subscribe/hotkey/trigger/ui/key/hover/stack/capture/captured/pointer/cancel`，每条消息带 `nonce`；协议或版本不匹配一律忽略。改消息形状或渲染语义时**必须**升这个常量，否则新旧实例会互相误解。（`/1` 只有 `hello/ready/render/result`，`/2` 加了测量和 `expand`，`/3` 加了帧内快捷键，`/4` 加了「选择器开着」的状态和按键回传，`/5` 加了穿透选取，`/6` 加了多层 `depth`/`via`、鼠标穿透的 `pointer`，并取消向上消息里的 token。**正在被 `/7` 密封替换**：见 `docs/frame-sealing-plan.md`，不要再往 `/6` 的消息里加字段或 token 检查。）
 - 探测：`probeFrameHelpers(frames)` 一次向所有帧发 `hello`，在**同一个 400ms 窗口**里收 `ready`，所以一页有 N 个没有 helper 的帧也只等一次；返回的集合里没有的帧就走兜底。
 - 测量：`requestFrameSize(frame)` 发 `measure`，等 `size`（默认 3 秒）。helper 回的是「根展开后文档有多大」（`frameContentSize()` 读 `scrollWidth` / `scrollHeight`，只读、不建快照）。0×0 或 `error` 都算失败。
 - 渲染：`requestFrameImage(frame, { ratio, depth, expand? })` 发 `render`，等 `result`（默认 10 秒），期间每 100ms 检查 `native.capture.aborted`，用户取消时立即放弃等待。失败/超时/`busy`/`error` 都返回 `null` → 走兜底（可读时）或空盒。
@@ -455,8 +457,9 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 下一步（按顺序）
 
-1. **选取深度 ≠ 渲染深度**：`picker.frameDepth` 可以到 6，但 `MAX_FRAME_DEPTH = 2` 管的是渲染——第 3 层帧里的再下一层帧渲染出来仍是空盒。要加深得先算清「每层一次完整渲染」的时间。
-2. 预览阶段的帧内按键：**已验证不需要回传**——`handleSelect()` 的 `blur()` 把焦点带出帧，预览的 `Esc` / `Ctrl+C` 由顶层 window 直接收到（用户手动验证：开关穿透、焦点在不在帧内都正常）。
+1. **帧桥 stage 2**：按 `docs/frame-sealing-plan.md` 把 `/6` 换成 `/7` 密封信封（bridge / helper / hotkey / pointer / `main.ts` + 5 个测试文件；旧 `frame-token` 删除；混版本期间旧帧静默）。
+2. **选取深度 ≠ 渲染深度**：`picker.frameDepth` 可以到 6，但 `MAX_FRAME_DEPTH = 2` 管的是渲染——第 3 层帧里的再下一层帧渲染出来仍是空盒。要加深得先算清「每层一次完整渲染」的时间。
+3. 预览阶段的帧内按键：**已验证不需要回传**——`handleSelect()` 的 `blur()` 把焦点带出帧，预览的 `Esc` / `Ctrl+C` 由顶层 window 直接收到（用户手动验证：开关穿透、焦点在不在帧内都正常）。
 
 ### 关键约束（别踩）
 
