@@ -101,7 +101,7 @@ After selection:
 ## Known limitations
 
 - Closed Shadow DOM cannot be picked. Open Shadow DOM can be picked, and its contents are rebuilt in the snapshot.
-- Cross-origin iframes are captured too (the frame needs its own copy of the script), and elements inside a frame can be picked through the boundary; a frame that runs no script is captured as an empty box. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
+- Cross-origin iframes are captured too (the iframe needs its own copy of the script), and elements inside an iframe can be picked through the boundary; an iframe that runs no script is captured as an empty box. Video, WebGL and canvas content is frozen to its current pixels when the snapshot is taken.
 - Very large pages are downscaled automatically when they exceed browser canvas limits.
 - Region capture is limited to the current viewport; scroll to the target before dragging.
 - Every scrolled container inside the region costs one more render: a few seconds for a single pane, and 10–15 seconds for four in our measurements. The page stays usable while it renders and the result is unaffected; only a small “Rendering…” chip is shown.

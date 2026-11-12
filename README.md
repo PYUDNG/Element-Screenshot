@@ -110,7 +110,7 @@
 ## 已知限制
 
 - Closed Shadow DOM 内部无法点选；Open Shadow DOM 可以选中，内部内容会在快照里重建（含 `<style>`、adoptedStyleSheets，以及脚本用 `insertRule()` 在运行时加进 shadow `<style>` 的规则）。
-- 跨域 iframe 也能截图：帧里会运行本脚本的一份实例，由它渲染自己的文档（同一安装、且该帧允许脚本）。不运行脚本的帧（`about:blank`、`srcdoc`、无 `allow-scripts` 的 sandbox）只能截到空盒。iframe 内部的元素可以穿透选取（同样要求帧里有实例），层数在设置里可调（默认 2 层），同一个值也决定截图渲染到第几层帧。视频、WebGL/Canvas 内容在快照里冻结为当前像素，截图期间不会再变化。
+- 跨域 iframe 也能截图：框架里会运行本脚本的一份实例，由它渲染自己的文档（同一安装、且该框架允许脚本）。不运行脚本的框架（`about:blank`、`srcdoc`、无 `allow-scripts` 的 sandbox）只能截到空盒。iframe 内部的元素可以穿透选取（同样要求框架里有实例），层数在设置里可调（默认 2 层），同一个值也决定截图渲染到第几层框架。视频、WebGL/Canvas 内容在快照里冻结为当前像素，截图期间不会再变化。
 - 快照是页面的完整副本：内存与首次布局大约翻倍，超大页面开始渲染前会有一次几百毫秒的停顿。
 - 渲染期间请留在当前页面：跳转或刷新会连同快照一起丢弃，这次截图就丢了（取消即可重来）。
 - 超大页面会按浏览器 canvas 上限自动降低导出倍率。
@@ -157,7 +157,7 @@ playground/            本地验收页与 GM 桩
 - html-to-image 只克隆目标子树；依赖祖先主题变量的 SVG、背景和 CSS 变量需要额外处理。
 - 背景取色不能假设 `document.elementsFromPoint()` 会返回 `body`；高元素还要处理视口裁剪。
 - 跨域 canvas/video 可能污染画布，必须为 `SecurityError` 准备降级路径。
-- 后台标签页可能不执行 `requestAnimationFrame`，等待帧要有定时器兜底。
+- 后台标签页可能不执行 `requestAnimationFrame`，等待它要有定时器兜底。
 - 不要提交 `dist/`、`coverage/`；构建产物由本地 `pnpm build` 生成。
 
 ## 致谢

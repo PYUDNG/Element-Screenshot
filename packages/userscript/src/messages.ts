@@ -90,7 +90,7 @@ const zhCN: LocaleDefinition = {
         previewUnavailable: '暂时无法预览，但仍可复制或保存',
         fullPage: '整页',
         scrollable: '可滚动',
-        inFrame: '帧内',
+        inFrame: '框架',
         shallower: '选择外层元素',
         deeper: '选择内层元素',
         esc: 'Esc 关闭'
@@ -212,7 +212,7 @@ const zhTW: LocaleDefinition = {
         previewUnavailable: '暫時無法預覽，但仍可複製或儲存',
         fullPage: '整頁',
         scrollable: '可捲動',
-        inFrame: '幀內',
+        inFrame: '框架',
         shallower: '選擇外層元素',
         deeper: '選擇內層元素',
         esc: 'Esc 關閉'
@@ -338,7 +338,7 @@ const en: LocaleDefinition = {
         previewUnavailable: 'Preview is unavailable — you can still copy or save',
         fullPage: 'Full page',
         scrollable: 'Scrollable',
-        inFrame: 'In frame',
+        inFrame: 'iframe',
         shallower: 'Select outer element',
         deeper: 'Select inner element',
         esc: 'Esc to close'

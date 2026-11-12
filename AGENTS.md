@@ -426,11 +426,11 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 
 ### 穿透选取帧内元素（`core/pick-target.ts` + `core/frame-pick.ts`）
 
-- 指针在帧上时，顶层 `elementsFromPoint()` 的最内层就是那个 `<iframe>`；`resolveTargets()` 向它发 `hover{x,y}`（坐标已减去 `frameContentBox()` 的内容盒原点），帧在自己的 realm 里跑 `getElementStack()` 回 `stack{items}`（标签、帧内坐标的 rect/内容盒、`scrollAxis`、`fullPage`）。顶层把帧图层接到页面栈末尾并打 `帧内`；`picker` 只认 `PickTarget`（`resolve` 可以是 Promise），所以 `cycle()` / `cycleScroll()` 自然越过帧边界。
+- 指针在帧上时，顶层 `elementsFromPoint()` 的最内层就是那个 `<iframe>`；`resolveTargets()` 向它发 `hover{x,y}`（坐标已减去 `frameContentBox()` 的内容盒原点），帧在自己的 realm 里跑 `getElementStack()` 回 `stack{items}`（标签、帧内坐标的 rect/内容盒、`scrollAxis`、`fullPage`）。顶层把帧图层接到页面栈末尾并打 `框架`；`picker` 只认 `PickTarget`（`resolve` 可以是 Promise），所以 `cycle()` / `cycleScroll()` 自然越过帧边界。
 - 选中帧内图层 → `capture{elementId}` 让**帧自己**渲染：helper 直接调 `captureElement()`，回 `captured{blob,width,height,limited}`。父级读不到跨域文档，同源也不该用父级 realm 的字体，所以不走父级兜底。
 - `elementId` 是 helper 侧的 `WeakMap<Element, number>` 编号（不复用、跨 hover 稳定、超 2000 条裁剪），父级**不传选择器**：跨域文档里的选择器既不可信也不可靠；capture 时再校验 `isConnected`。
 - 没有 helper 的帧不参与穿透：`hover` 250ms 超时 → 该帧进 `framePickRetry`（2 秒），期间悬停直接退回 `iframe` 图层，不会让光标卡住；`startPicker()` 清空这张表。
-- 多层（`picker.frameDepth`，设置里 1–6、默认 2）：帧发现自己的最内层又是 `<iframe>` 时，**它自己**向下问一层（`depth-1`），把子帧条目换算进自己的坐标、给 `via` 加上这一跳的帧编号，再并到自己上面。`via` 是「还要穿过哪些子帧」的编号链，capture 时每层按 `via[0]` 转发、`via.slice(1)` 下传，最后一层才用 `elementId`；帧编号是 helper 自己的 `WeakMap<HTMLIFrameElement, number>`（上限 64）。整条链共用一个绝对 `deadline`（`FRAME_PICK_TIMEOUT` = 250ms），每层只拿剩余预算，剩余 < `FRAME_PICK_MIN_BUDGET`(40ms) 就不再往下问——所以深度不影响最坏延迟，只多一跳 RTT；选择器栈每层多 3–5 项，徽标写 `帧内×N`。
+- 多层（`picker.frameDepth`，设置里 1–6、默认 2）：帧发现自己的最内层又是 `<iframe>` 时，**它自己**向下问一层（`depth-1`），把子帧条目换算进自己的坐标、给 `via` 加上这一跳的帧编号，再并到自己上面。`via` 是「还要穿过哪些子帧」的编号链，capture 时每层按 `via[0]` 转发、`via.slice(1)` 下传，最后一层才用 `elementId`；帧编号是 helper 自己的 `WeakMap<HTMLIFrameElement, number>`（上限 64）。整条链共用一个绝对 `deadline`（`FRAME_PICK_TIMEOUT` = 250ms），每层只拿剩余预算，剩余 < `FRAME_PICK_MIN_BUDGET`(40ms) 就不再往下问——所以深度不影响最坏延迟，只多一跳 RTT；选择器栈每层多 3–5 项，徽标写 `框架×N`。
 - 鼠标穿透开着时也能量：帧收到 `ui{active, passthrough}` 后自己上报 `pointer{kind,x,y}`（`core/frame-pointer.ts`，只报 move、click 吞掉并上报），顶层 `installFramePointerBridge()` 换算成视口坐标、在 `document.body` 上重放 `mousemove`/`click` 给 picker——同一个十字线、同一份栈、同一条截图路径。mousemove 不 `preventDefault`（页面的 hover 要保留），嵌套帧的上报由父帧换算后再转发。帧内滚轮仍归页面，所以只能选帧当前视口里的部分。
 
 ### 帧的字体与并行渲染
@@ -465,7 +465,7 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - 跨域：先 `PLAYGROUND_PORT=4177 pnpm playground`，再访问 4176 页面的 `#cross-frame-demo`。
 - 兜底：`about:blank` + `document.write` 的临时 iframe（VM 不注入这种帧）。
 - 区域 + 帧：`region.html` 的 `#panel-d`（同源）/`#panel-e`（跨域 4177）；这一格出图才说明「帧图先于切片写回」生效。
-- 多层：`#split-frame-demo` → `frame-split.html` → `/frame.html`；三层用 `#deep-frame-demo` → `frame-deep.html`。悬停应看到对应层数的 `帧内`；层数设为 2 时最内层是空盒，设为 3 才出图。
+- 多层：`#split-frame-demo` → `frame-split.html` → `/frame.html`；三层用 `#deep-frame-demo` → `frame-deep.html`。悬停应看到对应层数的 `框架`；层数设为 2 时最内层是空盒，设为 3 才出图。
 - 鼠标穿透：打开设置后悬停 `#frame-demo` 内部，选框应跟手、点击直接出图。
 - 帧在可滚动祖先里：`#frame-scroll-demo`（240px 滚动口 + 581px 占位 + `/frame.html`）。选中滚动口后输出 482×1043，帧表头出现在 y 582（= border + 占位），说明帧图跟着展开后的盒子走；数字见 `docs/frame-verification.md` 第四轮。
 
@@ -485,5 +485,6 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - `assets/` 中的 README 截图已提交；后续新增截图时只 stage 本次新增文件。
 - 先看 `git status`，不要把用户的本地实验文件一起提交。
 - 用户会调整 DSH 的 MCP 策略；工具列表可能变化，执行前以本轮实际工具为准。
+- 面向用户的 iframe 文案：中文「框架」、英文 `iframe`，不用「帧」；`tests/messages.test.ts` 守着。内部文档可用「帧」简写。
 - 如果 MCP 工具不可用，先用 `mcp_scope list` 查看可见性；不要猜测工具仍存在。
 - 完成较大任务后，在最终回复中说明：改动、测试结果、真实页面验证、版本/commit/tag、剩余限制。

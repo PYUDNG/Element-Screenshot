@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
+import { createI18n } from '@element-screenshot/settings'
 import type { I18n, SettingsController } from '@element-screenshot/settings'
 import PickerOverlay from '../src/ui/PickerOverlay.vue'
+import { appMessages } from '../src/messages'
 import type { PickerHover, ShotAppApi, ShotState } from '../src/ui/api'
 
-function createApi(state: Partial<ShotState> = {}) {
+function createApi(state: Partial<ShotState> = {}, i18n?: I18n) {
   const reactiveState = reactive<ShotState>({
     mode: 'picking',
     hover: null,
@@ -28,7 +30,7 @@ function createApi(state: Partial<ShotState> = {}) {
     settings: {
       get: (key: string) => (key === 'capture.borderColor' ? '#2563eb' : undefined)
     } as unknown as SettingsController,
-    i18n: { t: (key: string) => key } as unknown as I18n,
+    i18n: i18n ?? ({ t: (key: string) => key } as unknown as I18n),
     startPicker: vi.fn(),
     cancel: vi.fn(),
     cycle: vi.fn(),
@@ -146,5 +148,54 @@ describe('picker overlay frames', () => {
     const wrapper = mount(PickerOverlay, { props: { app } })
 
     expect(wrapper.text()).not.toContain('app.hint.inFrame')
+  })
+})
+
+describe('picker frame badge wording', () => {
+  function localized(locale: string) {
+    const i18n = createI18n({ locales: appMessages, defaultLocale: 'zh-CN' })
+    i18n.setLocale(locale)
+    return i18n
+  }
+
+  function badge(wrapper: ReturnType<typeof mount>) {
+    return wrapper.findAll('span').find((span) => span.classes('bg-sky-50'))
+  }
+
+  function mountInFrame(locale: string, frameLevel = 1) {
+    const app = createApi(
+      {
+        hover: hover({
+          label: 'div.row',
+          inFrame: true,
+          frameLevel,
+          scrollAxis: null,
+          scrollable: false
+        }),
+        box: { left: 0, top: 0, width: 377, height: 36 }
+      },
+      localized(locale)
+    )
+    return mount(PickerOverlay, { props: { app } })
+  }
+
+  it('calls a layer inside an iframe 框架, not 帧内', () => {
+    const wrapper = mountInFrame('zh-CN')
+
+    expect(badge(wrapper)?.text()).toBe('框架')
+    expect(wrapper.text()).not.toContain('帧内')
+  })
+
+  it('says iframe in English', () => {
+    const wrapper = mountInFrame('en')
+
+    expect(badge(wrapper)?.text()).toBe('iframe')
+    expect(wrapper.text()).not.toContain('In frame')
+  })
+
+  it('counts nested frames after the same word', () => {
+    const wrapper = mountInFrame('zh-CN', 2)
+
+    expect(badge(wrapper)?.text()).toBe('框架×2')
   })
 })

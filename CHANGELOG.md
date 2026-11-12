@@ -54,6 +54,11 @@ All notable changes to this project are documented here. The format follows
   first hover and the point is resolved again when the number arrives; the layer
   the wheel selected is kept. `Shift`+wheel can now jump onto a frame like onto
   any other scroll container.
+- The wording no longer calls an iframe a “frame”. The picker badge on a layer
+  picked inside an iframe now reads `框架` in Chinese (Chrome's term) and `iframe`
+  in English, instead of `帧内` / `In frame`; the same rule applies to the README,
+  the Greasyfork descriptions and the badge's `×N` form. `frame` is kept only where
+  it means the selection box, not the embedded document.
 
 ## [0.9.0] - 2026-11-12
 
