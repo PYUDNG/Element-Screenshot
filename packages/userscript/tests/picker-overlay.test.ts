@@ -193,6 +193,13 @@ describe('picker frame badge wording', () => {
     expect(wrapper.text()).not.toContain('In frame')
   })
 
+  it('says 頁框 in Traditional Chinese', () => {
+    const wrapper = mountInFrame('zh-TW')
+
+    expect(badge(wrapper)?.text()).toBe('頁框')
+    expect(wrapper.text()).not.toContain('幀內')
+  })
+
   it('counts nested frames after the same word', () => {
     const wrapper = mountInFrame('zh-CN', 2)
 

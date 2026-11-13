@@ -485,6 +485,6 @@ Greasyfork 要求非压缩代码，因此用户脚本构建保持 `minify: false
 - `assets/` 中的 README 截图已提交；后续新增截图时只 stage 本次新增文件。
 - 先看 `git status`，不要把用户的本地实验文件一起提交。
 - 用户会调整 DSH 的 MCP 策略；工具列表可能变化，执行前以本轮实际工具为准。
-- 面向用户的 iframe 文案：中文「框架」、英文 `iframe`，不用「帧」；`tests/messages.test.ts` 守着。内部文档可用「帧」简写。
+- 面向用户的 iframe 文案：简中「框架」、繁中「頁框」（Chrome 用语）、英文 `iframe`，不用「帧」；`tests/messages.test.ts` 守着。内部文档可用「帧」简写。
 - 如果 MCP 工具不可用，先用 `mcp_scope list` 查看可见性；不要猜测工具仍存在。
 - 完成较大任务后，在最终回复中说明：改动、测试结果、真实页面验证、版本/commit/tag、剩余限制。

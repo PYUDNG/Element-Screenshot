@@ -55,10 +55,11 @@ All notable changes to this project are documented here. The format follows
   the wheel selected is kept. `Shift`+wheel can now jump onto a frame like onto
   any other scroll container.
 - The wording no longer calls an iframe a “frame”. The picker badge on a layer
-  picked inside an iframe now reads `框架` in Chinese (Chrome's term) and `iframe`
-  in English, instead of `帧内` / `In frame`; the same rule applies to the README,
-  the Greasyfork descriptions and the badge's `×N` form. `frame` is kept only where
-  it means the selection box, not the embedded document.
+  picked inside an iframe now reads `框架` (Simplified), `頁框` (Traditional, the
+  term Chrome's zh-TW frame strings use) and `iframe` (English), instead of
+  `帧内` / `幀內` / `In frame`; the same rule applies to the README, the Greasyfork
+  descriptions and the badge's `×N` form. `frame` is kept only where it means the
+  selection box, not the embedded document.
 
 ## [0.9.0] - 2026-11-12
 

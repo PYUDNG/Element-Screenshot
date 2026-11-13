@@ -212,7 +212,7 @@ const zhTW: LocaleDefinition = {
         previewUnavailable: '暫時無法預覽，但仍可複製或儲存',
         fullPage: '整頁',
         scrollable: '可捲動',
-        inFrame: '框架',
+        inFrame: '頁框',
         shallower: '選擇外層元素',
         deeper: '選擇內層元素',
         esc: 'Esc 關閉'

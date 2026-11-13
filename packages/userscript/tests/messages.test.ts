@@ -20,15 +20,15 @@ const SELECTION_BOX_KEYS = new Set([
 ])
 
 describe('user-facing wording', () => {
-  it('badges elements picked inside an iframe as 框架 / iframe', () => {
+  it('badges elements picked inside an iframe as 框架 / 頁框 / iframe', () => {
     const badge = (code: string): string | undefined =>
       locales.get(code)?.find(([key]) => key === 'app.hint.inFrame')?.[1]
     expect(badge('zh-CN')).toBe('框架')
-    expect(badge('zh-TW')).toBe('框架')
+    expect(badge('zh-TW')).toBe('頁框')
     expect(badge('en')).toBe('iframe')
   })
 
-  it('calls an iframe 框架, never 帧, in Chinese copy', () => {
+  it('never says 帧 / 幀 in Chinese copy', () => {
     for (const code of ['zh-CN', 'zh-TW']) {
       const offending = (locales.get(code) ?? []).filter(([, text]) => /[帧幀]/.test(text))
       expect(offending, `${code} still says 帧: ${JSON.stringify(offending)}`).toEqual([])
