@@ -25,30 +25,42 @@
 
 <table>
   <tr>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details open>
         <summary><b>元素选择器</b></summary>
         <img src="assets/selector-ui.jpg" width="340" alt="元素选择界面：悬停预选、显示完整滚动范围"><br><sub>选择任意元素，滚轮切换层叠层级</sub>
       </details>
     </td>
-    <td width="50%" valign="top">
-      <details>
+    <td width="33%" valign="top">
+      <details open>
+        <summary><b>截图效果</b></summary>
+        <img src="assets/screenshot-result.jpg" width="340" alt="截图效果"><br><sub>截图效果</sub>
+      </details>
+    </td>
+    <td width="33%" valign="top">
+      <details open>
         <summary><b>设置面板</b></summary>
-        <img src="assets/settings-panel.png" width="340" alt="设置面板：快捷键、背景、站点策略"><br><sub>快捷键、背景模式、站点策略和三语界面</sub>
+        <img src="assets/settings-panel.jpg" width="340" alt="设置面板：快捷键、背景、站点策略"><br><sub>快捷键、背景模式、站点策略和三语界面</sub>
       </details>
     </td>
   </tr>
   <tr>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details>
         <summary><b>X 帖子</b></summary>
         <img src="assets/X-shot.png" width="340" alt="X 帖子截图"><br><sub>社交长帖：正文、图片与互动栏一起截取</sub>
       </details>
     </td>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details>
         <summary><b>DeepSeek 对话</b></summary>
         <img src="assets/deepseek-shot.png" width="340" alt="DeepSeek 网页对话长截图"><br><sub>AI 长对话：整段回答完整保存为长图</sub>
+      </details>
+    </td>
+    <td width="33%" valign="top">
+      <details>
+        <summary><b>Google 图片搜索结果 整页截图</b></summary>
+        <img src="assets/google-image-search.jpg" width="340" alt="Google 图片搜索结果整页长截图"><br><sub>包含许多图片的整页长截图</sub>
       </details>
     </td>
   </tr>

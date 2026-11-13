@@ -28,30 +28,42 @@
 
 <table>
   <tr>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details open>
         <summary><b>元素選擇器</b></summary>
         <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/selector-ui.jpg" width="340" alt="元素選擇介面"><br><sub>選取任意元素，滾輪切換層疊層級</sub>
       </details>
     </td>
-    <td width="50%" valign="top">
-      <details>
+    <td width="33%" valign="top">
+      <details open>
+        <summary><b>截圖效果</b></summary>
+        <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/screenshot-result.jpg" width="340" alt="截圖效果"><br><sub>截圖效果</sub>
+      </details>
+    </td>
+    <td width="33%" valign="top">
+      <details open>
         <summary><b>設定面板</b></summary>
-        <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/settings-panel.png" width="340" alt="設定面板：快速鍵、背景、站點策略"><br><sub>快速鍵、背景模式、站點策略和三語介面</sub>
+        <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/settings-panel.jpg" width="340" alt="設定面板：快速鍵、背景、站點策略"><br><sub>快速鍵、背景模式、站點策略和三語介面</sub>
       </details>
     </td>
   </tr>
   <tr>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details>
         <summary><b>X 貼文</b></summary>
         <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/X-shot.png" width="340" alt="X 貼文截圖"><br><sub>社群長貼文：正文、圖片與互動列一起截取</sub>
       </details>
     </td>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details>
         <summary><b>DeepSeek 對話</b></summary>
         <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/deepseek-shot.png" width="340" alt="DeepSeek 網頁對話長截圖"><br><sub>AI 長對話：整段回答完整保存為長圖</sub>
+      </details>
+    </td>
+    <td width="33%" valign="top">
+      <details>
+        <summary><b>Google 圖片搜尋結果 整頁截圖</b></summary>
+        <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/google-image-search.jpg" width="340" alt="Google 圖片搜尋結果整頁長截圖"><br><sub>包含許多圖片的整頁長截圖</sub>
       </details>
     </td>
   </tr>

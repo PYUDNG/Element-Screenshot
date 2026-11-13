@@ -27,30 +27,42 @@ Capture any element on a web page — including everything hidden inside its scr
 
 <table>
   <tr>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details open>
         <summary><b>Element picker</b></summary>
         <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/selector-ui.jpg" width="340" alt="Element picker"><br><sub>Pick any element and switch layers with the wheel</sub>
       </details>
     </td>
-    <td width="50%" valign="top">
-      <details>
+    <td width="33%" valign="top">
+      <details open>
+        <summary><b>Capture result</b></summary>
+        <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/screenshot-result.jpg" width="340" alt="Captured image"><br><sub>The exported image</sub>
+      </details>
+    </td>
+    <td width="33%" valign="top">
+      <details open>
         <summary><b>Settings</b></summary>
-        <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/settings-panel.png" width="340" alt="Settings panel: shortcut, background, site rules"><br><sub>Shortcut, background mode, site rules and three languages</sub>
+        <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/settings-panel.jpg" width="340" alt="Settings panel: shortcut, background, site rules"><br><sub>Shortcut, background mode, site rules and three languages</sub>
       </details>
     </td>
   </tr>
   <tr>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details>
         <summary><b>X post</b></summary>
         <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/X-shot.png" width="340" alt="X post capture"><br><sub>Social post: text, images and action bar captured together</sub>
       </details>
     </td>
-    <td width="50%" valign="top">
+    <td width="33%" valign="top">
       <details>
         <summary><b>DeepSeek conversation</b></summary>
         <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/deepseek-shot.png" width="340" alt="DeepSeek conversation long capture"><br><sub>AI chat: an entire answer saved as one image</sub>
+      </details>
+    </td>
+    <td width="33%" valign="top">
+      <details>
+        <summary><b>Google Images, full page</b></summary>
+        <img src="https://raw.githubusercontent.com/PYUDNG/Element-Screenshot/main/assets/google-image-search.jpg" width="340" alt="Full-page capture of a Google Images result page"><br><sub>A long full-page capture with many images</sub>
       </details>
     </td>
   </tr>
